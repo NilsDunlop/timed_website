@@ -1,0 +1,41 @@
+[project]
+name = "timed-platform"
+version = "0.1.0"
+description = "Workspace for the TIMED OME-Zarr imaging platform"
+requires-python = ">=3.12"
+dependencies = [
+  "timed-connector==0.1.0",
+  "timed-dataserver==0.1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["services/connector", "services/dataserver"]
+
+[tool.uv.sources]
+timed-connector = { workspace = true }
+timed-dataserver = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.16.10",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["services/connector/tests", "services/dataserver/tests"]
+pythonpath = [
+  "services/connector/src",
+  "services/dataserver/src",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

@@ -1,0 +1,18 @@
+[project]
+name = "timed-dataserver"
+version = "0.1.0"
+description = "Token-protected OME-Zarr data service for TIMED"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.142.2",
+  "pydantic==2.13.5",
+  "uvicorn==0.54.0",
+  "zarr==3.4.0",
+]
+
+[project.scripts]
+timed-dataserver = "timed_dataserver.cli:main"
+
+[build-system]
+requires = ["uv_build==0.12.23"]
+build-backend = "uv_build"

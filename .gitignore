@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Node / Astro / Playwright
+node_modules/
+.astro/
+apps/web/dist/
+apps/web/playwright-report/
+apps/web/test-results/
+
+# Generated/local TIMED state and data
+test-data/
+dev/test_cluster/.state/
+.timed/
+*.sif
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Coverage
+.coverage
+htmlcov/

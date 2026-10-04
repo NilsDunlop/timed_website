@@ -1,0 +1,125 @@
+---
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content="TIMED time-resolved microscopy viewer" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">TIMED</a>
+      <nav aria-label="Primary navigation">
+        <a href="/" aria-current={Astro.url.pathname === "/" ? "page" : undefined}>Connect</a>
+        <a href="/data" aria-current={Astro.url.pathname === "/data" ? "page" : undefined}>Data</a>
+        <a href="/view" aria-current={Astro.url.pathname === "/view" ? "page" : undefined}>View</a>
+      </nav>
+    </header>
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    color-scheme: light;
+    font-family: system-ui, sans-serif;
+    color: #162018;
+    background: #f5f7f4;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    padding: 1rem max(1.25rem, calc((100vw - 70rem) / 2));
+    border-bottom: 1px solid #cbd3ca;
+    background: white;
+  }
+
+  .brand {
+    color: inherit;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-decoration: none;
+  }
+
+  nav {
+    display: flex;
+    gap: 1rem;
+  }
+
+  nav a {
+    color: #31533a;
+  }
+
+  nav a[aria-current="page"] {
+    color: #101b13;
+    font-weight: 650;
+  }
+
+  main {
+    width: min(70rem, calc(100% - 2.5rem));
+    margin: 3rem auto;
+  }
+
+  h1 {
+    margin-block: 0 0.75rem;
+    font-size: clamp(2rem, 6vw, 4rem);
+    line-height: 1;
+  }
+
+  .lede {
+    max-width: 46rem;
+    color: #4d5c50;
+    font-size: 1.125rem;
+    line-height: 1.6;
+  }
+
+  .panel {
+    margin-top: 2rem;
+    padding: 1.25rem;
+    border: 1px solid #cbd3ca;
+    border-radius: 0.5rem;
+    background: white;
+  }
+
+  button,
+  select {
+    min-height: 2.5rem;
+    padding-inline: 0.75rem;
+    font: inherit;
+  }
+
+  button {
+    border: 1px solid #284b31;
+    border-radius: 0.25rem;
+    color: white;
+    background: #284b31;
+  }
+
+  button:disabled {
+    opacity: 0.55;
+  }
+
+  code {
+    font-family: ui-monospace, monospace;
+  }
+</style>
