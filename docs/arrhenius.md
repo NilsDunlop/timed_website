@@ -35,6 +35,11 @@ passwords, verification codes, key passphrases, or data-server tokens here.
   identified all eight plate directories as OME-Zarr 0.5 / Zarr v3.
 - The terminal smoke test then exposed a local null-handling bug because the
   root also contains `CONVERSION.md`; the CLI now skips non-Zarr entries.
+- The final terminal smoke test linked `PB100087_P1.1.zarr`, printed its plate
+  and first-image summary (48 timepoints, three fluorescence channels), and
+  fetched 32 bytes from a real Zarr v3 chunk through the authenticated tunnel.
+- Normal `timed-connector try` exit uses the default cancellation cleanup; no
+  `--keep-job` flag was used.
 - Typical scheduling delay: not yet measured.
 
 ## M7 browser checklist
