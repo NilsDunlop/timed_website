@@ -142,9 +142,7 @@ class FakeBackend:
         answers.clear()
         return object()
 
-    async def prepare(
-        self, context: object, profile: Profile, log: Callable[[str], None]
-    ) -> None:
+    async def prepare(self, context: object, profile: Profile, log: Callable[[str], None]) -> None:
         del context, profile
         self.prepared += 1
         log("Remote server is ready")
@@ -173,9 +171,7 @@ class FakeBackend:
         del context, job_id
         return True
 
-    async def read_connection(
-        self, context: object, job_id: str
-    ) -> DataServerConnection:
+    async def read_connection(self, context: object, job_id: str) -> DataServerConnection:
         del context, job_id
         return self.connection
 
@@ -183,9 +179,7 @@ class FakeBackend:
         del context, connection
         return object()
 
-    async def handshake(
-        self, forward: object, connection: DataServerConnection
-    ) -> dict[str, Any]:
+    async def handshake(self, forward: object, connection: DataServerConnection) -> dict[str, Any]:
         del forward, connection
         return {"api_version": "1.0", "environment": "hpc"}
 
@@ -208,9 +202,7 @@ class FakeBackend:
     async def wait_closed(self, context: object) -> None:
         del context
 
-    def proxy_target(
-        self, forward: object, connection: DataServerConnection
-    ) -> tuple[str, str]:
+    def proxy_target(self, forward: object, connection: DataServerConnection) -> tuple[str, str]:
         del forward
         return self.proxy_base, connection.token
 
@@ -240,14 +232,13 @@ async def authenticate_session(
     if session.snapshot().state == "host_key_confirm":
         await session.respond(RespondRequest(accept_host_key=accept_host))
     await wait_for_state(session, "awaiting_input")
-    await session.respond(
-        RespondRequest(answers=answers or ["dev-password", "123456"])
-    )
+    await session.respond(RespondRequest(answers=answers or ["dev-password", "123456"]))
 
 
 def test_profiles_validate_and_keep_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "test-data").mkdir()
+    (tmp_path / "test-metadata").mkdir()
     profile_file = tmp_path / "profiles.yaml"
     profile_file.write_text(
         """
@@ -263,12 +254,14 @@ profiles:
     name: Local
     kind: local
     data_roots: [./test-data]
+    metadata_root: ./test-metadata
 """.strip(),
         encoding="utf-8",
     )
     store = load_profiles(profile_file)
     assert [profile.id for profile in store.public()] == ["cluster", "local"]
     assert validate_profile(store, "local").kind == "local"
+    assert store.get("local").metadata_root == "./test-metadata"
     with pytest.raises(ProfileError, match="Unknown profile"):
         store.get("missing")
 
@@ -285,6 +278,7 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
     assert packaged_template == external_template
     profile = slurm_profile(
         data_roots=["/data/with space"],
+        metadata_root="/metadata/with space",
         module_loads=["Python/3.12"],
     )
     script = render_job_script(
@@ -297,6 +291,7 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
     assert "umask 077" in script
     assert "module load Python/3.12" in script
     assert "'/data/with space'" in script
+    assert "'/metadata/with space'" in script
     assert '"${TIMED_NODE_HOST:-$(hostname)}"' in script
     assert "${SLURM_JOB_ID}.json" in script
     assert parse_job_id("1234;cluster\n") == "1234"
@@ -310,6 +305,9 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     assert profile.slurm is not None
     assert profile.slurm.account == "naiss2026-3-679-cpu"
     assert profile.slurm.partition == "cpu"
+    assert profile.metadata_root == (
+        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/metadata"
+    )
 
     script = render_job_script(
         profile,
@@ -533,9 +531,7 @@ async def test_existing_job_can_be_reused_or_cancelled(tmp_path: Path) -> None:
     await authenticate_session(reuse_session)
     await wait_for_state(reuse_session, "choose_existing_job")
     await reuse_session.respond(
-        RespondRequest(
-            existing_job=ExistingJobChoice(action="reuse", job_id="77")
-        )
+        RespondRequest(existing_job=ExistingJobChoice(action="reuse", job_id="77"))
     )
     await wait_for_state(reuse_session, "connected")
     assert reuse_session.snapshot().job_id == "77"
@@ -553,9 +549,7 @@ async def test_existing_job_can_be_reused_or_cancelled(tmp_path: Path) -> None:
     await authenticate_session(cancel_session)
     await wait_for_state(cancel_session, "choose_existing_job")
     await cancel_session.respond(
-        RespondRequest(
-            existing_job=ExistingJobChoice(action="cancel", job_id="88")
-        )
+        RespondRequest(existing_job=ExistingJobChoice(action="cancel", job_id="88"))
     )
     await wait_for_state(cancel_session, "connected")
     assert cancel_backend.cancelled == ["88"]
@@ -623,6 +617,8 @@ async def test_proxy_streams_range_and_hides_bearer_token() -> None:
             b"Content-Length: 4\r\n"
             b"Content-Range: bytes 2-5/10\r\n"
             b"Accept-Ranges: bytes\r\n"
+            b'ETag: "shard-version"\r\n'
+            b"Cache-Control: private, max-age=3600\r\n"
             b"Connection: close\r\n\r\n" + body
         )
         await writer.drain()
@@ -637,10 +633,21 @@ async def test_proxy_streams_range_and_hides_bearer_token() -> None:
             return f"http://127.0.0.1:{port}", "proxy-private-token"
 
     proxy_app = FastAPI()
+    proxy_client = httpx.AsyncClient(timeout=None, trust_env=False)
 
     @proxy_app.api_route("/backend/{path:path}", methods=["GET"])
     async def backend(request: Request, path: str):
-        return await proxy_request(request, path, ProxySession())  # type: ignore[arg-type]
+        async def unexpected_body():
+            raise AssertionError("A GET proxy request must not consume the client stream")
+            yield b""
+
+        request.stream = unexpected_body  # type: ignore[method-assign]
+        return await proxy_request(  # type: ignore[arg-type]
+            request,
+            path,
+            ProxySession(),
+            proxy_client,
+        )
 
     try:
         transport = httpx.ASGITransport(app=proxy_app)
@@ -650,16 +657,87 @@ async def test_proxy_streams_range_and_hides_bearer_token() -> None:
         ) as client:
             response = await client.get(
                 "/backend/zarr/id/chunk",
-                headers={"Range": "bytes=2-5", "X-Timed-Client": "web"},
+                headers={
+                    "Range": "bytes=2-5",
+                    "If-Range": '"previous-version"',
+                    "X-Timed-Client": "web",
+                },
             )
         assert response.status_code == 206
         assert response.content == b"four"
         assert response.headers["content-range"] == "bytes 2-5/10"
+        assert response.headers["etag"] == '"shard-version"'
+        assert response.headers["cache-control"] == "private, max-age=3600"
         assert observed["range"] == "bytes=2-5"
+        assert observed["if-range"] == '"previous-version"'
         assert observed["authorization"] == "Bearer proxy-private-token"
         assert "x-timed-client" not in observed
         assert "proxy-private-token" not in response.text
+        assert not proxy_client.is_closed
     finally:
+        await proxy_client.aclose()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_proxy_reuses_upstream_connections() -> None:
+    connection_count = 0
+    request_count = 0
+
+    async def upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        nonlocal connection_count, request_count
+        connection_count += 1
+        try:
+            while request_count < 2:
+                await reader.readuntil(b"\r\n\r\n")
+                request_count += 1
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\n"
+                    b"Content-Length: 1\r\n"
+                    b"Connection: keep-alive\r\n\r\n"
+                    b"x"
+                )
+                await writer.drain()
+        except (asyncio.IncompleteReadError, ConnectionError):
+            pass
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    server = await asyncio.start_server(upstream, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+
+    class ProxySession:
+        def proxy_target(self) -> tuple[str, str]:
+            return f"http://127.0.0.1:{port}", "proxy-private-token"
+
+    proxy_app = FastAPI()
+    proxy_client = httpx.AsyncClient(timeout=None, trust_env=False)
+
+    @proxy_app.get("/backend/{path:path}")
+    async def backend(request: Request, path: str):
+        return await proxy_request(  # type: ignore[arg-type]
+            request,
+            path,
+            ProxySession(),
+            proxy_client,
+        )
+
+    try:
+        transport = httpx.ASGITransport(app=proxy_app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://connector.test",
+        ) as browser:
+            first = await browser.get("/backend/first")
+            second = await browser.get("/backend/second")
+        assert first.content == b"x"
+        assert second.content == b"x"
+        assert request_count == 2
+        assert connection_count == 1
+    finally:
+        await proxy_client.aclose()
         server.close()
         await server.wait_closed()
 
@@ -671,13 +749,23 @@ async def test_proxy_returns_503_while_disconnected() -> None:
             raise SessionError("not connected")
 
     app = FastAPI()
+    proxy_client = httpx.AsyncClient(timeout=None, trust_env=False)
 
     @app.get("/backend/{path:path}")
     async def backend(request: Request, path: str):
-        return await proxy_request(request, path, DisconnectedSession())  # type: ignore[arg-type]
+        return await proxy_request(  # type: ignore[arg-type]
+            request,
+            path,
+            DisconnectedSession(),
+            proxy_client,
+        )
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/backend/api/handshake")
-    assert response.status_code == 503
-    assert response.json() == {"detail": "No data server is connected"}
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/backend/api/handshake")
+        assert response.status_code == 503
+        assert response.json() == {"detail": "No data server is connected"}
+        assert not proxy_client.is_closed
+    finally:
+        await proxy_client.aclose()

@@ -6,7 +6,8 @@ from collections.abc import AsyncIterator
 
 import httpx
 from fastapi import Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from starlette.requests import ClientDisconnect
 
 from .session import ConnectorSession, SessionError
 
@@ -26,7 +27,8 @@ async def proxy_request(
     request: Request,
     path: str,
     session: ConnectorSession,
-) -> StreamingResponse | JSONResponse:
+    client: httpx.AsyncClient,
+) -> Response:
     """Proxy one request while keeping the private bearer token in memory."""
     try:
         base_url, token = session.proxy_target()
@@ -44,26 +46,25 @@ async def proxy_request(
         and name.lower() not in {"host", "authorization", "x-timed-client"}
     }
     request_headers["Authorization"] = f"Bearer {token}"
-    client = httpx.AsyncClient(timeout=None)
+    request_body = None if request.method in {"GET", "HEAD"} else request.stream()
     upstream_request = client.build_request(
         request.method,
         url,
         headers=request_headers,
-        content=request.stream(),
+        content=request_body,
     )
     try:
         upstream = await client.send(upstream_request, stream=True)
+    except ClientDisconnect:
+        return Response(status_code=499)
     except httpx.HTTPError as exc:
-        await client.aclose()
         return JSONResponse(
             {"detail": f"Data-server proxy request failed: {exc}"},
             status_code=502,
         )
 
     response_headers = {
-        name: value
-        for name, value in upstream.headers.items()
-        if name.lower() not in HOP_BY_HOP
+        name: value for name, value in upstream.headers.items() if name.lower() not in HOP_BY_HOP
     }
 
     async def body() -> AsyncIterator[bytes]:
@@ -72,7 +73,6 @@ async def proxy_request(
                 yield chunk
         finally:
             await upstream.aclose()
-            await client.aclose()
 
     return StreamingResponse(
         body(),

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -44,9 +45,22 @@ def create_app(
     """Create the loopback-only connector API."""
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
-        await session.disconnect(cancel_job=True)
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        limits = httpx.Limits(
+            max_connections=32,
+            max_keepalive_connections=16,
+            keepalive_expiry=30.0,
+        )
+        async with httpx.AsyncClient(
+            timeout=None,
+            limits=limits,
+            trust_env=False,
+        ) as proxy_client:
+            app.state.proxy_client = proxy_client
+            try:
+                yield
+            finally:
+                await session.disconnect(cancel_job=True)
 
     app = FastAPI(
         title="TIMED connector",
@@ -111,7 +125,12 @@ def create_app(
         include_in_schema=False,
     )
     async def backend(request: Request, path: str):
-        return await proxy_request(request, path, session)
+        return await proxy_request(
+            request,
+            path,
+            session,
+            request.app.state.proxy_client,
+        )
 
     if serve_ui is not None:
         ui = serve_ui.expanduser().resolve()
