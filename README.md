@@ -46,6 +46,18 @@ uv run python scripts/run_e2e.py \
 This opt-in flow renders the first field, verifies three adjacent timepoints,
 prints settled transfer timings, and shuts down its local data server.
 
+To inspect experiment/acquisition metadata for metadata-aware plate views, run
+the read-only inspector in an environment with PyArrow and save its JSON report:
+
+```bash
+uv run --with pyarrow python scripts/inspect_timed_metadata.py \
+  /path/to/TIMED/metadata --output timed-metadata-inspection.json
+```
+
+The inspector reads no image chunks. It summarizes acquisition JSON, CSV and
+Parquet schemas and values, redacts credential-like fields, and caps table reads
+at 200,000 rows per file by default.
+
 ## Current status
 
 - M0: scaffold and tooling complete
