@@ -28,6 +28,24 @@ pnpm -C apps/web build
 Common development commands are documented in `CLAUDE.md` and exposed through
 the root `Makefile`.
 
+The isolated browser suite exercises both the SSH/Slurm harness and local mode:
+
+```bash
+pnpm -C apps/web test
+```
+
+An external real-data sample can be tested without copying it into the
+repository. The store must be an immediate child of the supplied data root:
+
+```bash
+uv run python scripts/run_e2e.py \
+  --real-local-root /path/to/local/data \
+  --real-local-store sample-plate.zarr
+```
+
+This opt-in flow renders the first field, verifies three adjacent timepoints,
+prints settled transfer timings, and shuts down its local data server.
+
 ## Current status
 
 - M0: scaffold and tooling complete
@@ -42,7 +60,8 @@ the root `Makefile`.
 
 The full prototype scope is implemented. Choose **Arrhenius (NAISS)** for the
 primary HPC path or **This computer** to launch a loopback data server over the
-gitignored synthetic fixtures.
+configured local data roots. The example local profile uses the gitignored
+synthetic fixtures.
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be
