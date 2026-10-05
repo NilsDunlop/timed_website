@@ -286,6 +286,24 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
     assert parse_job_id("1234;cluster\n") == "1234"
 
 
+def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
+    repository_root = Path(__file__).parents[3]
+    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+    profile = store.get("arrhenius")
+
+    assert profile.slurm is not None
+    assert profile.slurm.account == "naiss2026-3-679-cpu"
+    assert profile.slurm.partition == "cpu"
+
+    script = render_job_script(
+        profile,
+        executable="/state/server/0.1.0/venv/bin/timed-dataserver",
+        shell_state_dir="/state",
+    )
+    assert "#SBATCH --account=naiss2026-3-679-cpu" in script
+    assert "#SBATCH --partition=cpu" in script
+
+
 @pytest.mark.asyncio
 async def test_full_session_flow_never_exposes_answers_or_token(tmp_path: Path) -> None:
     profile = slurm_profile()

@@ -7,8 +7,8 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 
 - Host: `login.hpc.arrhenius.naiss.se`
 - User: `nilsdu`
-- Slurm account: `naiss2026-3-679`
-- CPU partition: `naiss2026-3-679-cpu`
+- Slurm account: `naiss2026-3-679-cpu`
+- CPU partition: `cpu`
 - Data root: `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr`
 
 ## M1 findings
@@ -23,8 +23,12 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 
 ## M5 findings
 
-- Login-node Python: system `python3` works; exact version and uv remain unchecked.
-- Login-node internet access: not yet checked.
+- Authentication with password and verification code works.
+- Login-node internet access works: the connector installed `uv` and the
+  `timed-dataserver` 0.1.0 environment remotely.
+- The first submission failed before a job was created because the profile had
+  swapped Slurm values: `-A naiss2026-3-679-cpu` and `-p cpu` are the verified
+  Arrhenius CPU directives.
 - Compute-node data access: not yet checked.
 - Typical scheduling delay: not yet measured.
 

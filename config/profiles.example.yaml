@@ -8,8 +8,8 @@ profiles:
     data_roots:
       - /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
     slurm:
-      account: naiss2026-3-679
-      partition: naiss2026-3-679-cpu
+      account: naiss2026-3-679-cpu
+      partition: cpu
       time: "04:00:00"
       cpus: 2
       mem: 8G
