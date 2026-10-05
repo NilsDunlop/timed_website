@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
@@ -10,7 +11,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request
 from timed_connector.app import create_app
-from timed_connector.cli import _first_plate
+from timed_connector.cli import _first_plate, main
 from timed_connector.hpc_backend import DataServerConnection
 from timed_connector.models import (
     ExistingJob,
@@ -321,6 +322,15 @@ def test_first_plate_skips_entries_without_ome_zarr_metadata() -> None:
     assert _first_plate(entries) == plate
     assert _first_plate(None) is None
     assert _first_plate([{"ome_zarr": None}]) is None
+
+
+def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["export-openapi"]) == 0
+    document = json.loads(capsys.readouterr().out)
+
+    assert document["info"]["title"] == "TIMED connector"
+    assert "/connector/session" in document["paths"]
+    assert "/connector/connect" in document["paths"]
 
 
 @pytest.mark.asyncio

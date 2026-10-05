@@ -1,16 +1,8 @@
 ---
+import ImageViewer from "../components/ImageViewer";
 import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout title="View | TIMED">
-  <p>Viewer</p>
-  <h1>Inspect an image</h1>
-  <p class="lede">
-    The Viv canvas, channel controls, contrast ranges, and time navigation will
-    appear here after a linked field is selected.
-  </p>
-  <section class="panel">
-    <h2>No image selected</h2>
-    <p>Open a field from the Data page to start the viewer.</p>
-  </section>
+  <ImageViewer client:only="react" />
 </Layout>

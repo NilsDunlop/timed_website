@@ -108,6 +108,7 @@ def create_app(
     @app.api_route(
         "/backend/{path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+        include_in_schema=False,
     )
     async def backend(request: Request, path: str):
         return await proxy_request(request, path, session)

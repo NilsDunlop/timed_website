@@ -32,9 +32,12 @@ const { title } = Astro.props;
 <style is:global>
   :root {
     color-scheme: light;
-    font-family: system-ui, sans-serif;
-    color: #162018;
-    background: #f5f7f4;
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
+    color: #172019;
+    background: #f3f6f2;
+    font-synthesis: none;
   }
 
   * {
@@ -43,13 +46,14 @@ const { title } = Astro.props;
 
   body {
     margin: 0;
+    min-width: 20rem;
   }
 
   header {
     display: flex;
     align-items: center;
-    gap: 2rem;
-    padding: 1rem max(1.25rem, calc((100vw - 70rem) / 2));
+    gap: clamp(1.25rem, 4vw, 3rem);
+    padding: 1rem max(1.25rem, calc((100vw - 88rem) / 2));
     border-bottom: 1px solid #cbd3ca;
     background: white;
   }
@@ -73,17 +77,30 @@ const { title } = Astro.props;
   nav a[aria-current="page"] {
     color: #101b13;
     font-weight: 650;
+    text-underline-offset: 0.4rem;
   }
 
   main {
-    width: min(70rem, calc(100% - 2.5rem));
-    margin: 3rem auto;
+    width: min(88rem, calc(100% - 2.5rem));
+    margin: clamp(2rem, 5vw, 4rem) auto;
   }
 
   h1 {
     margin-block: 0 0.75rem;
-    font-size: clamp(2rem, 6vw, 4rem);
-    line-height: 1;
+    max-width: 18ch;
+    font-size: clamp(2rem, 6vw, 4.5rem);
+    line-height: 0.98;
+    letter-spacing: -0.045em;
+  }
+
+  h2,
+  h3,
+  p {
+    margin-top: 0;
+  }
+
+  h2 {
+    margin-bottom: 1rem;
   }
 
   .lede {
@@ -95,17 +112,26 @@ const { title } = Astro.props;
 
   .panel {
     margin-top: 2rem;
-    padding: 1.25rem;
+    padding: clamp(1rem, 2.5vw, 1.5rem);
     border: 1px solid #cbd3ca;
-    border-radius: 0.5rem;
+    border-radius: 0.65rem;
     background: white;
+    box-shadow: 0 0.75rem 2rem rgb(32 54 37 / 5%);
   }
 
   button,
-  select {
+  select,
+  input {
     min-height: 2.5rem;
     padding-inline: 0.75rem;
     font: inherit;
+  }
+
+  input,
+  select {
+    border: 1px solid #aebcaf;
+    border-radius: 0.3rem;
+    background: white;
   }
 
   button {
@@ -113,13 +139,378 @@ const { title } = Astro.props;
     border-radius: 0.25rem;
     color: white;
     background: #284b31;
+    cursor: pointer;
   }
 
   button:disabled {
+    cursor: not-allowed;
     opacity: 0.55;
+  }
+
+  button.secondary {
+    color: #284b31;
+    background: white;
+  }
+
+  a {
+    color: #245b33;
   }
 
   code {
     font-family: ui-monospace, monospace;
+  }
+
+  .eyebrow {
+    margin-bottom: 0.4rem;
+    color: #53705b;
+    font-size: 0.75rem;
+    font-weight: 750;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .stack {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+  }
+
+  .form-row label {
+    width: 100%;
+    margin-bottom: -0.4rem;
+    font-weight: 700;
+  }
+
+  .form-row select {
+    flex: 1 1 22rem;
+  }
+
+  .subpanel {
+    padding: 1rem;
+    border: 1px solid #d5ddd4;
+    border-radius: 0.45rem;
+    background: #f8faf7;
+  }
+
+  .subpanel label {
+    display: grid;
+    gap: 0.35rem;
+    font-weight: 650;
+  }
+
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 0.8rem;
+  }
+
+  .notice {
+    padding: 0.85rem 1rem;
+    border-radius: 0.4rem;
+  }
+
+  .notice p:last-child {
+    margin-bottom: 0;
+  }
+
+  .notice.error {
+    border: 1px solid #bd7772;
+    color: #66211d;
+    background: #fff2f0;
+  }
+
+  .notice.success {
+    border: 1px solid #86ad8b;
+    color: #1e5529;
+    background: #eff9f0;
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+  }
+
+  .status-grid > div {
+    padding: 0.75rem;
+    border-left: 0.2rem solid #80a287;
+    background: #f4f7f3;
+  }
+
+  .status-grid dt {
+    color: #687269;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .status-grid dd {
+    margin: 0.25rem 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .fingerprint,
+  .path {
+    display: block;
+    padding: 0.6rem;
+    overflow-wrap: anywhere;
+    border-radius: 0.25rem;
+    background: #edf1ec;
+  }
+
+  .log-tail {
+    max-height: 18rem;
+    margin-bottom: 0;
+    padding: 1rem;
+    overflow: auto;
+    color: #d7e4d9;
+    background: #172019;
+    white-space: pre-wrap;
+  }
+
+  .plain-list,
+  .file-list,
+  .dataset-list,
+  .field-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .job-choice,
+  .file-list li,
+  .field-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.8rem 0;
+    border-top: 1px solid #e0e6df;
+  }
+
+  .page-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(18rem, 0.7fr);
+    gap: 1rem;
+  }
+
+  .page-grid .panel {
+    margin-top: 2rem;
+  }
+
+  .summary-panel {
+    grid-column: 1 / -1;
+  }
+
+  .section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .section-heading h1,
+  .section-heading h2 {
+    margin-bottom: 0;
+  }
+
+  .breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+  }
+
+  button.text-button,
+  button.danger-link {
+    min-height: auto;
+    padding: 0;
+    border: 0;
+    color: #245b33;
+    background: transparent;
+    text-align: left;
+    text-decoration: underline;
+  }
+
+  button.danger-link {
+    color: #8a3028;
+  }
+
+  .entry-kind {
+    display: block;
+    margin-top: 0.2rem;
+    color: #69746a;
+    font-size: 0.85rem;
+  }
+
+  .dataset-list li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.2rem 0.75rem;
+    padding: 0.8rem;
+    border-left: 0.2rem solid transparent;
+  }
+
+  .dataset-list li.selected {
+    border-left-color: #3f7149;
+    background: #f0f6f0;
+  }
+
+  .dataset-list .dataset-name {
+    font-weight: 700;
+  }
+
+  .dataset-list .danger-link {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .button-link {
+    display: inline-flex;
+    min-height: 2.5rem;
+    align-items: center;
+    padding-inline: 0.8rem;
+    border-radius: 0.25rem;
+    color: white;
+    background: #284b31;
+    text-decoration: none;
+  }
+
+  .well-grid {
+    display: grid;
+    gap: 0.35rem;
+    overflow-x: auto;
+  }
+
+  .well-label {
+    display: grid;
+    min-width: 2.5rem;
+    place-items: center;
+  }
+
+  .well {
+    min-width: 3rem;
+    padding: 0.45rem;
+  }
+
+  .well.selected {
+    outline: 0.2rem solid #9cc8a4;
+    outline-offset: 0.1rem;
+  }
+
+  .well.missing {
+    display: grid;
+    min-width: 3rem;
+    min-height: 2.5rem;
+    place-items: center;
+    color: #9da59e;
+    border: 1px dashed #d5dbd5;
+  }
+
+  .muted {
+    color: #6c756d;
+  }
+
+  .viewer-layout {
+    display: grid;
+    grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .viewer-controls {
+    align-self: start;
+    margin-top: 0;
+  }
+
+  .viewer-controls > label,
+  .channel-control label {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .channel-control {
+    display: grid;
+    gap: 0.7rem;
+    margin: 0;
+    padding: 0.8rem;
+    border: 1px solid #d5ddd4;
+  }
+
+  .channel-control legend label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 700;
+  }
+
+  .channel-control input[type="range"],
+  .viewer-controls > label input[type="range"] {
+    width: 100%;
+    padding: 0;
+  }
+
+  .channel-swatch {
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+  }
+
+  .viewer-stage h1 {
+    max-width: 34rem;
+    margin: 0;
+    font-size: clamp(1.35rem, 3vw, 2.25rem);
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+  }
+
+  .canvas-frame {
+    position: relative;
+    width: 100%;
+    height: min(68vh, 44rem);
+    min-height: 24rem;
+    overflow: hidden;
+    border: 1px solid #333d35;
+    border-radius: 0.4rem;
+    background: #050706;
+  }
+
+  .status-ready {
+    color: #23602f;
+    font-weight: 700;
+  }
+
+  .viewer-status-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin: 0;
+    color: #5f6961;
+    font-family: ui-monospace, monospace;
+    font-size: 0.82rem;
+  }
+
+  @media (max-width: 52rem) {
+    .page-grid,
+    .viewer-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .summary-panel {
+      grid-column: auto;
+    }
+
+    .canvas-frame {
+      height: 65vh;
+    }
   }
 </style>

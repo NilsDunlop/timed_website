@@ -9,7 +9,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import uvicorn
@@ -17,8 +17,8 @@ import uvicorn
 from .app import create_app
 from .hpc_backend import AsyncSSHHPCBackend
 from .models import ExistingJobChoice, RespondRequest
-from .profiles import ProfileError, load_profiles, validate_profile
-from .session import ConnectorSession
+from .profiles import ProfileError, ProfileStore, load_profiles, validate_profile
+from .session import ConnectorSession, SessionBackend
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,6 +53,7 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path.home() / ".timed" / "profiles.yaml",
     )
+    subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
     return parser
 
 
@@ -104,6 +105,14 @@ def _first_plate(entries: Any) -> dict[str, Any] | None:
         if isinstance(ome_zarr, dict) and ome_zarr.get("kind") == "plate":
             return entry
     return None
+
+
+def _export_openapi() -> None:
+    profiles = ProfileStore([], Path.cwd() / ".timed" / "openapi-profiles.yaml")
+    backend = cast(SessionBackend, object())
+    session = ConnectorSession(profiles, backend)
+    document = create_app(profiles, session).openapi()
+    print(json.dumps(document, separators=(",", ":"), sort_keys=True))
 
 
 async def _terminal_try(args: argparse.Namespace) -> int:
@@ -199,6 +208,9 @@ async def _terminal_try(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "export-openapi":
+            _export_openapi()
+            return 0
         store = load_profiles(args.profiles)
         if args.command == "check-profile":
             profile = validate_profile(store, args.profile_id)

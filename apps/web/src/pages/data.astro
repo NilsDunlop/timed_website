@@ -1,16 +1,14 @@
 ---
+import DataBrowser from "../components/DataBrowser";
 import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout title="Data | TIMED">
-  <p>Data</p>
+  <p class="eyebrow">Data</p>
   <h1>Browse OME-Zarr</h1>
   <p class="lede">
-    The connected profile's configured data roots, linked datasets, plate wells,
-    and fields will appear here in milestone M6.
+    Browse the active profile's configured roots, link a plate or image without
+    moving it, then choose a field to inspect.
   </p>
-  <section class="panel">
-    <h2>No active connection</h2>
-    <p>Connect to Arrhenius or the test cluster before browsing.</p>
-  </section>
+  <DataBrowser client:load />
 </Layout>

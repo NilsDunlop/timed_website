@@ -12,13 +12,13 @@ test:
 	pnpm -C apps/web build
 
 test-e2e:
-	@echo "The Playwright end-to-end suite is added in M6."
+	pnpm -C apps/web test
 
 test-data:
 	uv run python scripts/make_test_data.py
 
 gen-api:
-	@echo "Typed API generation is added in M6."
+	pnpm -C apps/web gen:api
 
 lint:
 	uv run ruff check .

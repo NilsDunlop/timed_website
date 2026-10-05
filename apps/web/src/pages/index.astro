@@ -1,38 +1,19 @@
 ---
+import ConnectPanel from "../components/ConnectPanel";
 import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout title="Connect | TIMED">
-  <p>Prototype milestone 0</p>
-  <h1>Microscopy data,<br />viewed where it lives.</h1>
+  <p class="eyebrow">Connect</p>
+  <h1>Microscopy data,<br />viewed where it lives</h1>
   <p class="lede">
-    TIMED will connect this browser to an OME-Zarr data server running beside your
-    data on Arrhenius. Credentials stay in the local connector and image chunks
-    travel only when the viewer needs them.
+    Start a private data server beside your OME-Zarr data. Credentials pass only
+    through the local connector, and the browser requests only the image chunks
+    needed for the current view.
   </p>
 
   <section class="panel" aria-labelledby="connect-heading">
     <h2 id="connect-heading">Connect</h2>
-    <label for="profile">Compute profile</label>
-    <select id="profile" name="profile">
-      <option>Arrhenius (NAISS)</option>
-      <option>Test cluster (local SSH/Slurm harness)</option>
-      <option>This computer</option>
-    </select>
-    <button type="button" disabled title="Implemented in milestone M6">Connect</button>
-    <p><strong>Status:</strong> UI scaffold ready; connector arrives in M4.</p>
+    <ConnectPanel client:load />
   </section>
 </Layout>
-
-<style>
-  label {
-    display: block;
-    margin-bottom: 0.4rem;
-    font-weight: 650;
-  }
-
-  select {
-    width: min(100%, 32rem);
-    margin-right: 0.5rem;
-  }
-</style>

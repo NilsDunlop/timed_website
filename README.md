@@ -6,9 +6,9 @@ Its primary target is the Arrhenius NAISS cluster: a local connector establishes
 SSH, starts a token-protected data server in Slurm, and exposes it to a same-origin
 Astro web application.
 
-The repository is being delivered milestone by milestone. The workspace now
-includes deterministic fixtures and the authenticated, read-only data server;
-the connector and interactive web flows follow in later milestones.
+The repository is being delivered milestone by milestone. It now includes
+deterministic fixtures, the authenticated read-only data server, the local/HPC
+connector, and the interactive browser workflow.
 
 ## Prerequisites
 
@@ -35,7 +35,9 @@ the root `Makefile`.
 - M2: inventory-matched synthetic data complete
 - M3: authenticated read-only data server complete
 - M4: connector and local SSH/Slurm test cluster complete
-- M5-M8: pending
+- M5: real Arrhenius smoke test complete
+- M6: Connect, Data, and Viv viewer workflow complete
+- M7-M8: pending
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be

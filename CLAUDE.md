@@ -26,9 +26,9 @@ in local and HPC modes; only its launch mechanism changes.
 make dev          # connector plus Astro development servers
 make test-cluster # local SSH/Slurm harness (POSIX)
 make test         # Python and web checks
-make test-e2e     # Playwright end-to-end suite (available after M6)
+make test-e2e     # isolated test cluster plus Playwright browser suite
 make test-data    # deterministic TIMED and native OME-Zarr fixtures
-make gen-api      # regenerate typed OpenAPI clients (available after M6)
+make gen-api      # regenerate typed OpenAPI schemas and clients
 make lint         # Ruff and Astro checks
 ```
 
@@ -64,6 +64,27 @@ prompts are held only by an in-memory future and are absent from the public
 session model. The data-server token remains private to the connector's proxy.
 The test cluster chroots SFTP to its disposable home and allows direct TCP
 forwarding only to loopback destinations.
+
+## Web application
+
+The three Astro pages mount React islands for the Connect, Data, and View
+workflows. API calls use the committed `openapi-typescript` schemas and
+`openapi-fetch` clients in `apps/web/src/lib/api`. Run `make gen-api` after a
+response model or route changes, then commit the regenerated files.
+
+The viewer pins Viv 0.23 with deck.gl 9.4.0 and luma.gl 9.4.2. Native
+OME-Zarr 0.4/Zarr v2 data loads through Viv's URL loader. OME-Zarr 0.5/Zarr v3
+and TIMED's synthetic field facade use a same-origin Zarrita store that skips
+the v2 metadata probes, preventing expected 404 responses from appearing as
+browser console errors. The data server implements GET and HEAD for Zarr
+resources because sharded v3 reads discover object lengths before sending byte
+ranges.
+
+`make test-e2e` creates an isolated test-cluster profile, drives the complete
+Connect -> Data -> View flow, verifies nonuniform pixels and time changes in
+all three fixture types, checks the browser console, disconnects, and confirms
+that no Slurm job remains. Successful runs retain connected, data-browser, and
+plate-viewer screenshots under the gitignored Playwright test-results folder.
 
 ## Conventions
 
@@ -149,4 +170,10 @@ is deterministic and gitignored.
   services/connector/tests/test_cluster_integration.py -q`.
 - `ome-zarr==0.19.2` requires Pydantic below 2.13, so both services pin the
   newest compatible release, `pydantic==2.12.5`.
+- `openapi-typescript==7.13.0` declares a TypeScript 5 peer range while this
+  workspace pins TypeScript 6. API generation, Astro diagnostics, and the
+  production build are verified; `pnpm peers check` reports that one known
+  metadata mismatch.
 - M5 and M7 require the operator to enter Arrhenius password and 2FA input.
+- Keep `.canvas-frame` positioned; deck.gl otherwise places its canvas relative
+  to the page and can cover the viewer controls.

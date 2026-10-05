@@ -67,3 +67,23 @@ backend owns versioned wheel installation, Slurm submission and polling, SFTP
 connection-file reads, port forwarding, and cleanup. A backend protocol allows
 deterministic cross-platform state tests, while the complete real backend is
 tested through the POSIX AsyncSSH/Slurm harness under WSL2.
+
+## 2026-10-05: keep the browser typed and format-aware
+
+M6 generates and commits TypeScript schemas from both FastAPI applications,
+then calls them through `openapi-fetch`. The connector's opaque `/backend`
+proxy and schema-hidden HEAD handlers are intentionally excluded from OpenAPI:
+their payloads are defined by the remote data server and Zarr store rather than
+the connector.
+
+The viewer pins Viv 0.23, deck.gl 9.4.0, and luma.gl 9.4.2. OME-Zarr 0.4/Zarr
+v2 uses Viv's URL loader. OME-Zarr 0.5/Zarr v3, including the virtual TIMED
+field facade, uses a small same-origin Zarrita store. The store suppresses
+Zarrita's v2 discovery probes for known v3 data, so valid v3 loads do not emit
+misleading 404 console errors. Zarr resources support both GET and HEAD because
+the v3 sharding codec asks for object length before fetching byte ranges.
+
+The end-to-end browser suite owns an isolated SSH/Slurm harness and connector,
+walks all three pages, renders the TIMED plate plus both native fixture formats,
+checks nonuniform pixels and time-dependent frame changes, rejects browser
+console errors, disconnects, and verifies the Slurm queue is empty.

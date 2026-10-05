@@ -237,6 +237,15 @@ def test_collection_plate_well_summary_and_ome_facade(
         assert ranged.headers["content-range"] == f"bytes 10-29/{shard.stat().st_size}"
         assert ranged.headers["accept-ranges"] == "bytes"
 
+        head = client.head(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
+            headers=AUTH,
+        )
+        assert head.status_code == 200
+        assert head.content == b""
+        assert head.headers["content-length"] == str(shard.stat().st_size)
+        assert head.headers["accept-ranges"] == "bytes"
+
         missing = client.get(
             f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/9/9/9/9", headers=AUTH
         )

@@ -317,6 +317,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         except OmeZarrError as exc:
             raise _not_found(str(exc)) from exc
 
+    @app.head(
+        "/zarr/{dataset_id}/{resource_path:path}",
+        include_in_schema=False,
+    )
     @app.get("/zarr/{dataset_id}/{resource_path:path}")
     async def get_zarr_resource(
         dataset_id: str,
