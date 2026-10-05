@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import signal
 from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
@@ -12,7 +14,8 @@ import pytest
 from fastapi import FastAPI, Request
 from timed_connector.app import create_app
 from timed_connector.cli import _first_plate, main
-from timed_connector.hpc_backend import DataServerConnection
+from timed_connector.dataserver_connection import DataServerConnection
+from timed_connector.local_backend import LocalBackend
 from timed_connector.models import (
     ExistingJob,
     ExistingJobChoice,
@@ -53,6 +56,17 @@ def slurm_profile(**changes: Any) -> Profile:
     }
     values.update(changes)
     return Profile.model_validate(values)
+
+
+def local_profile(data_root: Path) -> Profile:
+    return Profile.model_validate(
+        {
+            "id": "local",
+            "name": "This computer",
+            "kind": "local",
+            "data_roots": [str(data_root)],
+        }
+    )
 
 
 class FakeBackend:
@@ -367,6 +381,120 @@ async def test_full_session_flow_never_exposes_answers_or_token(tmp_path: Path) 
     assert backend.removed == ["42"]
     assert backend.forward_closed == 1
     assert backend.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_local_session_starts_proxies_and_stops_process(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    profile = local_profile(data_root)
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    runtime_parent = tmp_path / "runtime"
+    session = ConnectorSession(
+        store,
+        FakeBackend(tmp_path),
+        local_backend=LocalBackend(
+            state_dir=tmp_path / "state",
+            runtime_parent=runtime_parent,
+        ),
+        poll_interval=0.01,
+        startup_timeout=20,
+    )
+
+    await session.connect(profile.id)
+    await wait_for_state(session, "connected", timeout=20)
+    snapshot = session.snapshot()
+    serialized = snapshot.model_dump_json()
+    assert snapshot.handshake is not None
+    assert snapshot.handshake["environment"] == "local"
+    assert snapshot.job_id is None
+    assert snapshot.slurm_state is None
+    assert snapshot.node is None
+    assert snapshot.local_forward_port is not None
+    assert any("Starting local data server" in line for line in snapshot.logs)
+
+    base_url, token = session.proxy_target()
+    assert token not in serialized
+    assert all(token not in line for line in snapshot.logs)
+    async with httpx.AsyncClient(base_url=base_url, timeout=10) as client:
+        handshake = await client.get(
+            "/api/handshake",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert handshake.status_code == 200
+        roots = await client.get(
+            "/api/fs/list",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert roots.status_code == 200
+        assert roots.json()["entries"][0]["path"] == str(data_root.resolve())
+
+    connection_files = list(runtime_parent.glob("*/connection.json"))
+    assert len(connection_files) == 1
+    disconnected = await session.disconnect(cancel_job=False)
+    assert disconnected.state == "disconnected"
+    assert list(runtime_parent.iterdir()) == []
+
+    with pytest.raises(httpx.TransportError):
+        async with httpx.AsyncClient(base_url=base_url, timeout=1) as client:
+            await client.get("/api/handshake")
+
+
+@pytest.mark.asyncio
+async def test_local_session_reports_missing_data_root(tmp_path: Path) -> None:
+    profile = local_profile(tmp_path / "missing")
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    session = ConnectorSession(
+        store,
+        FakeBackend(tmp_path),
+        local_backend=LocalBackend(
+            state_dir=tmp_path / "state",
+            runtime_parent=tmp_path / "runtime",
+        ),
+        poll_interval=0.01,
+    )
+
+    await session.connect(profile.id)
+    await wait_for_state(session, "error")
+    snapshot = session.snapshot()
+    assert "Local data root does not exist" in str(snapshot.message)
+    assert "local data roots" in str(snapshot.hint)
+    await session.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_local_process_exit_becomes_visible_error(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    profile = local_profile(data_root)
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    runtime_parent = tmp_path / "runtime"
+    session = ConnectorSession(
+        store,
+        FakeBackend(tmp_path),
+        local_backend=LocalBackend(
+            state_dir=tmp_path / "state",
+            runtime_parent=runtime_parent,
+        ),
+        poll_interval=0.01,
+        startup_timeout=20,
+    )
+
+    try:
+        await session.connect(profile.id)
+        await wait_for_state(session, "connected", timeout=20)
+        connection_file = next(runtime_parent.glob("*/connection.json"))
+        process_id = int(json.loads(connection_file.read_text(encoding="utf-8"))["pid"])
+        os.kill(process_id, signal.SIGTERM)
+
+        await wait_for_state(session, "error", timeout=5)
+        snapshot = session.snapshot()
+        assert snapshot.message == "The local data-server process ended"
+        assert snapshot.local_forward_port is None
+        assert snapshot.handshake is None
+        assert list(runtime_parent.iterdir()) == []
+    finally:
+        await session.disconnect()
 
 
 @pytest.mark.asyncio

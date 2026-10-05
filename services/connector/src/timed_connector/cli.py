@@ -16,6 +16,7 @@ import uvicorn
 
 from .app import create_app
 from .hpc_backend import AsyncSSHHPCBackend
+from .local_backend import LocalBackend
 from .models import ExistingJobChoice, RespondRequest
 from .profiles import ProfileError, ProfileStore, load_profiles, validate_profile
 from .session import ConnectorSession, SessionBackend
@@ -33,6 +34,11 @@ def _parser() -> argparse.ArgumentParser:
         default=Path.home() / ".timed" / "profiles.yaml",
     )
     serve_parser.add_argument("--serve-ui", type=Path)
+    serve_parser.add_argument(
+        "--local-state-dir",
+        type=Path,
+        default=Path.home() / ".timed" / "local",
+    )
 
     try_parser = subparsers.add_parser("try", help="connect using the terminal")
     try_parser.add_argument("profile_id")
@@ -43,6 +49,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     try_parser.add_argument("--list", dest="list_path")
     try_parser.add_argument("--keep-job", action="store_true")
+    try_parser.add_argument(
+        "--local-state-dir",
+        type=Path,
+        default=Path.home() / ".timed" / "local",
+    )
 
     check_parser = subparsers.add_parser(
         "check-profile", help="validate a profile without connecting"
@@ -119,7 +130,11 @@ async def _terminal_try(args: argparse.Namespace) -> int:
     store = load_profiles(args.profiles)
     profile = validate_profile(store, args.profile_id)
     backend = AsyncSSHHPCBackend(store.source)
-    session = ConnectorSession(store, backend)
+    session = ConnectorSession(
+        store,
+        backend,
+        local_backend=LocalBackend(state_dir=args.local_state_dir),
+    )
     printed_logs = 0
     last_state = ""
     await session.connect(profile.id)
@@ -222,7 +237,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not 1 <= args.port <= 65535:
             raise ProfileError("Port must be between 1 and 65535")
         backend = AsyncSSHHPCBackend(store.source)
-        session = ConnectorSession(store, backend)
+        session = ConnectorSession(
+            store,
+            backend,
+            local_backend=LocalBackend(state_dir=args.local_state_dir),
+        )
         app = create_app(store, session, port=args.port, serve_ui=args.serve_ui)
         uvicorn.run(app, host="127.0.0.1", port=args.port)
         return 0

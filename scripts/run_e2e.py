@@ -113,7 +113,12 @@ def _wsl_path(path: Path) -> str:
     return result.stdout.strip()
 
 
-def _profile(path: Path, data_root: str, known_hosts: Path) -> None:
+def _profile(
+    path: Path,
+    cluster_data_root: str,
+    local_data_root: str,
+    known_hosts: Path,
+) -> None:
     value = {
         "profiles": [
             {
@@ -124,7 +129,7 @@ def _profile(path: Path, data_root: str, known_hosts: Path) -> None:
                 "port": 2222,
                 "username": "dev",
                 "known_hosts": str(known_hosts),
-                "data_roots": [data_root],
+                "data_roots": [cluster_data_root],
                 "slurm": {
                     "account": "dev",
                     "partition": "cpu",
@@ -135,7 +140,13 @@ def _profile(path: Path, data_root: str, known_hosts: Path) -> None:
                 "remote_state_dir": "~/.timed",
                 "auto_install_uv": True,
                 "module_loads": [],
-            }
+            },
+            {
+                "id": "local",
+                "name": "This computer",
+                "kind": "local",
+                "data_roots": [local_data_root],
+            },
         ]
     }
     path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
@@ -205,7 +216,7 @@ def main() -> int:
     cluster_environment = None
     if os.name == "nt":
         repository_for_cluster = _wsl_path(REPOSITORY_ROOT)
-        data_root = _wsl_path(TEST_DATA)
+        cluster_data_root = _wsl_path(TEST_DATA)
         cluster_state = "/tmp/timed-e2e-" + run_id
         cluster_command = (
             "cd "
@@ -220,7 +231,7 @@ def main() -> int:
         cluster_arguments = ["wsl.exe", "bash", "-lc", cluster_command]
     else:
         repository_for_cluster = str(REPOSITORY_ROOT)
-        data_root = str(TEST_DATA.resolve())
+        cluster_data_root = str(TEST_DATA.resolve())
         cluster_state = str(runtime / "cluster")
         cluster_environment = os.environ.copy()
         cluster_environment.update(
@@ -237,7 +248,12 @@ def main() -> int:
             cluster_state,
         ]
 
-    _profile(profiles, data_root, known_hosts)
+    _profile(
+        profiles,
+        cluster_data_root,
+        str(TEST_DATA.resolve()),
+        known_hosts,
+    )
 
     try:
         for name, arguments, process_environment in (
@@ -251,6 +267,8 @@ def main() -> int:
                     "serve",
                     "--profiles",
                     str(profiles),
+                    "--local-state-dir",
+                    str(runtime / "local-state"),
                 ],
                 None,
             ),

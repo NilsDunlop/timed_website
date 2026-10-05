@@ -136,6 +136,10 @@ export default function ConnectPanel() {
 
   const connected = session.state === "connected";
   const active = session.state !== "disconnected" && session.state !== "error";
+  const activeProfile = profiles.find(
+    (profile) => profile.id === (session.profile_id ?? profileId),
+  );
+  const localMode = activeProfile?.kind === "local";
 
   return (
     <div className="stack">
@@ -166,7 +170,7 @@ export default function ConnectPanel() {
           </button>
         ) : (
           <button type="button" className="secondary" disabled={busy} onClick={disconnect}>
-            Disconnect and cancel job
+            {localMode ? "Disconnect and stop server" : "Disconnect and cancel job"}
           </button>
         )}
       </div>
@@ -176,6 +180,12 @@ export default function ConnectPanel() {
           <dt>Status</dt>
           <dd data-testid="session-state">{session.state.replaceAll("_", " ")}</dd>
         </div>
+        {localMode && connected && (
+          <div>
+            <dt>Data server</dt>
+            <dd>127.0.0.1:{session.local_forward_port}</dd>
+          </div>
+        )}
         {session.job_id && (
           <div>
             <dt>Slurm job</dt>

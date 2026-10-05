@@ -65,6 +65,21 @@ session model. The data-server token remains private to the connector's proxy.
 The test cluster chroots SFTP to its disposable home and allows direct TCP
 forwarding only to loopback destinations.
 
+## Local mode
+
+A `local` profile starts the same `timed-dataserver` package as a child process
+on `127.0.0.1` with a dynamic port. Its token-bearing connection file lives in
+a private temporary directory and is removed on disconnect, including after a
+forced Windows process termination. The local dataset registry persists in
+`~/.timed/local` by default; `timed-connector serve --local-state-dir` can
+override that location for isolated tests.
+
+The session state machine dispatches local profiles directly to
+`LocalBackend`. It does not emulate SSH, Slurm jobs, queues, or tunnels. Child
+output is streamed into the normal bounded session log, unexpected process exit
+becomes a visible error, and disconnect always stops the child regardless of
+the Slurm-specific `cancel_job` request field.
+
 ## Web application
 
 The three Astro pages mount React islands for the Connect, Data, and View
@@ -80,11 +95,11 @@ browser console errors. The data server implements GET and HEAD for Zarr
 resources because sharded v3 reads discover object lengths before sending byte
 ranges.
 
-`make test-e2e` creates an isolated test-cluster profile, drives the complete
-Connect -> Data -> View flow, verifies nonuniform pixels and time changes in
-all three fixture types, checks the browser console, disconnects, and confirms
-that no Slurm job remains. Successful runs retain connected, data-browser, and
-plate-viewer screenshots under the gitignored Playwright test-results folder.
+`make test-e2e` creates isolated test-cluster and local profiles. It drives the
+complete Connect -> Data -> View flow for both modes, verifies nonuniform pixels
+and time changes, checks the browser console, disconnects, confirms that no
+Slurm job remains, and proves that the local child stops. Successful runs retain
+screenshots under the gitignored Playwright test-results folder.
 
 ## Conventions
 
@@ -162,8 +177,8 @@ is deterministic and gitignored.
   `uv run python scripts/make_test_data.py` as the direct equivalent of
   `make test-data` there.
 - Windows does not expose meaningful POSIX mode bits. The connection-file test
-  verifies mode `0600` on POSIX (including Arrhenius); Windows uses the file's
-  inherited user ACL until local mode is implemented in M8.
+  verifies mode `0600` on POSIX (including Arrhenius); Windows local mode uses
+  the private temporary directory's inherited user ACL.
 - The test cluster itself is POSIX-only. It was verified from this Windows
   workstation in WSL2 using an isolated environment:
   `UV_PROJECT_ENVIRONMENT=/tmp/timed-wsl-venv uv run pytest

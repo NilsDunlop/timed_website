@@ -38,7 +38,11 @@ the root `Makefile`.
 - M5: real Arrhenius smoke test complete
 - M6: Connect, Data, and Viv viewer workflow complete
 - M7: real Arrhenius browser workflow complete
-- M8: pending
+- M8: local subprocess mode complete
+
+The full prototype scope is implemented. Choose **Arrhenius (NAISS)** for the
+primary HPC path or **This computer** to launch a loopback data server over the
+gitignored synthetic fixtures.
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be

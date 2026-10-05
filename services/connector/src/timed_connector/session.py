@@ -7,7 +7,8 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any, Protocol
 
-from .hpc_backend import DataServerConnection
+from .dataserver_connection import DataServerConnection
+from .local_backend import LocalBackend
 from .models import (
     ExistingJob,
     ExistingJobChoice,
@@ -84,11 +85,13 @@ class ConnectorSession:
         profiles: ProfileStore,
         backend: SessionBackend,
         *,
+        local_backend: LocalBackend | None = None,
         poll_interval: float = 2.0,
         startup_timeout: float = 180.0,
     ) -> None:
         self.profiles = profiles
         self.backend = backend
+        self.local_backend = local_backend
         self.poll_interval = poll_interval
         self.startup_timeout = startup_timeout
         self._snapshot = SessionSnapshot()
@@ -122,12 +125,13 @@ class ConnectorSession:
             profile = self.profiles.get(profile_id)
         except ProfileError as exc:
             raise SessionError(str(exc)) from exc
-        if profile.kind != "slurm":
-            raise SessionError("Local profiles are implemented in milestone M8")
+        if profile.kind == "local" and self.local_backend is None:
+            raise SessionError("Local data-server backend is not configured")
         self._snapshot = SessionSnapshot(state="connecting", profile_id=profile.id)
         self._profile = profile
         self._disconnecting = False
-        self._task = asyncio.create_task(self._run(profile))
+        run = self._run_local(profile) if profile.kind == "local" else self._run_hpc(profile)
+        self._task = asyncio.create_task(run)
         await asyncio.sleep(0)
         return self.snapshot()
 
@@ -197,7 +201,7 @@ class ConnectorSession:
         await asyncio.sleep(0)
         return self.snapshot()
 
-    async def _run(self, profile: Profile) -> None:
+    async def _run_hpc(self, profile: Profile) -> None:
         submitted_job = False
         try:
             self._log(f"Checking host key for {profile.host}:{profile.port}")
@@ -257,7 +261,47 @@ class ConnectorSession:
                 hint=None,
             )
             self._log("Connected to the remote data server")
-            self._monitor_task = asyncio.create_task(self._monitor(job_id))
+            self._monitor_task = asyncio.create_task(self._monitor_hpc(job_id))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._fail(str(exc))
+        finally:
+            if self._task is asyncio.current_task():
+                self._task = None
+
+    async def _run_local(self, profile: Profile) -> None:
+        if self.local_backend is None:
+            await self._fail("Local data-server backend is not configured")
+            return
+        try:
+            self._state("preparing_server")
+            self._log("Starting local data server")
+            self._context = await self.local_backend.start(profile, self._log)
+            self._state("starting")
+            self._connection = await self.local_backend.wait_for_connection(
+                self._context,
+                timeout=self.startup_timeout,
+                poll_interval=self.poll_interval,
+            )
+            handshake = await self.local_backend.handshake(
+                self._context,
+                self._connection,
+            )
+            target, _token = self.local_backend.proxy_target(
+                self._context,
+                self._connection,
+            )
+            port = int(target.rsplit(":", 1)[1])
+            self._state(
+                "connected",
+                local_forward_port=port,
+                handshake=handshake,
+                message=None,
+                hint=None,
+            )
+            self._log("Connected to the local data server")
+            self._monitor_task = asyncio.create_task(self._monitor_local())
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -308,7 +352,7 @@ class ConnectorSession:
             self._log(line)
         raise SessionError("Timed out waiting for the data-server connection file")
 
-    async def _monitor(self, job_id: str) -> None:
+    async def _monitor_hpc(self, job_id: str) -> None:
         try:
             while self._snapshot.state == "connected":
                 await asyncio.sleep(max(self.poll_interval, 1.0))
@@ -323,9 +367,28 @@ class ConnectorSession:
             if not self._disconnecting:
                 await self._fail(str(exc))
 
+    async def _monitor_local(self) -> None:
+        if self.local_backend is None:
+            return
+        try:
+            while self._snapshot.state == "connected":
+                await asyncio.sleep(max(self.poll_interval, 1.0))
+                if self.local_backend.returncode(self._context) is not None:
+                    raise SessionError("The local data-server process ended")
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            if not self._disconnecting:
+                await self._fail(str(exc))
+
     async def _fail(self, message: str) -> None:
         job_id = self._snapshot.job_id
-        if job_id and self._context is not None:
+        if (
+            self._profile is not None
+            and self._profile.kind == "slurm"
+            and job_id
+            and self._context is not None
+        ):
             try:
                 await self.backend.cancel_job(self._context, job_id)
             except Exception:
@@ -334,13 +397,23 @@ class ConnectorSession:
         self._state(
             "error",
             message=message,
-            hint="Check the session log and cluster profile, then reconnect.",
+            hint=(
+                "Check the session log and local data roots, then reconnect."
+                if self._profile is not None and self._profile.kind == "local"
+                else "Check the session log and cluster profile, then reconnect."
+            ),
             local_forward_port=None,
             handshake=None,
         )
         self._log(f"Error: {message}")
 
     async def _cleanup(self, *, remove_connection: bool) -> None:
+        if self._profile is not None and self._profile.kind == "local":
+            self._connection = None
+            if self.local_backend is not None:
+                await self.local_backend.close(self._context)
+            self._context = None
+            return
         job_id = self._snapshot.job_id
         if remove_connection and job_id and self._context is not None:
             try:
@@ -372,7 +445,13 @@ class ConnectorSession:
                 await self._monitor_task
             self._monitor_task = None
         job_id = self._snapshot.job_id
-        if cancel_job and job_id and self._context is not None:
+        if (
+            self._profile is not None
+            and self._profile.kind == "slurm"
+            and cancel_job
+            and job_id
+            and self._context is not None
+        ):
             try:
                 await self.backend.cancel_job(self._context, job_id)
                 self._log(f"Cancelled Slurm job {job_id}")
@@ -385,10 +464,12 @@ class ConnectorSession:
         return self.snapshot()
 
     def proxy_target(self) -> tuple[str, str]:
-        if (
-            self._snapshot.state != "connected"
-            or self._forward is None
-            or self._connection is None
-        ):
+        if self._snapshot.state != "connected" or self._connection is None:
+            raise SessionError("No data server is connected")
+        if self._profile is not None and self._profile.kind == "local":
+            if self.local_backend is None or self._context is None:
+                raise SessionError("No local data server is connected")
+            return self.local_backend.proxy_target(self._context, self._connection)
+        if self._forward is None:
             raise SessionError("No data server is connected")
         return self.backend.proxy_target(self._forward, self._connection)

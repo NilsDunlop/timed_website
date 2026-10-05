@@ -87,3 +87,20 @@ The end-to-end browser suite owns an isolated SSH/Slurm harness and connector,
 walks all three pages, renders the TIMED plate plus both native fixture formats,
 checks nonuniform pixels and time-dependent frame changes, rejects browser
 console errors, disconnects, and verifies the Slurm queue is empty.
+
+## 2026-10-05: make local mode a real backend, not simulated Slurm
+
+M8 dispatches `local` profiles to a dedicated `LocalBackend`. It launches the
+same authenticated `timed-dataserver` package as a child process bound to
+`127.0.0.1` on a dynamic port, reads its atomic connection file, performs the
+same versioned handshake, and gives the existing reverse proxy its loopback
+target. Local mode therefore exercises the production data server and browser
+without introducing SSH, fake jobs, or a second API.
+
+The token-bearing connection file uses a private temporary directory which is
+removed on every cleanup path. The non-secret linked-dataset registry persists
+separately in `~/.timed/local`. Child output feeds the existing 200-line session
+log, unexpected exit moves the public state to `error`, and disconnect always
+terminates the process. The end-to-end harness gives local mode an isolated
+registry and verifies plate rendering, a changed time frame, clean browser
+console output, and process shutdown alongside the unchanged SSH/Slurm flow.

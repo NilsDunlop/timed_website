@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shlex
 import uuid
 from collections.abc import Callable
@@ -11,9 +10,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import asyncssh
-import httpx
-from timed_dataserver import API_VERSION
 
+from .dataserver_connection import (
+    DataServerConnection,
+    DataServerConnectionError,
+    parse_connection,
+    verify_handshake,
+)
 from .models import ExistingJob, Profile
 from .remote_install import prepare_remote_server
 from .slurm import (
@@ -46,14 +49,6 @@ class SSHContext:
     sftp: asyncssh.SFTPClient
     paths: RemotePaths
     executable: str | None = None
-
-
-@dataclass(frozen=True)
-class DataServerConnection:
-    host: str
-    port: int
-    token: str
-    api_version: str
 
 
 @dataclass
@@ -170,17 +165,9 @@ class AsyncSSHHPCBackend:
     ) -> DataServerConnection:
         value = await read_sftp_json(context.sftp, self.connection_file(context, job_id))
         try:
-            connection = DataServerConnection(
-                host=str(value["host"]),
-                port=int(value["port"]),
-                token=str(value["token"]),
-                api_version=str(value["api_version"]),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise SSHBackendError("Remote connection file is incomplete") from exc
-        if connection.port < 1 or connection.port > 65535 or not connection.token:
-            raise SSHBackendError("Remote connection file has invalid values")
-        return connection
+            return parse_connection(value, source="Remote connection file")
+        except DataServerConnectionError as exc:
+            raise SSHBackendError(str(exc)) from exc
 
     async def forward(
         self,
@@ -201,25 +188,12 @@ class AsyncSSHHPCBackend:
         connection: DataServerConnection,
     ) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(
-                    f"http://127.0.0.1:{forward.port}/api/handshake",
-                    headers={"Authorization": f"Bearer {connection.token}"},
-                )
-                response.raise_for_status()
-                value = response.json()
-        except (httpx.HTTPError, json.JSONDecodeError) as exc:
-            raise SSHBackendError(f"Data-server handshake failed: {exc}") from exc
-        if not isinstance(value, dict):
-            raise SSHBackendError("Data-server handshake was not a JSON object")
-        expected_major = API_VERSION.split(".", 1)[0]
-        actual_major = str(value.get("api_version", "")).split(".", 1)[0]
-        if actual_major != expected_major:
-            raise SSHBackendError(
-                f"Incompatible data-server API {value.get('api_version')!r}; "
-                f"expected major {expected_major}"
+            return await verify_handshake(
+                f"http://127.0.0.1:{forward.port}",
+                connection,
             )
-        return value
+        except DataServerConnectionError as exc:
+            raise SSHBackendError(str(exc)) from exc
 
     async def log_tail(self, context: SSHContext, job_id: str) -> list[str]:
         path = _join(context.paths.sftp_state_dir, "logs", f"{job_id}.out")
