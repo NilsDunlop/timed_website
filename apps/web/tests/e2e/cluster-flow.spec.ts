@@ -75,7 +75,8 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
   const timeSlider = page.getByTestId("time-slider");
   await timeSlider.fill("1");
   await expect(timeSlider).toHaveValue("1");
-  await page.waitForTimeout(1200);
+  await expect(page.getByTestId("displayed-time")).toHaveText("t 2 / 6");
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready");
   const secondFrame = await pixelSignature(page, canvas);
   expect(secondFrame.checksum).not.toBe(firstFrame.checksum);
 

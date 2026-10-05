@@ -15,28 +15,13 @@ test("renders a real local time series and measures timepoint changes", async ({
 }, testInfo) => {
   const browserErrors: string[] = [];
   let zarrResponses = 0;
-  let zarrRequestsInFlight = 0;
-  let lastZarrRequestFinished = 0;
   const isZarrRequest = (url: string) => url.includes("/backend/zarr/");
   page.on("console", (message) => {
     if (message.type() === "error") browserErrors.push(message.text());
   });
   page.on("pageerror", (reason) => browserErrors.push(reason.message));
-  page.on("request", (request) => {
-    if (isZarrRequest(request.url())) zarrRequestsInFlight += 1;
-  });
   page.on("response", (response) => {
     if (isZarrRequest(response.url())) zarrResponses += 1;
-  });
-  page.on("requestfinished", (request) => {
-    if (!isZarrRequest(request.url())) return;
-    zarrRequestsInFlight -= 1;
-    lastZarrRequestFinished = performance.now();
-  });
-  page.on("requestfailed", (request) => {
-    if (!isZarrRequest(request.url())) return;
-    zarrRequestsInFlight -= 1;
-    lastZarrRequestFinished = performance.now();
   });
 
   await page.goto("/");
@@ -62,7 +47,7 @@ test("renders a real local time series and measures timepoint changes", async ({
   });
   const initialMilliseconds = performance.now() - initialStarted;
 
-  await expect(page.getByText("t 1 / 48")).toBeVisible();
+  await expect(page.getByTestId("displayed-time")).toHaveText("t 1 / 48");
   const canvas = page.locator(".canvas-frame canvas").first();
   await expect(canvas).toBeVisible();
   let previousFrame = await pixelSignature(page, canvas);
@@ -71,31 +56,13 @@ test("renders a real local time series and measures timepoint changes", async ({
   const changeMilliseconds: number[] = [];
   const timeSlider = page.getByTestId("time-slider");
   for (const timepoint of [1, 2, 3]) {
-    const responsesBeforeChange = zarrResponses;
     const started = performance.now();
     await timeSlider.fill(String(timepoint));
-    await expect(page.getByText("t " + String(timepoint + 1) + " / 48")).toBeVisible();
-    await expect
-      .poll(
-        () => zarrResponses,
-        {
-          message: "timepoint " + String(timepoint + 1) + " should request image data",
-          timeout: 60_000,
-        },
-      )
-      .toBeGreaterThan(responsesBeforeChange);
-    await expect
-      .poll(
-        () =>
-          zarrRequestsInFlight === 0 &&
-          performance.now() - lastZarrRequestFinished >= 750,
-        {
-          message: "timepoint " + String(timepoint + 1) + " requests should settle",
-          timeout: 60_000,
-          intervals: [250],
-        },
-      )
-      .toBe(true);
+    await expect(page.getByTestId("displayed-time")).toHaveText(
+      "t " + String(timepoint + 1) + " / 48",
+      { timeout: 60_000 },
+    );
+    await expect(page.getByTestId("viewer-status")).toHaveText("Image ready");
 
     const nextFrame = await pixelSignature(page, canvas);
     expect(nextFrame.checksum).not.toBe(previousFrame.checksum);

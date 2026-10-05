@@ -22,7 +22,7 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 TEST_DATA = REPOSITORY_ROOT / "test-data"
-PORTS = (2222, 8700, 4321)
+CLUSTER_PORT = 2222
 
 
 def _pnpm() -> str:
@@ -131,6 +131,7 @@ def _profile(
                 "username": "dev",
                 "known_hosts": str(known_hosts),
                 "data_roots": [cluster_data_root],
+                "metadata_root": cluster_data_root.rstrip("/") + "/metadata",
                 "slurm": {
                     "account": "dev",
                     "partition": "cpu",
@@ -147,6 +148,7 @@ def _profile(
                 "name": "This computer",
                 "kind": "local",
                 "data_roots": [local_data_root],
+                "metadata_root": str(Path(local_data_root) / "metadata"),
             },
         ]
     }
@@ -154,16 +156,16 @@ def _profile(
 
 
 def _local_profile(path: Path, local_data_root: Path) -> None:
-    value = {
-        "profiles": [
-            {
-                "id": "local",
-                "name": "This computer",
-                "kind": "local",
-                "data_roots": [str(local_data_root)],
-            },
-        ]
+    profile = {
+        "id": "local",
+        "name": "This computer",
+        "kind": "local",
+        "data_roots": [str(local_data_root)],
     }
+    metadata_root = local_data_root / "metadata"
+    if metadata_root.is_dir():
+        profile["metadata_root"] = str(metadata_root)
+    value = {"profiles": [profile]}
     path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
 
 
@@ -226,14 +228,38 @@ def main() -> int:
         "--real-local-store",
         help="OME-Zarr store name inside --real-local-root.",
     )
+    parser.add_argument(
+        "--connector-port",
+        type=int,
+        default=8700,
+        help="Loopback connector port (default: 8700).",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=4321,
+        help="Loopback Astro port (default: 4321).",
+    )
+    parser.add_argument(
+        "--built-ui",
+        action="store_true",
+        help="Serve apps/web/dist from the connector instead of starting Astro dev.",
+    )
     arguments, playwright_arguments = parser.parse_known_args()
 
     if bool(arguments.real_local_root) != bool(arguments.real_local_store):
         parser.error("--real-local-root and --real-local-store must be provided together")
+    if not 1 <= arguments.connector_port <= 65535:
+        parser.error("--connector-port must be between 1 and 65535")
+    if not 1 <= arguments.web_port <= 65535:
+        parser.error("--web-port must be between 1 and 65535")
+    if arguments.connector_port == arguments.web_port:
+        parser.error("--connector-port and --web-port must be different")
 
     real_local_root = arguments.real_local_root.resolve() if arguments.real_local_root else None
     real_local_store = arguments.real_local_store
     real_local = real_local_root is not None
+    built_ui = REPOSITORY_ROOT / "apps" / "web" / "dist"
 
     if real_local_root and not real_local_root.is_dir():
         raise RuntimeError(f"Local data root does not exist: {real_local_root}")
@@ -241,9 +267,16 @@ def main() -> int:
         raise RuntimeError(
             f"OME-Zarr store does not exist: {real_local_root / str(real_local_store)}"
         )
-    if not real_local and not TEST_DATA.is_dir():
+    if arguments.built_ui and not built_ui.is_dir():
+        raise RuntimeError("Build the web application before using --built-ui")
+    if not real_local and (not TEST_DATA.is_dir() or not (TEST_DATA / "metadata").is_dir()):
         raise RuntimeError("Run `make test-data` before the browser suite")
-    for port in (8700, 4321) if real_local else PORTS:
+    required_ports = [arguments.connector_port]
+    if not arguments.built_ui:
+        required_ports.append(arguments.web_port)
+    if not real_local:
+        required_ports.insert(0, CLUSTER_PORT)
+    for port in required_ports:
         _require_free_port(port)
 
     run_id = uuid.uuid4().hex
@@ -305,29 +338,44 @@ def main() -> int:
         )
         services.append(("cluster", cluster_arguments, cluster_environment))
 
-    services.extend(
-        [
-            (
-                "connector",
-                [
-                    sys.executable,
-                    "-m",
-                    "timed_connector.cli",
-                    "serve",
-                    "--profiles",
-                    str(profiles),
-                    "--local-state-dir",
-                    str(runtime / "local-state"),
-                ],
-                None,
-            ),
+    connector_arguments = [
+        sys.executable,
+        "-m",
+        "timed_connector.cli",
+        "serve",
+        "--profiles",
+        str(profiles),
+        "--local-state-dir",
+        str(runtime / "local-state"),
+        "--port",
+        str(arguments.connector_port),
+    ]
+    if arguments.built_ui:
+        connector_arguments.extend(["--serve-ui", str(built_ui)])
+    services.append(("connector", connector_arguments, None))
+
+    if not arguments.built_ui:
+        services.append(
             (
                 "web",
-                [_pnpm(), "-C", "apps/web", "dev", "--host", "127.0.0.1"],
-                None,
-            ),
-        ]
-    )
+                [
+                    _pnpm(),
+                    "-C",
+                    "apps/web",
+                    "dev",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(arguments.web_port),
+                ],
+                {
+                    **os.environ,
+                    "TIMED_CONNECTOR_ORIGIN": (
+                        f"http://127.0.0.1:{arguments.connector_port}"
+                    ),
+                },
+            )
+        )
 
     try:
         for name, service_arguments, process_environment in services:
@@ -336,11 +384,14 @@ def main() -> int:
             process = _start(service_arguments, log, environment=process_environment)
             processes.append(process)
             if name == "cluster":
-                _wait_port(2222, process)
+                _wait_port(CLUSTER_PORT, process)
             elif name == "connector":
-                _wait_http("http://127.0.0.1:8700/connector/session", process)
+                _wait_http(
+                    f"http://127.0.0.1:{arguments.connector_port}/connector/session",
+                    process,
+                )
             else:
-                _wait_http("http://127.0.0.1:4321/", process)
+                _wait_http(f"http://127.0.0.1:{arguments.web_port}/", process)
 
         command = [
             _pnpm(),
@@ -351,6 +402,8 @@ def main() -> int:
             *(["tests/e2e/real-local-flow.spec.ts"] if real_local else playwright_arguments),
         ]
         test_environment = os.environ.copy()
+        browser_port = arguments.connector_port if arguments.built_ui else arguments.web_port
+        test_environment["TIMED_WEB_ORIGIN"] = f"http://127.0.0.1:{browser_port}"
         if real_local_root:
             test_environment.update(
                 {
@@ -363,6 +416,15 @@ def main() -> int:
             cwd=REPOSITORY_ROOT,
             env=test_environment,
         ).returncode
+        for log in logs:
+            log.flush()
+        connector_log = (runtime / "connector.log").read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result_code == 0 and "ERROR:    Exception in ASGI application" in connector_log:
+            print("E2E connector log contains an unhandled ASGI exception", file=sys.stderr)
+            result_code = 1
         if result_code == 0 and cluster_state and repository_for_cluster:
             active = _active_jobs(cluster_state, repository_for_cluster)
             if active:

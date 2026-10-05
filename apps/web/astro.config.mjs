@@ -1,6 +1,9 @@
 import { defineConfig } from "astro/config";
 import react from "@astrojs/react";
 
+const connectorOrigin =
+  process.env.TIMED_CONNECTOR_ORIGIN ?? "http://127.0.0.1:8700";
+
 export default defineConfig({
   output: "static",
   integrations: [react()],
@@ -8,11 +11,11 @@ export default defineConfig({
     server: {
       proxy: {
         "/connector": {
-          target: "http://127.0.0.1:8700",
+          target: connectorOrigin,
           changeOrigin: true,
         },
         "/backend": {
-          target: "http://127.0.0.1:8700",
+          target: connectorOrigin,
           changeOrigin: true,
         },
       },
