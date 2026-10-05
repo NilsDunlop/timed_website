@@ -15,7 +15,7 @@ test-e2e:
 	@echo "The Playwright end-to-end suite is added in M6."
 
 test-data:
-	@echo "Synthetic OME-Zarr generation is added in M2."
+	uv run python scripts/make_test_data.py
 
 gen-api:
 	@echo "Typed API generation is added in M6."

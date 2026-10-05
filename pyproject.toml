@@ -20,6 +20,7 @@ timed-dataserver = { workspace = true }
 
 [dependency-groups]
 dev = [
+  "ome-zarr==0.19.2",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "ruff==0.16.10",

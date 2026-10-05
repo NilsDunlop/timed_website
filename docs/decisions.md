@@ -30,9 +30,10 @@ to Viv and maps array metadata/chunk requests to the existing field store. It
 does not alter, convert, or copy the remote data. Range requests remain essential
 because the sharding index and compressed chunks live within a single shard.
 
-Synthetic `test_plate.zarr` will mirror the collection-plus-bare-array layout,
-axes, dtype, single resolution, logical chunking, whole-array sharding, codecs,
-and wavelength channel labels at small dimensions. A separate standard
-OME-Zarr 0.5 image remains in the test matrix so native OME-Zarr support does not
-regress. Because a real plane is 2500 by 2500 pixels, the single-resolution data
-fits below the 4096 by 4096 texture limit noted in the brief.
+Synthetic `test_plate.zarr` mirrors the collection-plus-bare-array layout,
+axes, dtype, single resolution, whole-array sharding, codecs, and wavelength
+channel labels at small dimensions. Its `(1, 1, 128, 128)` chunks preserve the
+real data's four-by-four spatial chunk grid at 512 by 512 pixels. Separate
+standard OME-Zarr 0.4/Zarr v2 and OME-Zarr 0.5/Zarr v3 images keep both native
+paths covered. Because a real plane is 2500 by 2500 pixels, the single-resolution
+data fits below the 4096 by 4096 texture limit noted in the brief.

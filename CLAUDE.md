@@ -27,7 +27,7 @@ make dev          # connector plus Astro development servers (available after M4
 make test-cluster # local SSH/Slurm harness (available after M4)
 make test         # Python and web checks
 make test-e2e     # Playwright end-to-end suite (available after M6)
-make test-data    # deterministic OME-Zarr fixtures (available after M2)
+make test-data    # deterministic TIMED and native OME-Zarr fixtures
 make gen-api      # regenerate typed OpenAPI clients (available after M6)
 make lint         # Ruff and Astro checks
 ```
@@ -98,8 +98,20 @@ Zarr groups or OME-Zarr plates. Each field is a bare Zarr v3 array named like
   for Viv while mapping chunks to the untouched bare array. Keep standard
   OME-Zarr 0.4/v2 and 0.5/v3 support as separate tested paths.
 
+`scripts/make_test_data.py` creates `test-data/test_plate.zarr` in the real
+plain-collection layout: A1, A2, and B1 with two bare fields each, B2 absent,
+six timepoints, three channels, 512 by 512 pixels, chunks `(1, 1, 128, 128)`,
+and one whole-array shard per field. It also creates single-resolution native
+`test_image_v04.zarr` (Zarr v2) and `test_image_v05.zarr` (Zarr v3). The output
+is deterministic and gitignored.
+
 ## Known gotchas
 
 - PowerShell may block npm's `.ps1` shim; use the `.cmd` shim when setting up a
   Windows workstation. Repository scripts themselves remain cross-platform.
+- GNU Make is not installed on the current Windows workstation; run
+  `uv run python scripts/make_test_data.py` as the direct equivalent of
+  `make test-data` there.
+- `ome-zarr==0.19.2` requires Pydantic below 2.13, so both services pin the
+  newest compatible release, `pydantic==2.12.5`.
 - M5 and M7 require the operator to enter Arrhenius password and 2FA input.
