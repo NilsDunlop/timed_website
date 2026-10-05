@@ -44,7 +44,16 @@ uv run python scripts/run_e2e.py \
 ```
 
 This opt-in flow renders the first field, verifies three adjacent timepoints,
-prints settled transfer timings, and shuts down its local data server.
+prints render-completion timings, and shuts down its local data server. If a
+development server is already running, validate the production build without
+interrupting it:
+
+```bash
+pnpm -C apps/web build
+uv run python scripts/run_e2e.py --built-ui --connector-port 8870 \
+  --real-local-root /path/to/local/data \
+  --real-local-store sample-plate.zarr
+```
 
 To inspect experiment/acquisition metadata for metadata-aware plate views, run
 the read-only inspector in an environment with PyArrow and save its JSON report:
@@ -57,6 +66,20 @@ uv run --with pyarrow python scripts/inspect_timed_metadata.py \
 The inspector reads no image chunks. It summarizes acquisition JSON, CSV and
 Parquet schemas and values, redacts credential-like fields, and caps table reads
 at 200,000 rows per file by default.
+
+To enable plate and well metadata in the application, set `metadata_root` next
+to `data_roots` in the selected profile:
+
+```yaml
+metadata_root: /path/to/TIMED/metadata
+```
+
+TIMED then loads the matching per-plate CSV and acquisition JSON on demand. The
+plate view can highlight wells by compound, mechanism class, or control status,
+and both the plate view and image viewer show structured experiment information.
+The inspected high-level layout and join rules are documented in
+[`docs/data/METADATA.md`](docs/data/METADATA.md); raw inspection output and
+instrument-specific details remain local.
 
 ## Current status
 

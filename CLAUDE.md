@@ -192,7 +192,11 @@ is deterministic and gitignored.
 - M5 and M7 require the operator to enter Arrhenius password and 2FA input.
 - Keep `.canvas-frame` positioned; deck.gl otherwise places its canvas relative
   to the page and can cover the viewer controls.
-- Real Arrhenius timepoint changes currently take roughly 5–10 seconds. Viv
-  0.23 recreates its deck.gl tile cache when `selections` change; investigate a
-  bounded adjacent-timepoint range cache/prefetch in the custom Zarr store
-  before adding playback or claiming smooth scrubbing.
+- Viv 0.23 recreates its deck.gl tile cache when `selections` change. TIMED
+  therefore keeps a bounded 128 MiB decoded-tile cache below Viv, prefetches one
+  adjacent timepoint with bounded concurrency, and distinguishes requested,
+  rendering, and displayed time. Preserve those semantics when changing the
+  viewer; readiness must describe pixels on screen, not the slider value.
+- `scripts/run_e2e.py --built-ui --connector-port <free-port>` serves the
+  production build directly from an isolated connector. Use it when another
+  Astro development server already owns this checkout's singleton dev lock.

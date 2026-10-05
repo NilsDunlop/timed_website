@@ -104,3 +104,51 @@ log, unexpected exit moves the public state to `error`, and disconnect always
 terminates the process. The end-to-end harness gives local mode an isolated
 registry and verifies plate rendering, a changed time frame, clean browser
 console output, and process shutdown alongside the unchanged SSH/Slurm flow.
+
+## 2026-10-05: join experiment metadata at the plate boundary
+
+Experiment metadata remains beside the image tree and is configured through an
+optional profile `metadata_root`. A linked dataset name identifies the matching
+per-plate CSV and acquisition JSON; canonical well IDs then join treatment rows
+to the OME-Zarr plate. The server reads those two bounded files with the Python
+standard library rather than deploying PyArrow or loading the consolidated
+Parquet table.
+
+The browser treats compound and dose as one treatment assignment: the compound
+filter displays its associated dose instead of introducing a separate global
+dose category. Mechanism classes supply a small stable color palette, controls
+remain visually distinct, and filtering dims non-matching wells. Selecting a
+well exposes compound, dose, mechanism, target, and pathway alongside concise
+plate and acquisition information in both the plate browser and image viewer.
+
+The raw inspection report is local-only because it contains environment paths
+and low-level instrument details. Only its high-level structure, join rules, and
+sanitized synthetic fixture are committed.
+
+## 2026-10-06: optimize the real TIMED time axis without preview images
+
+The viewer keeps the original uint16 TIMED arrays as its only image
+representation. Single-resolution fields use Viv's lower-level detail view so
+`excludeBackground` can retain the last complete frame while the next frame is
+loading. Requested, rendering, and displayed timepoints are tracked separately:
+rapid slider input is debounced for 150 ms, and the status and footer change to
+the new time only after Viv reports that its viewport is complete.
+
+A 128 MiB least-recently-used cache sits below Viv at the decoded-tile boundary.
+It keys tiles by dataset, field, resolution, spatial tile, and non-spatial
+selection. Concurrent consumers share one load; cancelling a stale foreground
+request cannot cancel a still-useful prefetch. Once a frame is complete, TIMED
+prefetches the adjacent frame after a short idle delay with bounded concurrency
+and follows the user's direction through the trajectory. Three-channel fields
+fit roughly three complete decoded frames in the current budget.
+
+The connector owns one bounded HTTP client for its whole lifespan so range
+requests reuse upstream TCP connections. Zarr resources return private
+one-hour freshness, strong ETags, Last-Modified for files, conditional 304
+responses, and If-Range handling. These headers may be stored only by the
+user's private browser cache; the bearer token remains connector-only.
+
+The approach deliberately does not generate preview pyramids or videos. It
+improves interactive access to the authoritative arrays and leaves a later
+preview representation as an independent option if remote measurements still
+justify one.
