@@ -13,6 +13,7 @@ class ApiModel(BaseModel):
 
 class Capabilities(ApiModel):
     gpu: bool = False
+    plate_metadata: bool = False
 
 
 class HandshakeResponse(ApiModel):
@@ -134,3 +135,55 @@ class FieldSummary(ApiModel):
 class WellFieldsResponse(ApiModel):
     well_path: str
     fields: list[FieldSummary]
+
+
+class AcquisitionChannelSummary(ApiModel):
+    name: str
+
+
+class PlateAcquisitionSummary(ApiModel):
+    project_name: str | None = None
+    configuration_timestamp: str | None = None
+    autofocus_enabled: bool | None = None
+    plate_manufacturer: str | None = None
+    plate_model: str | None = None
+    plate_bottom_offset_mm: float | None = None
+    sites_per_well: int | None = None
+    site_spacing_x_mm: float | None = None
+    site_spacing_y_mm: float | None = None
+    timepoint_count: int | None = None
+    interval_minutes: float | None = None
+    channels: list[AcquisitionChannelSummary] = Field(default_factory=list)
+
+
+class PlateExperimentSummary(ApiModel):
+    plate_id: str
+    plate_series: str | None = None
+    plate_replicate: int | None = None
+    plate_barcode: str | None = None
+    project: str | None = None
+    experiment_date: str | None = None
+    cell_line: str | None = None
+    cell_modification: str | None = None
+    passage: str | None = None
+    seeding_density_cells_per_well: int | None = None
+    dye_program: str | None = None
+    acquisition: PlateAcquisitionSummary | None = None
+
+
+class WellMetadataSummary(ApiModel):
+    well: str
+    well_type: str | None = None
+    compound: str | None = None
+    dose_um: float | None = None
+    is_control: bool = False
+    moa: str | None = None
+    target: str | None = None
+    pathway: str | None = None
+    mechanism_of_action: str | None = None
+
+
+class PlateMetadataResponse(ApiModel):
+    available: bool
+    plate: PlateExperimentSummary | None = None
+    wells: list[WellMetadataSummary] = Field(default_factory=list)

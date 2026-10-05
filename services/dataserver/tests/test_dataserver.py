@@ -29,14 +29,13 @@ def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture
-def client_factory(
-    data_root: Path, tmp_path: Path
-) -> Callable[[Path | None], TestClient]:
+def client_factory(data_root: Path, tmp_path: Path) -> Callable[[Path | None], TestClient]:
     def make_client(state_dir: Path | None = None) -> TestClient:
         settings = ServerSettings(
             data_roots=(data_root,),
             state_dir=state_dir or tmp_path / "state",
             environment="local",
+            metadata_root=data_root / "metadata",
         )
         return TestClient(create_app(settings, TOKEN))
 
@@ -87,7 +86,7 @@ def test_handshake_and_listing_detect_every_fixture(
         assert payload["api_version"] == "1.0"
         assert payload["environment"] == "local"
         assert payload["data_roots"] == [str(data_root.resolve())]
-        assert payload["capabilities"] == {"gpu": False}
+        assert payload["capabilities"] == {"gpu": False, "plate_metadata": True}
 
         roots = client.get("/api/fs/list", headers=AUTH)
         assert roots.status_code == 200
@@ -140,17 +139,13 @@ def test_path_guard_rejects_parent_outside_and_symlink_escape(
         except OSError as exc:
             pytest.skip(f"Creating a directory symlink is unavailable: {exc}")
         try:
-            response = client.get(
-                "/api/fs/list", headers=AUTH, params={"path": str(symlink)}
-            )
+            response = client.get("/api/fs/list", headers=AUTH, params={"path": str(symlink)})
             assert response.status_code == 403
         finally:
             symlink.unlink(missing_ok=True)
 
 
-def test_registry_link_list_unlink_persists_across_apps(
-    data_root: Path, tmp_path: Path
-) -> None:
+def test_registry_link_list_unlink_persists_across_apps(data_root: Path, tmp_path: Path) -> None:
     state_dir = tmp_path / "persistent-state"
     settings = ServerSettings(
         data_roots=(data_root,),
@@ -211,19 +206,24 @@ def test_collection_plate_well_summary_and_ome_facade(
             {"path": "A01_s2.zarr", "acquisition": None},
         ]
 
-        group_metadata = client.get(
-            f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json", headers=AUTH
-        )
+        group_metadata = client.get(f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json", headers=AUTH)
         assert group_metadata.status_code == 200
         assert group_metadata.json()["node_type"] == "group"
         assert group_metadata.json()["attributes"]["ome"]["version"] == "0.5"
         facade_axes = group_metadata.json()["attributes"]["ome"]["multiscales"][0]["axes"]
         assert facade_axes[0] == {"name": "t", "type": "time", "unit": "hour"}
         assert facade_axes[1] == {"name": "c", "type": "channel"}
-
-        array_metadata = client.get(
-            f"/zarr/{dataset_id}/A01_s1.zarr/s0/zarr.json", headers=AUTH
+        assert group_metadata.headers["cache-control"] == "private, max-age=3600"
+        metadata_etag = group_metadata.headers["etag"]
+        not_modified_metadata = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json",
+            headers={**AUTH, "If-None-Match": f'W/{metadata_etag}, "unrelated"'},
         )
+        assert not_modified_metadata.status_code == 304
+        assert not_modified_metadata.content == b""
+        assert not_modified_metadata.headers["etag"] == metadata_etag
+
+        array_metadata = client.get(f"/zarr/{dataset_id}/A01_s1.zarr/s0/zarr.json", headers=AUTH)
         assert array_metadata.status_code == 200
         assert array_metadata.json()["node_type"] == "array"
         assert array_metadata.json()["dimension_names"] == ["t", "c", "y", "x"]
@@ -236,6 +236,49 @@ def test_collection_plate_well_summary_and_ome_facade(
         assert ranged.content == shard.read_bytes()[10:30]
         assert ranged.headers["content-range"] == f"bytes 10-29/{shard.stat().st_size}"
         assert ranged.headers["accept-ranges"] == "bytes"
+        assert ranged.headers["cache-control"] == "private, max-age=3600"
+        assert "last-modified" in ranged.headers
+        shard_etag = ranged.headers["etag"]
+
+        not_modified_shard = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
+            headers={**AUTH, "If-None-Match": shard_etag},
+        )
+        assert not_modified_shard.status_code == 304
+        assert not_modified_shard.content == b""
+
+        matching_if_range = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
+            headers={
+                **AUTH,
+                "Range": "bytes=10-29",
+                "If-Range": shard_etag,
+            },
+        )
+        assert matching_if_range.status_code == 206
+        assert matching_if_range.content == shard.read_bytes()[10:30]
+
+        stale_if_range = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
+            headers={
+                **AUTH,
+                "Range": "bytes=10-29",
+                "If-Range": '"stale-validator"',
+            },
+        )
+        assert stale_if_range.status_code == 200
+        assert stale_if_range.content == shard.read_bytes()
+        assert "content-range" not in stale_if_range.headers
+
+        matching_date_if_range = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
+            headers={
+                **AUTH,
+                "Range": "bytes=10-29",
+                "If-Range": ranged.headers["last-modified"],
+            },
+        )
+        assert matching_date_if_range.status_code == 206
 
         head = client.head(
             f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
@@ -246,10 +289,97 @@ def test_collection_plate_well_summary_and_ome_facade(
         assert head.headers["content-length"] == str(shard.stat().st_size)
         assert head.headers["accept-ranges"] == "bytes"
 
-        missing = client.get(
-            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/9/9/9/9", headers=AUTH
-        )
+        missing = client.get(f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/9/9/9/9", headers=AUTH)
         assert missing.status_code == 404
+
+
+def test_collection_plate_metadata_joins_wells_and_acquisition(
+    client_factory: Callable[[Path | None], TestClient],
+    data_root: Path,
+) -> None:
+    with client_factory() as client:
+        record = _link(client, data_root / "test_plate.zarr")
+        response = client.get(
+            f"/api/datasets/{record['id']}/metadata",
+            headers=AUTH,
+        )
+        image = _link(client, data_root / "test_image_v05.zarr")
+        unavailable = client.get(
+            f"/api/datasets/{image['id']}/metadata",
+            headers=AUTH,
+        )
+
+    assert response.status_code == 200, response.text
+    metadata = response.json()
+    assert metadata["available"] is True
+    assert metadata["plate"] == {
+        "plate_id": "S1.1",
+        "plate_series": "S1",
+        "plate_replicate": 1,
+        "plate_barcode": "SYNTH001",
+        "project": "TIMED synthetic",
+        "experiment_date": "2026-10-05",
+        "cell_line": "Synthetic cells",
+        "cell_modification": "Reporter",
+        "passage": "1",
+        "seeding_density_cells_per_well": 1200,
+        "dye_program": "Three-channel",
+        "acquisition": {
+            "project_name": "TIMED synthetic test data",
+            "configuration_timestamp": "2026-10-05T12:00:00",
+            "autofocus_enabled": True,
+            "plate_manufacturer": "TIMED",
+            "plate_model": "Synthetic 4-well plate",
+            "plate_bottom_offset_mm": 0.5,
+            "sites_per_well": 2,
+            "site_spacing_x_mm": 0.8,
+            "site_spacing_y_mm": 0.8,
+            "timepoint_count": 6,
+            "interval_minutes": 60.0,
+            "channels": [
+                {"name": "Fluorescence 405 nm Ex"},
+                {"name": "Fluorescence 505 nm Ex"},
+                {"name": "Fluorescence 625 nm Ex"},
+            ],
+        },
+    }
+    assert metadata["wells"] == [
+        {
+            "well": "A01",
+            "well_type": "compound",
+            "compound": "Compound Alpha",
+            "dose_um": 1.25,
+            "is_control": False,
+            "moa": "AKT",
+            "target": "AKT1",
+            "pathway": "PI3K/Akt/mTOR",
+            "mechanism_of_action": "AKT inhibitor",
+        },
+        {
+            "well": "A02",
+            "well_type": "compound",
+            "compound": "Compound Beta",
+            "dose_um": 5.0,
+            "is_control": False,
+            "moa": "MAPK",
+            "target": "MAPK1",
+            "pathway": "MAPK/ERK Pathway",
+            "mechanism_of_action": "MAPK inhibitor",
+        },
+        {
+            "well": "B01",
+            "well_type": "solvent_control",
+            "compound": "DMSO",
+            "dose_um": 0.0,
+            "is_control": True,
+            "moa": None,
+            "target": None,
+            "pathway": None,
+            "mechanism_of_action": None,
+        },
+    ]
+    assert unavailable.status_code == 200
+    assert unavailable.json() == {"available": False, "plate": None, "wells": []}
 
 
 @pytest.mark.parametrize(
@@ -337,12 +467,8 @@ def test_native_plate_and_well_metadata_are_read_lazily(
 
     with client_factory() as client:
         record = _link(client, plate)
-        summary_response = client.get(
-            f"/api/datasets/{record['id']}/summary", headers=AUTH
-        )
-        well_response = client.get(
-            f"/api/datasets/{record['id']}/wells/A/1", headers=AUTH
-        )
+        summary_response = client.get(f"/api/datasets/{record['id']}/summary", headers=AUTH)
+        well_response = client.get(f"/api/datasets/{record['id']}/wells/A/1", headers=AUTH)
 
     assert summary_response.status_code == 200, summary_response.text
     summary = summary_response.json()
@@ -411,5 +537,6 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert document["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
     assert "/api/handshake" in document["paths"]
     assert "/api/datasets/{dataset_id}/summary" in document["paths"]
+    assert "/api/datasets/{dataset_id}/metadata" in document["paths"]
     assert "/zarr/{dataset_id}/{resource_path}" in document["paths"]
     assert "openapi-placeholder" not in output

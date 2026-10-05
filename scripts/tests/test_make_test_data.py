@@ -33,6 +33,17 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
         "B01_s2.zarr",
     ]
     assert not (plate / "B02_s1.zarr").exists()
+    metadata = tmp_path / "metadata"
+    acquisition = json.loads((metadata / "acquisition" / "test_plate.json").read_text("utf-8"))
+    assert acquisition["plate_name"] == "test_plate"
+    assert [channel["name"] for channel in acquisition["channels"]] == [
+        "Fluorescence 405 nm Ex",
+        "Fluorescence 505 nm Ex",
+        "Fluorescence 625 nm Ex",
+    ]
+    metadata_csv = (metadata / "csv" / "test_plate.csv").read_text("utf-8")
+    assert "Compound Alpha" in metadata_csv
+    assert "solvent_control" in metadata_csv
 
     field = zarr.open_array(plate / "A01_s1.zarr", mode="r")
     assert field.metadata.zarr_format == 3
@@ -93,7 +104,12 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
     items, skipped, errors = inspect_omezarr.plan([tmp_path])
     records = list(inspect_omezarr.iter_records(items, all_fields=False, progress=False))
     by_name = {record["name"]: record for record in records}
-    assert skipped == []
+    assert skipped == [
+        {
+            "path": str(metadata),
+            "reason": "no Zarr metadata and no *.zarr inside",
+        }
+    ]
     assert errors == []
     assert set(by_name) == {"test_plate.zarr", "test_image_v04.zarr", "test_image_v05.zarr"}
     collection = by_name["test_plate.zarr"]

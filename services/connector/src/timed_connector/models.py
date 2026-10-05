@@ -24,6 +24,7 @@ class Profile(ApiModel):
     name: str
     kind: Literal["slurm", "local"]
     data_roots: list[str] = Field(min_length=1)
+    metadata_root: str | None = None
     host: str | None = None
     port: int = Field(default=22, ge=1, le=65535)
     username: str | None = None

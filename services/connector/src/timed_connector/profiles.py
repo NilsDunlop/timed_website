@@ -49,12 +49,15 @@ def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
     """Return one profile after checks which do not contact the remote host."""
     profile = store.get(profile_id)
     if profile.kind == "local":
-        for root in profile.data_roots:
+        for root in [
+            *profile.data_roots,
+            *([profile.metadata_root] if profile.metadata_root else []),
+        ]:
             path = Path(root).expanduser()
             if not path.is_absolute():
                 path = Path.cwd() / path
             if not path.resolve().is_dir():
-                raise ProfileError(f"Local data root does not exist: {path}")
+                raise ProfileError(f"Local profile path does not exist: {path}")
     if profile.known_hosts is not None:
         known_hosts = Path(profile.known_hosts).expanduser()
         if not known_hosts.is_absolute():

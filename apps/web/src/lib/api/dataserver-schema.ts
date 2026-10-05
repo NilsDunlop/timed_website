@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dataset Metadata */
+        get: operations["dataset_metadata_api_datasets__dataset_id__metadata_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/{dataset_id}/summary": {
         parameters: {
             query?: never;
@@ -128,6 +145,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcquisitionChannelSummary */
+        AcquisitionChannelSummary: {
+            /** Name */
+            name: string;
+        };
         /** AcquisitionSummary */
         AcquisitionSummary: {
             /** Id */
@@ -151,6 +173,11 @@ export interface components {
              * @default false
              */
             gpu: boolean;
+            /**
+             * Plate Metadata
+             * @default false
+             */
+            plate_metadata: boolean;
         };
         /** ChannelSummary */
         ChannelSummary: {
@@ -275,6 +302,67 @@ export interface components {
              */
             zarr_format: 2 | 3;
         };
+        /** PlateAcquisitionSummary */
+        PlateAcquisitionSummary: {
+            /** Autofocus Enabled */
+            autofocus_enabled?: boolean | null;
+            /** Channels */
+            channels?: components["schemas"]["AcquisitionChannelSummary"][];
+            /** Configuration Timestamp */
+            configuration_timestamp?: string | null;
+            /** Interval Minutes */
+            interval_minutes?: number | null;
+            /** Plate Bottom Offset Mm */
+            plate_bottom_offset_mm?: number | null;
+            /** Plate Manufacturer */
+            plate_manufacturer?: string | null;
+            /** Plate Model */
+            plate_model?: string | null;
+            /** Project Name */
+            project_name?: string | null;
+            /** Site Spacing X Mm */
+            site_spacing_x_mm?: number | null;
+            /** Site Spacing Y Mm */
+            site_spacing_y_mm?: number | null;
+            /** Sites Per Well */
+            sites_per_well?: number | null;
+            /** Timepoint Count */
+            timepoint_count?: number | null;
+        };
+        /** PlateExperimentSummary */
+        PlateExperimentSummary: {
+            acquisition?: components["schemas"]["PlateAcquisitionSummary"] | null;
+            /** Cell Line */
+            cell_line?: string | null;
+            /** Cell Modification */
+            cell_modification?: string | null;
+            /** Dye Program */
+            dye_program?: string | null;
+            /** Experiment Date */
+            experiment_date?: string | null;
+            /** Passage */
+            passage?: string | null;
+            /** Plate Barcode */
+            plate_barcode?: string | null;
+            /** Plate Id */
+            plate_id: string;
+            /** Plate Replicate */
+            plate_replicate?: number | null;
+            /** Plate Series */
+            plate_series?: string | null;
+            /** Project */
+            project?: string | null;
+            /** Seeding Density Cells Per Well */
+            seeding_density_cells_per_well?: number | null;
+        };
+        /** PlateMetadataResponse */
+        PlateMetadataResponse: {
+            /** Available */
+            available: boolean;
+            plate?: components["schemas"]["PlateExperimentSummary"] | null;
+            /** Wells */
+            wells?: components["schemas"]["WellMetadataSummary"][];
+        };
         /** PlateSummary */
         PlateSummary: {
             /** Acquisitions */
@@ -339,6 +427,30 @@ export interface components {
             fields: components["schemas"]["FieldSummary"][];
             /** Well Path */
             well_path: string;
+        };
+        /** WellMetadataSummary */
+        WellMetadataSummary: {
+            /** Compound */
+            compound?: string | null;
+            /** Dose Um */
+            dose_um?: number | null;
+            /**
+             * Is Control
+             * @default false
+             */
+            is_control: boolean;
+            /** Mechanism Of Action */
+            mechanism_of_action?: string | null;
+            /** Moa */
+            moa?: string | null;
+            /** Pathway */
+            pathway?: string | null;
+            /** Target */
+            target?: string | null;
+            /** Well */
+            well: string;
+            /** Well Type */
+            well_type?: string | null;
         };
         /** WellSummary */
         WellSummary: {
@@ -439,6 +551,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dataset_metadata_api_datasets__dataset_id__metadata_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlateMetadataResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

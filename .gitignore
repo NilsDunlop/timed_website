@@ -20,6 +20,7 @@ test-data/
 dev/test_cluster/.state/
 .timed/
 *.sif
+docs/data/timed-metadata-inspection.json
 
 # Local environment and editor files
 .env

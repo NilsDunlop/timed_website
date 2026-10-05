@@ -1,6 +1,20 @@
 {
   "components": {
     "schemas": {
+      "AcquisitionChannelSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AcquisitionChannelSummary",
+        "type": "object"
+      },
       "AcquisitionSummary": {
         "additionalProperties": false,
         "properties": {
@@ -75,6 +89,11 @@
           "gpu": {
             "default": false,
             "title": "Gpu",
+            "type": "boolean"
+          },
+          "plate_metadata": {
+            "default": false,
+            "title": "Plate Metadata",
             "type": "boolean"
           }
         },
@@ -447,6 +466,306 @@
         "title": "OmeZarrInfo",
         "type": "object"
       },
+      "PlateAcquisitionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "autofocus_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autofocus Enabled"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/AcquisitionChannelSummary"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "configuration_timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configuration Timestamp"
+          },
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
+          },
+          "plate_bottom_offset_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plate Bottom Offset Mm"
+          },
+          "plate_manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plate Manufacturer"
+          },
+          "plate_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plate Model"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "site_spacing_x_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Spacing X Mm"
+          },
+          "site_spacing_y_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Spacing Y Mm"
+          },
+          "sites_per_well": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sites Per Well"
+          },
+          "timepoint_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timepoint Count"
+          }
+        },
+        "title": "PlateAcquisitionSummary",
+        "type": "object"
+      },
+      "PlateExperimentSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "acquisition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlateAcquisitionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cell_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell Line"
+          },
+          "cell_modification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell Modification"
+          },
+          "dye_program": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dye Program"
+          },
+          "experiment_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Date"
+          },
+          "passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
+          },
+          "plate_barcode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plate Barcode"
+          },
+          "plate_id": {
+            "title": "Plate Id",
+            "type": "string"
+          },
+          "plate_replicate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plate Replicate"
+          },
+          "plate_series": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plate Series"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "seeding_density_cells_per_well": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seeding Density Cells Per Well"
+          }
+        },
+        "required": [
+          "plate_id"
+        ],
+        "title": "PlateExperimentSummary",
+        "type": "object"
+      },
+      "PlateMetadataResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "plate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlateExperimentSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wells": {
+            "items": {
+              "$ref": "#/components/schemas/WellMetadataSummary"
+            },
+            "title": "Wells",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "PlateMetadataResponse",
+        "type": "object"
+      },
       "PlateSummary": {
         "additionalProperties": false,
         "properties": {
@@ -647,6 +966,102 @@
         "title": "WellFieldsResponse",
         "type": "object"
       },
+      "WellMetadataSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "compound": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compound"
+          },
+          "dose_um": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dose Um"
+          },
+          "is_control": {
+            "default": false,
+            "title": "Is Control",
+            "type": "boolean"
+          },
+          "mechanism_of_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mechanism Of Action"
+          },
+          "moa": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moa"
+          },
+          "pathway": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pathway"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "well": {
+            "title": "Well",
+            "type": "string"
+          },
+          "well_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Well Type"
+          }
+        },
+        "required": [
+          "well"
+        ],
+        "title": "WellMetadataSummary",
+        "type": "object"
+      },
       "WellSummary": {
         "additionalProperties": false,
         "properties": {
@@ -732,7 +1147,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -835,6 +1250,50 @@
           }
         ],
         "summary": "Unlink Dataset"
+      }
+    },
+    "/api/datasets/{dataset_id}/metadata": {
+      "get": {
+        "operationId": "dataset_metadata_api_datasets__dataset_id__metadata_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlateMetadataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dataset Metadata"
       }
     },
     "/api/datasets/{dataset_id}/summary": {

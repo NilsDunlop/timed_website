@@ -93,6 +93,8 @@ def render_job_script(
     ]
     for root in profile.data_roots:
         command.extend(("--data-root", root))
+    if profile.metadata_root is not None:
+        command.extend(("--metadata-root", profile.metadata_root))
     command.extend(
         (
             "--connection-file",

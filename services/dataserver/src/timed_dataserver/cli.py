@@ -34,6 +34,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="allowed data root; may be repeated",
     )
+    serve_parser.add_argument(
+        "--metadata-root",
+        type=Path,
+        help="optional directory containing acquisition JSON and per-plate CSV metadata",
+    )
     serve_parser.add_argument("--connection-file", required=True, type=Path)
     serve_parser.add_argument("--environment", choices=("local", "hpc"), required=True)
     serve_parser.add_argument("--state-dir", type=Path, default=Path.home() / ".timed")
@@ -139,6 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         data_roots=tuple(args.data_root),
         state_dir=args.state_dir,
         environment=args.environment,
+        metadata_root=args.metadata_root,
     )
     try:
         asyncio.run(

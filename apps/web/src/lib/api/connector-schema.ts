@@ -150,6 +150,8 @@ export interface components {
             kind: "slurm" | "local";
             /** Known Hosts */
             known_hosts?: string | null;
+            /** Metadata Root */
+            metadata_root?: string | null;
             /** Module Loads */
             module_loads?: string[];
             /** Name */

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 import platform
 import re
 import socket
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC
+from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -25,6 +28,7 @@ from .models import (
     FilesystemEntry,
     FilesystemListResponse,
     HandshakeResponse,
+    PlateMetadataResponse,
     WellFieldsResponse,
 )
 from .omezarr import (
@@ -36,10 +40,12 @@ from .omezarr import (
     well_fields,
 )
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
+from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
 from .registry import DatasetRegistry
 
 RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 STREAM_BLOCK_SIZE = 1024 * 1024
+PRIVATE_CACHE_CONTROL = "private, max-age=3600"
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,7 @@ class ServerSettings:
     data_roots: tuple[Path, ...]
     state_dir: Path
     environment: Literal["local", "hpc"]
+    metadata_root: Path | None = None
 
 
 def _forbidden(exc: Exception) -> HTTPException:
@@ -91,16 +98,72 @@ def _range_bounds(value: str | None, size: int) -> tuple[int, int] | None:
     return max(0, size - suffix_length), size - 1
 
 
-def _memory_response(content: bytes, content_type: str, range_header: str | None) -> Response:
+def _cache_headers(etag: str, *, modified: float | None = None) -> dict[str, str]:
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": PRIVATE_CACHE_CONTROL,
+        "ETag": etag,
+    }
+    if modified is not None:
+        headers["Last-Modified"] = formatdate(modified, usegmt=True)
+    return headers
+
+
+def _etag_matches(value: str | None, etag: str) -> bool:
+    if value is None:
+        return False
+    expected = etag.removeprefix("W/")
+    return any(
+        candidate == "*" or candidate.removeprefix("W/") == expected
+        for candidate in (part.strip() for part in value.split(","))
+    )
+
+
+def _range_for_validator(
+    range_header: str | None,
+    if_range: str | None,
+    etag: str,
+    *,
+    modified: float | None = None,
+) -> str | None:
+    if range_header is None or if_range is None:
+        return range_header
+    validator = if_range.strip()
+    if validator.startswith('"') or validator.startswith("W/"):
+        return range_header if not validator.startswith("W/") and validator == etag else None
+    if modified is None:
+        return None
+    try:
+        parsed = parsedate_to_datetime(validator)
+        validator_time = (
+            parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+        ).timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return range_header if int(modified) <= int(validator_time) else None
+
+
+def _memory_response(
+    content: bytes,
+    content_type: str,
+    range_header: str | None,
+    if_none_match: str | None,
+    if_range: str | None,
+) -> Response:
     size = len(content)
-    headers = {"Accept-Ranges": "bytes"}
+    digest = hashlib.blake2s(content, digest_size=16).hexdigest()
+    etag = f'"{digest}"'
+    headers = _cache_headers(etag)
+    if _etag_matches(if_none_match, etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    range_header = _range_for_validator(range_header, if_range, etag)
     try:
         bounds = _range_bounds(range_header, size)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
             detail=str(exc),
-            headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+            headers={**headers, "Content-Range": f"bytes */{size}"},
         ) from exc
     if bounds is None:
         headers["Content-Length"] = str(size)
@@ -133,15 +196,31 @@ def _file_blocks(path: Path, start: int, length: int) -> Iterator[bytes]:
             yield block
 
 
-def _file_response(path: Path, range_header: str | None) -> StreamingResponse:
-    size = path.stat().st_size
+def _file_response(
+    path: Path,
+    range_header: str | None,
+    if_none_match: str | None,
+    if_range: str | None,
+) -> Response:
+    metadata = path.stat()
+    size = metadata.st_size
+    etag = f'"{metadata.st_mtime_ns:x}-{size:x}"'
+    headers = _cache_headers(etag, modified=metadata.st_mtime)
+    if _etag_matches(if_none_match, etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    range_header = _range_for_validator(
+        range_header,
+        if_range,
+        etag,
+        modified=metadata.st_mtime,
+    )
     try:
         bounds = _range_bounds(range_header, size)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
             detail=str(exc),
-            headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+            headers={**headers, "Content-Range": f"bytes */{size}"},
         ) from exc
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     if bounds is None:
@@ -151,10 +230,7 @@ def _file_response(path: Path, range_header: str | None) -> StreamingResponse:
         start, end = bounds
         response_status = status.HTTP_206_PARTIAL_CONTENT
     length = max(0, end - start + 1)
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(length),
-    }
+    headers["Content-Length"] = str(length)
     if bounds is not None:
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     return StreamingResponse(
@@ -169,6 +245,9 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     """Create one isolated data-server application."""
     guard = RootGuard(settings.data_roots)
     registry = DatasetRegistry(settings.state_dir)
+    metadata_catalog = (
+        PlateMetadataCatalog(settings.metadata_root) if settings.metadata_root is not None else None
+    )
     require_token = bearer_auth(token)
     app = FastAPI(
         title="TIMED data server",
@@ -181,6 +260,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     app.state.settings = settings
     app.state.guard = guard
     app.state.registry = registry
+    app.state.metadata_catalog = metadata_catalog
 
     def linked(dataset_id: str) -> tuple[DatasetRecord, Path, StoreDescriptor]:
         record = registry.get(dataset_id)
@@ -203,7 +283,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             hostname=socket.gethostname(),
             data_roots=[str(root) for root in guard.roots],
             python_version=platform.python_version(),
-            capabilities=Capabilities(),
+            capabilities=Capabilities(plate_metadata=metadata_catalog is not None),
         )
 
     @app.get("/api/fs/list", response_model=FilesystemListResponse)
@@ -216,9 +296,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                         name=root.name or str(root),
                         path=str(root),
                         kind="dir",
-                        ome_zarr=(
-                            descriptor.info if (descriptor := inspect_store(root)) else None
-                        ),
+                        ome_zarr=(descriptor.info if (descriptor := inspect_store(root)) else None),
                     )
                     for root in guard.roots
                 ],
@@ -317,6 +395,21 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         except OmeZarrError as exc:
             raise _not_found(str(exc)) from exc
 
+    @app.get(
+        "/api/datasets/{dataset_id}/metadata",
+        response_model=PlateMetadataResponse,
+    )
+    async def dataset_metadata(dataset_id: str) -> PlateMetadataResponse:
+        _record, path, descriptor = linked(dataset_id)
+        if descriptor.info.kind != "plate":
+            return PlateMetadataResponse(available=False)
+        if metadata_catalog is None:
+            return PlateMetadataResponse(available=False)
+        try:
+            return metadata_catalog.for_dataset(path.name)
+        except PlateMetadataError as exc:
+            raise _unprocessable(exc) from exc
+
     @app.head(
         "/zarr/{dataset_id}/{resource_path:path}",
         include_in_schema=False,
@@ -326,6 +419,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         dataset_id: str,
         resource_path: str,
         range_header: Annotated[str | None, Header(alias="Range")] = None,
+        if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
+        if_range: Annotated[str | None, Header(alias="If-Range")] = None,
     ) -> Response:
         _record, dataset_path, descriptor = linked(dataset_id)
         try:
@@ -336,7 +431,13 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                 else None
             )
             if virtual is not None and virtual.content is not None:
-                return _memory_response(virtual.content, virtual.content_type, range_header)
+                return _memory_response(
+                    virtual.content,
+                    virtual.content_type,
+                    range_header,
+                    if_none_match,
+                    if_range,
+                )
             mapped_path = (
                 virtual.mapped_path
                 if virtual is not None and virtual.mapped_path is not None
@@ -349,6 +450,6 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             raise _not_found(str(exc)) from exc
         if not file_path.is_file():
             raise _not_found(f"Zarr resource does not exist: {resource_path}")
-        return _file_response(file_path, range_header)
+        return _file_response(file_path, range_header, if_none_match, if_range)
 
     return app

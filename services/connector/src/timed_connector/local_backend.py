@@ -59,6 +59,18 @@ class LocalBackend:
             roots.append(resolved)
         return roots
 
+    @staticmethod
+    def _metadata_root(profile: Profile) -> Path | None:
+        if profile.metadata_root is None:
+            return None
+        root = Path(profile.metadata_root).expanduser()
+        if not root.is_absolute():
+            root = Path.cwd() / root
+        resolved = root.resolve()
+        if not resolved.is_dir():
+            raise LocalBackendError(f"Local metadata root does not exist: {resolved}")
+        return resolved
+
     def _runtime_dir(self) -> Path:
         if self.runtime_parent is None:
             return Path(tempfile.mkdtemp(prefix="timed-local-"))
@@ -84,6 +96,7 @@ class LocalBackend:
         log: Callable[[str], None],
     ) -> LocalContext:
         roots = self._data_roots(profile)
+        metadata_root = self._metadata_root(profile)
         runtime_dir = self._runtime_dir()
         connection_file = runtime_dir / "connection.json"
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +118,8 @@ class LocalBackend:
         ]
         for root in roots:
             arguments.extend(("--data-root", str(root)))
+        if metadata_root is not None:
+            arguments.extend(("--metadata-root", str(metadata_root)))
         try:
             process = await asyncio.create_subprocess_exec(
                 *arguments,
@@ -135,9 +150,7 @@ class LocalBackend:
                         )
                     )
                     if not isinstance(value, dict):
-                        raise LocalBackendError(
-                            "Local connection file was not a JSON object"
-                        )
+                        raise LocalBackendError("Local connection file was not a JSON object")
                     connection = parse_connection(
                         value,
                         source="Local connection file",

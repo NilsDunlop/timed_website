@@ -2,6 +2,7 @@
 """Generate deterministic, small microscopy data matching the M1 inventory."""
 
 import argparse
+import csv
 import json
 import shutil
 import time
@@ -29,6 +30,7 @@ FIELD_STORES = (
     ("B01", 2),
 )
 GENERATED_STORES = ("test_plate.zarr", "test_image_v04.zarr", "test_image_v05.zarr")
+GENERATED_METADATA_DIRECTORY = "metadata"
 DEFAULT_INVENTORY = Path(__file__).parents[1] / "docs" / "data" / "arrhenius-inventory.json"
 
 
@@ -170,6 +172,19 @@ def _remove_generated_store(output: Path, name: str) -> Path:
     return target
 
 
+def _replace_metadata_directory(output: Path) -> Path:
+    target = output / GENERATED_METADATA_DIRECTORY
+    resolved_output = output.resolve()
+    resolved_target = target.resolve()
+    if resolved_target.parent != resolved_output or target.name != GENERATED_METADATA_DIRECTORY:
+        raise ValueError(f"Refusing to replace unexpected path: {target}")
+    if target.exists():
+        shutil.rmtree(target)
+    (target / "acquisition").mkdir(parents=True)
+    (target / "csv").mkdir()
+    return target
+
+
 def _write_bare_field(
     path: Path, data: np.ndarray, well: str, site: int, profile: DataProfile
 ) -> None:
@@ -237,6 +252,116 @@ def _write_ome_image(path: Path, data: np.ndarray, profile: DataProfile, version
     )
 
 
+def _write_plate_metadata(root: Path, profile: DataProfile) -> None:
+    acquisition = {
+        "project_name": "TIMED synthetic test data",
+        "plate_name": "test_plate",
+        "cell_line": "Synthetic cells",
+        "grid": {
+            "num_x": 2,
+            "delta_x_mm": 0.8,
+            "num_y": 1,
+            "delta_y_mm": 0.8,
+            "num_t": TIMEPOINTS,
+            "delta_t": {"h": 1, "m": 0, "s": 0},
+        },
+        "wellplate_type": {
+            "Manufacturer": "TIMED",
+            "Model_name": "Synthetic 4-well plate",
+            "Offset_bottom_mm": 0.5,
+        },
+        "channels": [
+            {
+                "name": f"Fluorescence {wavelength} nm Ex",
+                "enabled": True,
+            }
+            for wavelength in profile.channel_wavelengths
+        ],
+        "autofocus_enabled": True,
+        "timestamp": "2026-10-05T12:00:00",
+    }
+    (root / "acquisition" / "test_plate.json").write_text(
+        json.dumps(acquisition, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    fieldnames = [
+        "plate_id",
+        "plate_series",
+        "plate_replicate",
+        "project",
+        "plate_barcode",
+        "experiment_date",
+        "well",
+        "well_type",
+        "cell_line",
+        "cell_modification",
+        "passage",
+        "seeding_density_cells_per_well",
+        "dye_program",
+        "cmpdname",
+        "target_compound_concentration_uM",
+        "moa",
+        "target",
+        "pathway",
+        "mechanism_of_action",
+    ]
+    rows = [
+        {
+            "well": "A01",
+            "well_type": "compound",
+            "cmpdname": "Compound Alpha",
+            "target_compound_concentration_uM": "1.25",
+            "moa": "AKT",
+            "target": "AKT1",
+            "pathway": "PI3K/Akt/mTOR",
+            "mechanism_of_action": "AKT inhibitor",
+        },
+        {
+            "well": "A02",
+            "well_type": "compound",
+            "cmpdname": "Compound Beta",
+            "target_compound_concentration_uM": "5.0",
+            "moa": "MAPK",
+            "target": "MAPK1",
+            "pathway": "MAPK/ERK Pathway",
+            "mechanism_of_action": "MAPK inhibitor",
+        },
+        {
+            "well": "B01",
+            "well_type": "solvent_control",
+            "cmpdname": "DMSO",
+            "target_compound_concentration_uM": "0",
+            "moa": "",
+            "target": "",
+            "pathway": "",
+            "mechanism_of_action": "",
+        },
+    ]
+    shared = {
+        "plate_id": "S1.1",
+        "plate_series": "S1",
+        "plate_replicate": "1",
+        "project": "TIMED synthetic",
+        "plate_barcode": "SYNTH001",
+        "experiment_date": "2026-10-05",
+        "cell_line": "Synthetic cells",
+        "cell_modification": "Reporter",
+        "passage": "1",
+        "seeding_density_cells_per_well": "1200",
+        "dye_program": "Three-channel",
+    }
+    with (root / "csv" / "test_plate.csv").open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({**shared, **row})
+
+
 def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -> None:
     """Generate the collection and two native OME-Zarr compatibility fixtures."""
     profile = load_profile(inventory_path)
@@ -246,6 +371,7 @@ def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -
     plate = _remove_generated_store(output, "test_plate.zarr")
     image_v04 = _remove_generated_store(output, "test_image_v04.zarr")
     image_v05 = _remove_generated_store(output, "test_image_v05.zarr")
+    metadata = _replace_metadata_directory(output)
     plate.mkdir()
 
     first_field = None
@@ -265,6 +391,7 @@ def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -
     (plate / "acquisition_config.json").write_text(
         json.dumps(acquisition, indent=2) + "\n", encoding="utf-8"
     )
+    _write_plate_metadata(metadata, profile)
     if first_field is None:
         raise RuntimeError("No synthetic fields were generated")
     _write_ome_image(image_v04, first_field, profile, "0.4")
