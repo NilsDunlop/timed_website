@@ -6,9 +6,9 @@ Its primary target is the Arrhenius NAISS cluster: a local connector establishes
 SSH, starts a token-protected data server in Slurm, and exposes it to a same-origin
 Astro web application.
 
-The repository is being delivered milestone by milestone. Milestone 0 provides
-the workspace, placeholder web app, package skeletons, shared commands, and
-project-scoped Playwright MCP configuration.
+The repository is being delivered milestone by milestone. The workspace now
+includes deterministic fixtures and the authenticated, read-only data server;
+the connector and interactive web flows follow in later milestones.
 
 ## Prerequisites
 
@@ -33,7 +33,8 @@ the root `Makefile`.
 - M0: scaffold and tooling complete
 - M1: real Arrhenius metadata inventoried and documented
 - M2: inventory-matched synthetic data complete
-- M3-M8: pending
+- M3: authenticated read-only data server complete
+- M4-M8: pending
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be

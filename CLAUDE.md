@@ -32,7 +32,7 @@ make gen-api      # regenerate typed OpenAPI clients (available after M6)
 make lint         # Ruff and Astro checks
 ```
 
-Direct M0 verification:
+Direct workspace verification:
 
 ```bash
 uv run pytest
@@ -40,6 +40,17 @@ uv run ruff check .
 pnpm -C apps/web check
 pnpm -C apps/web build
 ```
+
+## Data server
+
+Run `uv run timed-dataserver export-openapi` to print the complete API schema.
+The `serve` command accepts one or more data roots, a host and port (including
+dynamic port `0`), an environment, and a connection-file path.
+
+The server writes the selected port and random bearer token to the connection
+file only after Uvicorn is accepting connections, and removes the file on clean
+shutdown. Every route requires that token. Linked datasets are stored atomically
+in `<state-dir>/datasets.json`; unlinking never deletes image data.
 
 ## Conventions
 
@@ -97,6 +108,10 @@ Zarr groups or OME-Zarr plates. Each field is a bare Zarr v3 array named like
 - The data server must provide a synthetic, read-only OME-Zarr metadata facade
   for Viv while mapping chunks to the untouched bare array. Keep standard
   OME-Zarr 0.4/v2 and 0.5/v3 support as separate tested paths.
+- For a linked collection field `<field>.zarr`, the data server exposes a
+  virtual OME-Zarr 0.5 group at that path and its array as `s0`. Requests below
+  `s0/` map to the original field array, so shard bytes remain untouched and
+  support HTTP Range requests.
 
 `scripts/make_test_data.py` creates `test-data/test_plate.zarr` in the real
 plain-collection layout: A1, A2, and B1 with two bare fields each, B2 absent,
@@ -112,6 +127,9 @@ is deterministic and gitignored.
 - GNU Make is not installed on the current Windows workstation; run
   `uv run python scripts/make_test_data.py` as the direct equivalent of
   `make test-data` there.
+- Windows does not expose meaningful POSIX mode bits. The connection-file test
+  verifies mode `0600` on POSIX (including Arrhenius); Windows uses the file's
+  inherited user ACL until local mode is implemented in M8.
 - `ome-zarr==0.19.2` requires Pydantic below 2.13, so both services pin the
   newest compatible release, `pydantic==2.12.5`.
 - M5 and M7 require the operator to enter Arrhenius password and 2FA input.
