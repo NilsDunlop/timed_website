@@ -20,6 +20,7 @@
     "@deck.gl/react": "9.4.0",
     "@deck.gl/widgets": "9.4.0",
     "@hms-dbmi/viv": "0.23.0",
+    "@vivjs/views": "0.23.0",
     "@luma.gl/constants": "9.4.2",
     "@luma.gl/core": "9.4.2",
     "@luma.gl/engine": "9.4.2",

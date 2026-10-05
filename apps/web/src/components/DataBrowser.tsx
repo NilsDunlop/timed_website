@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type { components } from "../lib/api/dataserver-schema";
 import { apiErrorMessage, dataServerClient } from "../lib/api/client";
+import PlateMetadataPanel, {
+  doseLabel,
+  type PlateMetadata,
+  type WellMetadata,
+} from "./PlateMetadataPanel";
 
 type Dataset = components["schemas"]["DatasetRecord"];
 type Entry = components["schemas"]["FilesystemEntry"];
@@ -10,9 +15,28 @@ type Summary =
   | components["schemas"]["PlateSummary"];
 type Field = components["schemas"]["FieldSummary"];
 type Breadcrumb = { label: string; path: string | null };
+type WellSelection = {
+  path: string;
+  fields: Field[];
+  fieldPath: string;
+};
 
-function viewerHref(datasetId: string, imagePath: string): string {
+const metadataColors = [
+  "#3b82a0",
+  "#b86b35",
+  "#668f3d",
+  "#9367a8",
+  "#c24f65",
+  "#9a812f",
+];
+
+function viewerHref(
+  datasetId: string,
+  imagePath: string,
+  comparePath?: string,
+): string {
   const query = new URLSearchParams({ dataset: datasetId, path: imagePath });
+  if (comparePath) query.set("compare", comparePath);
   return "/view?" + query.toString();
 }
 
@@ -24,8 +48,11 @@ export default function DataBrowser() {
   ]);
   const [selected, setSelected] = useState<Dataset | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [fields, setFields] = useState<Field[]>([]);
-  const [selectedWell, setSelectedWell] = useState("");
+  const [metadata, setMetadata] = useState<PlateMetadata | null>(null);
+  const [selectedWells, setSelectedWells] = useState<WellSelection[]>([]);
+  const [compoundFilter, setCompoundFilter] = useState("");
+  const [moaFilter, setMoaFilter] = useState("");
+  const [wellKind, setWellKind] = useState<"all" | "treatment" | "control">("all");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -128,29 +155,50 @@ export default function DataBrowser() {
       if (selected?.id === dataset.id) {
         setSelected(null);
         setSummary(null);
-        setFields([]);
-        setSelectedWell("");
+        setMetadata(null);
+        setSelectedWells([]);
         if (linked.length > 0) await selectDataset(linked[0]);
       }
     });
   }
 
   async function selectDataset(dataset: Dataset) {
-    const result = await dataServerClient.GET(
-      "/api/datasets/{dataset_id}/summary",
-      { params: { path: { dataset_id: dataset.id } } },
-    );
-    if (!result.data) {
-      throw new Error(apiErrorMessage(result.error, "Could not load dataset summary"));
+    const [summaryResult, metadataResult] = await Promise.all([
+      dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
+        params: { path: { dataset_id: dataset.id } },
+      }),
+      dataServerClient.GET("/api/datasets/{dataset_id}/metadata", {
+        params: { path: { dataset_id: dataset.id } },
+      }),
+    ]);
+    if (!summaryResult.data) {
+      throw new Error(
+        apiErrorMessage(summaryResult.error, "Could not load dataset summary"),
+      );
+    }
+    if (!metadataResult.data && metadataResult.response.status !== 404) {
+      throw new Error(
+        apiErrorMessage(metadataResult.error, "Could not load plate metadata"),
+      );
     }
     setSelected(dataset);
-    setSummary(result.data);
-    setFields([]);
-    setSelectedWell("");
+    setSummary(summaryResult.data);
+    setMetadata(metadataResult.data ?? null);
+    setSelectedWells([]);
+    setCompoundFilter("");
+    setMoaFilter("");
+    setWellKind("all");
   }
 
-  async function selectWell(wellPath: string) {
+  async function toggleWell(wellPath: string) {
     if (!selected) return;
+    if (selectedWells.some((well) => well.path === wellPath)) {
+      setSelectedWells((current) =>
+        current.filter((well) => well.path !== wellPath),
+      );
+      return;
+    }
+    if (selectedWells.length >= 2) return;
     await run(async () => {
       const result = await dataServerClient.GET(
         "/api/datasets/{dataset_id}/wells/{well_path}",
@@ -163,9 +211,28 @@ export default function DataBrowser() {
       if (!result.data) {
         throw new Error(apiErrorMessage(result.error, "Could not load well fields"));
       }
-      setSelectedWell(wellPath);
-      setFields(result.data.fields);
+      const fields = result.data.fields;
+      setSelectedWells((current) => {
+        if (
+          current.length >= 2 ||
+          current.some((well) => well.path === wellPath)
+        ) {
+          return current;
+        }
+        return [
+          ...current,
+          { path: wellPath, fields, fieldPath: fields[0]?.path ?? "" },
+        ];
+      });
     });
+  }
+
+  function selectField(wellPath: string, fieldPath: string) {
+    setSelectedWells((current) =>
+      current.map((well) =>
+        well.path === wellPath ? { ...well, fieldPath } : well,
+      ),
+    );
   }
 
   const wells = useMemo(() => {
@@ -174,6 +241,69 @@ export default function DataBrowser() {
       summary.wells.map((well) => [well.row + "\u0000" + well.column, well.path]),
     );
   }, [summary]);
+
+  const metadataByWell = useMemo(
+    () =>
+      new Map(
+        (metadata?.wells ?? []).map((well) => [well.well.toUpperCase(), well]),
+      ),
+    [metadata],
+  );
+
+  const compoundOptions = useMemo(() => {
+    const compounds = new Map<string, Set<number>>();
+    for (const well of metadata?.wells ?? []) {
+      if (!well.compound || well.is_control) continue;
+      const doses = compounds.get(well.compound) ?? new Set<number>();
+      if (well.dose_um != null) doses.add(well.dose_um);
+      compounds.set(well.compound, doses);
+    }
+    return Array.from(compounds, ([compound, doses]) => ({
+      compound,
+      doses: Array.from(doses).sort((left, right) => left - right),
+    })).sort((left, right) => left.compound.localeCompare(right.compound));
+  }, [metadata]);
+
+  const moaOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (metadata?.wells ?? [])
+            .map((well) => well.moa)
+            .filter((moa): moa is string => Boolean(moa)),
+        ),
+      ).sort(),
+    [metadata],
+  );
+
+  const moaColors = useMemo(
+    () =>
+      new Map(
+        moaOptions.map((moa, index) => [
+          moa,
+          metadataColors[index % metadataColors.length],
+        ]),
+      ),
+    [moaOptions],
+  );
+
+  const filtersActive =
+    compoundFilter !== "" || moaFilter !== "" || wellKind !== "all";
+
+  function wellMatches(well: WellMetadata | undefined): boolean {
+    if (!well) return false;
+    if (compoundFilter && well.compound !== compoundFilter) return false;
+    if (moaFilter && well.moa !== moaFilter) return false;
+    if (wellKind === "control" && !well.is_control) return false;
+    if (wellKind === "treatment" && well.is_control) return false;
+    return true;
+  }
+
+  function clearMetadataFilters() {
+    setCompoundFilter("");
+    setMoaFilter("");
+    setWellKind("all");
+  }
 
   return (
     <div className="page-grid">
@@ -335,6 +465,143 @@ export default function DataBrowser() {
 
           {summary.kind === "plate" && (
             <>
+              {metadata?.available && (
+                <div className="metadata-filter-panel stack">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">Well highlighting</p>
+                      <h3>Find treatments</h3>
+                    </div>
+                    {filtersActive && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={clearMetadataFilters}
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                  <div className="metadata-filters">
+                    <label>
+                      <span>Compound and dose</span>
+                      <select
+                        data-testid="compound-filter"
+                        value={compoundFilter}
+                        onChange={(event) => setCompoundFilter(event.target.value)}
+                      >
+                        <option value="">All compounds</option>
+                        {compoundOptions.map(({ compound, doses }) => (
+                          <option key={compound} value={compound}>
+                            {compound}
+                            {doses.length > 0
+                              ? " \u00b7 " + doses.map(doseLabel).join(", ")
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Mechanism class</span>
+                      <select
+                        data-testid="moa-filter"
+                        value={moaFilter}
+                        onChange={(event) => setMoaFilter(event.target.value)}
+                      >
+                        <option value="">All MOA classes</option>
+                        {moaOptions.map((moa) => (
+                          <option key={moa} value={moa}>
+                            {moa}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Well type</span>
+                      <select
+                        data-testid="well-kind-filter"
+                        value={wellKind}
+                        onChange={(event) =>
+                          setWellKind(
+                            event.target.value as
+                              | "all"
+                              | "treatment"
+                              | "control",
+                          )
+                        }
+                      >
+                        <option value="all">All wells</option>
+                        <option value="treatment">Treatments</option>
+                        <option value="control">Controls</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <PlateMetadataPanel
+                metadata={metadata}
+                selectedWell={selectedWells[0]?.path}
+              />
+
+              <div className="selection-hint">
+                <strong>
+                  {selectedWells.length === 0
+                    ? "Select a well"
+                    : selectedWells.length === 1
+                      ? "One well selected"
+                      : "Two wells selected"}
+                </strong>
+                <span className="selection-help">
+                  <button
+                    type="button"
+                    className="selection-info"
+                    aria-label="Selection help"
+                    aria-describedby="well-selection-help"
+                  >
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="8" />
+                      <path d="M10 9v5M10 6.2v.1" />
+                    </svg>
+                  </button>
+                  <span
+                    id="well-selection-help"
+                    className="selection-tooltip"
+                    role="tooltip"
+                  >
+                    Choose one well to inspect it, or two wells to compare their
+                    time trajectories.
+                  </span>
+                </span>
+              </div>
+
+              {metadata?.available && (
+                <div
+                  className="metadata-legend well-selector-legend"
+                  aria-label="Well color legend"
+                >
+                  {moaOptions.map((moa) => (
+                    <span key={moa}>
+                      <i
+                        aria-hidden="true"
+                        style={
+                          {
+                            "--legend-color": moaColors.get(moa),
+                          } as CSSProperties
+                        }
+                      />
+                      {moa}
+                    </span>
+                  ))}
+                  {(metadata.wells ?? []).some((well) => well.is_control) && (
+                    <span>
+                      <i className="control" aria-hidden="true" />
+                      Control
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div
                 className="well-grid"
                 role="grid"
@@ -358,14 +625,56 @@ export default function DataBrowser() {
                   </strong>,
                   ...summary.columns.map((column) => {
                     const path = wells.get(row + "\u0000" + column);
+                    const wellMetadata = metadataByWell.get(
+                      row.toUpperCase() + String(column).padStart(2, "0"),
+                    );
+                    const matches = wellMatches(wellMetadata);
+                    const color = wellMetadata?.is_control
+                      ? "#7b8490"
+                      : wellMetadata?.moa
+                        ? moaColors.get(wellMetadata.moa)
+                        : undefined;
+                    const selectedIndex = path
+                      ? selectedWells.findIndex((well) => well.path === path)
+                      : -1;
+                    const classes = [
+                      "well",
+                      selectedIndex >= 0 ? "selected" : "",
+                      wellMetadata?.is_control ? "well-control" : "",
+                      filtersActive && matches ? "well-highlighted" : "",
+                      filtersActive && !matches ? "well-dimmed" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
+                    const description = wellMetadata
+                      ? [
+                          wellMetadata.compound,
+                          wellMetadata.dose_um == null
+                            ? null
+                            : doseLabel(wellMetadata.dose_um),
+                          wellMetadata.is_control ? "Control" : wellMetadata.moa,
+                        ]
+                          .filter(Boolean)
+                          .join(" \u00b7 ")
+                      : undefined;
                     return path ? (
                       <button
                         type="button"
                         key={row + column}
-                        className={selectedWell === path ? "well selected" : "well"}
-                        disabled={busy}
+                        className={classes}
+                        style={
+                          color
+                            ? ({ "--well-color": color } as CSSProperties)
+                            : undefined
+                        }
+                        disabled={
+                          busy ||
+                          (selectedWells.length >= 2 && selectedIndex < 0)
+                        }
                         aria-label={"Well " + row + column}
-                        onClick={() => selectWell(path)}
+                        aria-pressed={selectedIndex >= 0}
+                        title={description}
+                        onClick={() => toggleWell(path)}
                       >
                         {row + column}
                       </button>
@@ -382,27 +691,83 @@ export default function DataBrowser() {
                 ])}
               </div>
 
-              {selectedWell && (
-                <div className="subpanel">
-                  <h3>Fields in {selectedWell}</h3>
-                  <ul className="field-list">
-                    {fields.map((field, index) => (
-                      <li key={field.path}>
-                        <span>
-                          Field {index + 1}
-                          {field.acquisition != null
-                            ? " · acquisition " + String(field.acquisition)
-                            : ""}
-                        </span>
-                        <a
-                          className="button-link"
-                          href={viewerHref(selected.id, field.path)}
-                        >
-                          Open
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
+              {selectedWells.length > 0 && (
+                <div
+                  className="subpanel well-selection-panel"
+                  data-testid="well-selection"
+                >
+                  {selectedWells.length === 1 ? (
+                    <>
+                      <h3>Fields in {selectedWells[0].path}</h3>
+                      <ul className="field-list">
+                        {selectedWells[0].fields.map((field, index) => (
+                          <li key={field.path}>
+                            <span>
+                              Site {index + 1}
+                              {field.acquisition != null
+                                ? " · acquisition " + String(field.acquisition)
+                                : ""}
+                            </span>
+                            <a
+                              className="button-link"
+                              href={viewerHref(selected.id, field.path)}
+                            >
+                              Open
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="eyebrow">Comparison</p>
+                        <h3>Choose a site from each well</h3>
+                      </div>
+                      <div className="comparison-field-grid">
+                        {selectedWells.map((well) => (
+                          <label key={well.path}>
+                            <span>{well.path}</span>
+                            <select
+                              aria-label={"Site for " + well.path}
+                              value={well.fieldPath}
+                              onChange={(event) =>
+                                selectField(well.path, event.target.value)
+                              }
+                            >
+                              {well.fields.map((field, index) => (
+                                <option key={field.path} value={field.path}>
+                                  Site {index + 1}
+                                  {field.acquisition != null
+                                    ? " · acquisition " +
+                                      String(field.acquisition)
+                                    : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="comparison-action">
+                        <p className="muted">
+                          Time, channels, pan, and zoom will stay synchronized.
+                        </p>
+                        {selectedWells.every((well) => well.fieldPath) && (
+                          <a
+                            className="button-link"
+                            data-testid="open-comparison"
+                            href={viewerHref(
+                              selected.id,
+                              selectedWells[0].fieldPath,
+                              selectedWells[1].fieldPath,
+                            )}
+                          >
+                            Compare trajectories
+                          </a>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </>

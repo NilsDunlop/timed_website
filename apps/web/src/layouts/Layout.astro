@@ -401,11 +401,38 @@ const { title } = Astro.props;
   .well {
     min-width: 3rem;
     padding: 0.45rem;
+    border-color: color-mix(in srgb, var(--well-color, #284b31) 65%, #284b31);
+    color: #172019;
+    background: color-mix(in srgb, var(--well-color, #dce8dd) 28%, white);
   }
 
   .well.selected {
-    outline: 0.2rem solid #9cc8a4;
+    outline: 0.2rem solid #244f30;
     outline-offset: 0.1rem;
+  }
+
+  .well.well-control {
+    border-style: dashed;
+    background-color: #edf0f2;
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent,
+      transparent 0.35rem,
+      rgb(123 132 144 / 16%) 0.35rem,
+      rgb(123 132 144 / 16%) 0.7rem
+    );
+  }
+
+  .well.well-highlighted {
+    box-shadow:
+      0 0 0 0.16rem white,
+      0 0 0 0.32rem var(--well-color, #365e40);
+    font-weight: 750;
+  }
+
+  .well.well-dimmed {
+    opacity: 0.22;
+    filter: grayscale(0.75);
   }
 
   .well.missing {
@@ -415,6 +442,212 @@ const { title } = Astro.props;
     place-items: center;
     color: #9da59e;
     border: 1px dashed #d5dbd5;
+  }
+
+  .selection-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    color: #566159;
+  }
+
+  .selection-hint strong {
+    color: #263d2b;
+  }
+
+  .selection-help {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .selection-info {
+    display: grid;
+    width: 1.35rem;
+    height: 1.35rem;
+    min-height: 0;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    color: #4f6f57;
+    background: transparent;
+  }
+
+  .selection-info:hover,
+  .selection-info:focus-visible {
+    color: #214b2c;
+    background: #e7efe6;
+  }
+
+  .selection-info svg {
+    width: 1.2rem;
+    height: 1.2rem;
+    fill: none;
+    stroke: currentcolor;
+    stroke-linecap: round;
+    stroke-width: 1.6;
+  }
+
+  .selection-tooltip {
+    position: absolute;
+    z-index: 5;
+    bottom: calc(100% + 0.5rem);
+    left: 50%;
+    width: max-content;
+    max-width: min(22rem, 75vw);
+    padding: 0.55rem 0.7rem;
+    border-radius: 0.35rem;
+    visibility: hidden;
+    color: white;
+    background: #263d2b;
+    box-shadow: 0 0.25rem 0.8rem rgb(17 35 21 / 20%);
+    font-size: 0.82rem;
+    font-weight: 500;
+    line-height: 1.35;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 0.2rem);
+    transition:
+      opacity 120ms ease,
+      transform 120ms ease,
+      visibility 120ms ease;
+  }
+
+  .selection-help:hover .selection-tooltip,
+  .selection-help:focus-within .selection-tooltip {
+    visibility: visible;
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  .well-selector-legend {
+    justify-content: center;
+    margin-top: -0.55rem;
+  }
+
+  .well-selection-panel {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .well-selection-panel h3,
+  .comparison-view h2 {
+    margin: 0;
+  }
+
+  .comparison-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(12rem, 1fr));
+    gap: 0.75rem;
+  }
+
+  .comparison-field-grid label {
+    display: grid;
+    gap: 0.4rem;
+    font-weight: 700;
+  }
+
+  .comparison-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .comparison-action p {
+    margin: 0;
+  }
+
+  .metadata-filter-panel {
+    padding: 1rem;
+    border: 1px solid #cbd7c9;
+    border-radius: 0.45rem;
+    background: #f3f7f1;
+  }
+
+  .metadata-filter-panel h3,
+  .metadata-panel h3,
+  .metadata-panel h4 {
+    margin: 0;
+  }
+
+  .metadata-filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(10rem, 1fr));
+    gap: 0.75rem;
+  }
+
+  .metadata-filters label {
+    display: grid;
+    gap: 0.35rem;
+    font-weight: 650;
+  }
+
+  .metadata-legend,
+  .metadata-channel-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .metadata-legend span,
+  .metadata-channel-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: #566159;
+    font-size: 0.84rem;
+  }
+
+  .metadata-legend i {
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 1px solid rgb(23 32 25 / 35%);
+    border-radius: 50%;
+    background: var(--legend-color);
+  }
+
+  .metadata-legend i.control {
+    border-style: dashed;
+    background: #a1a8b0;
+  }
+
+  .metadata-panel details {
+    padding-top: 0.75rem;
+    border-top: 1px solid #dbe2da;
+  }
+
+  .metadata-panel summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .metadata-panel details[open] summary {
+    margin-bottom: 0.75rem;
+  }
+
+  .well-metadata-grid {
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  }
+
+  .metadata-details {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+
+  .metadata-annotation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-channel-list li {
+    padding: 0.3rem 0.55rem;
+    border: 1px solid #ccd7cc;
+    border-radius: 999px;
+    background: white;
   }
 
   .muted {
@@ -427,6 +660,10 @@ const { title } = Astro.props;
     gap: 1rem;
   }
 
+  .viewer-layout-controls-hidden {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .viewer-controls {
     align-self: start;
     margin-top: 0;
@@ -436,6 +673,26 @@ const { title } = Astro.props;
   .channel-control label {
     display: grid;
     gap: 0.35rem;
+  }
+
+  .viewer-time-control {
+    padding: 0.8rem;
+    border: 1px solid #9fb7a3;
+    border-radius: 0.4rem;
+    background: #eef5ed;
+    font-weight: 700;
+  }
+
+  .viewer-time-state {
+    color: #5f6961;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  .viewer-channel-heading {
+    margin: 0.25rem 0 0;
+    font-size: 1.05rem;
   }
 
   .channel-control {
@@ -473,6 +730,57 @@ const { title } = Astro.props;
     overflow-wrap: anywhere;
   }
 
+  .viewer-heading-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.6rem 0.9rem;
+  }
+
+  .compact-button {
+    min-height: 2.25rem;
+    padding: 0.4rem 0.65rem;
+  }
+
+  .viewer-canvas-area {
+    min-width: 0;
+  }
+
+  .viewer-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    margin-bottom: 0.55rem;
+  }
+
+  .viewer-icon-button {
+    display: grid;
+    width: 2.45rem;
+    height: 2.45rem;
+    padding: 0;
+    place-items: center;
+    border: 1px solid #9cad9d;
+    border-radius: 0.35rem;
+    color: #254b30;
+    background: #f8faf7;
+  }
+
+  .viewer-icon-button:hover:not(:disabled) {
+    background: #e8f0e7;
+  }
+
+  .viewer-icon-button svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    fill: none;
+    stroke: currentcolor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
   .canvas-frame {
     position: relative;
     width: 100%;
@@ -482,6 +790,65 @@ const { title } = Astro.props;
     border: 1px solid #333d35;
     border-radius: 0.4rem;
     background: #050706;
+  }
+
+  .comparison-view-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+
+  .comparison-view {
+    display: grid;
+    min-width: 0;
+    gap: 0.55rem;
+  }
+
+  .comparison-view > header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  .comparison-view > header div {
+    display: grid;
+    min-width: 0;
+  }
+
+  .comparison-view > header small {
+    overflow: hidden;
+    color: #687269;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .comparison-index {
+    display: grid;
+    width: 1.8rem;
+    height: 1.8rem;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 50%;
+    color: white;
+    background: #315f3b;
+    font-weight: 800;
+  }
+
+  .comparison-view .canvas-frame {
+    height: min(54vh, 36rem);
+    min-height: 20rem;
+  }
+
+  .comparison-metadata-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .comparison-metadata-grid > .stack > h2 {
+    margin: 0;
+    font-size: 1.1rem;
   }
 
   .status-ready {
@@ -509,8 +876,26 @@ const { title } = Astro.props;
       grid-column: auto;
     }
 
+    .metadata-filters {
+      grid-template-columns: 1fr;
+    }
+
+    .comparison-field-grid,
+    .comparison-view-grid,
+    .comparison-metadata-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .viewer-heading-actions {
+      justify-content: flex-start;
+    }
+
     .canvas-frame {
       height: 65vh;
+    }
+
+    .comparison-view .canvas-frame {
+      height: min(65vh, 38rem);
     }
   }
 </style>
