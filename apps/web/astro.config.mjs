@@ -7,8 +7,14 @@ export default defineConfig({
   vite: {
     server: {
       proxy: {
-        "/connector": "http://127.0.0.1:8700",
-        "/backend": "http://127.0.0.1:8700",
+        "/connector": {
+          target: "http://127.0.0.1:8700",
+          changeOrigin: true,
+        },
+        "/backend": {
+          target: "http://127.0.0.1:8700",
+          changeOrigin: true,
+        },
       },
     },
   },

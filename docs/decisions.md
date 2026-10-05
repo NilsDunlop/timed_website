@@ -52,3 +52,18 @@ metadata plus only the first well and first image initially; remaining well
 metadata is loaded through the well endpoint on demand. Dataset paths are
 validated through one real-path guard before linking or reading, and the JSON
 registry and runtime connection file use same-directory atomic replacement.
+
+## 2026-10-05: isolate SSH side effects behind one session backend
+
+M4 keeps the public session state free of credential answers and data-server
+tokens by construction. AsyncSSH callbacks await an in-memory prompt future;
+the connector's private backend alone holds the connection-file token. Host
+keys are checked against the user's read-only `~/.ssh/known_hosts` plus TIMED's
+own file. Unknown keys require explicit fingerprint confirmation before being
+appended to the TIMED file; host-key checking is never disabled.
+
+The connector uses the same state engine for HTTP and terminal flows. Its HPC
+backend owns versioned wheel installation, Slurm submission and polling, SFTP
+connection-file reads, port forwarding, and cleanup. A backend protocol allows
+deterministic cross-platform state tests, while the complete real backend is
+tested through the POSIX AsyncSSH/Slurm harness under WSL2.

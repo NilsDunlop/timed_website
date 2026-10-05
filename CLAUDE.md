@@ -13,7 +13,7 @@ local connector, an SSH tunnel, and a Slurm-hosted data server.
 - `services/connector`: local FastAPI/asyncssh service. It owns session state,
   SSH/Slurm lifecycle, and the authenticated reverse proxy.
 - `services/dataserver`: token-protected FastAPI service beside the OME-Zarr data.
-- `dev/test_cluster`: local SSH/Slurm-compatible harness (added in M4).
+- `dev/test_cluster`: POSIX local SSH/Slurm-compatible harness.
 - `scripts`: metadata inventory and deterministic synthetic-data tools.
 
 The browser talks only to the connector on the same origin. One session engine
@@ -23,8 +23,8 @@ in local and HPC modes; only its launch mechanism changes.
 ## Commands
 
 ```bash
-make dev          # connector plus Astro development servers (available after M4)
-make test-cluster # local SSH/Slurm harness (available after M4)
+make dev          # connector plus Astro development servers
+make test-cluster # local SSH/Slurm harness (POSIX)
 make test         # Python and web checks
 make test-e2e     # Playwright end-to-end suite (available after M6)
 make test-data    # deterministic TIMED and native OME-Zarr fixtures
@@ -51,6 +51,19 @@ The server writes the selected port and random bearer token to the connection
 file only after Uvicorn is accepting connections, and removes the file on clean
 shutdown. Every route requires that token. Linked datasets are stored atomically
 in `<state-dir>/datasets.json`; unlinking never deletes image data.
+
+## Connector and test cluster
+
+Copy `config/profiles.example.yaml` to `~/.timed/profiles.yaml` and replace the
+test-cluster data-root placeholder with an absolute path. Then run `make
+test-cluster` on macOS/Linux (or WSL) and `make dev` in another terminal.
+
+The connector binds loopback only, validates `Host`, and requires
+`X-Timed-Client: web` on state-changing connector routes. Authentication
+prompts are held only by an in-memory future and are absent from the public
+session model. The data-server token remains private to the connector's proxy.
+The test cluster chroots SFTP to its disposable home and allows direct TCP
+forwarding only to loopback destinations.
 
 ## Conventions
 
@@ -130,6 +143,10 @@ is deterministic and gitignored.
 - Windows does not expose meaningful POSIX mode bits. The connection-file test
   verifies mode `0600` on POSIX (including Arrhenius); Windows uses the file's
   inherited user ACL until local mode is implemented in M8.
+- The test cluster itself is POSIX-only. It was verified from this Windows
+  workstation in WSL2 using an isolated environment:
+  `UV_PROJECT_ENVIRONMENT=/tmp/timed-wsl-venv uv run pytest
+  services/connector/tests/test_cluster_integration.py -q`.
 - `ome-zarr==0.19.2` requires Pydantic below 2.13, so both services pin the
   newest compatible release, `pydantic==2.12.5`.
 - M5 and M7 require the operator to enter Arrhenius password and 2FA input.

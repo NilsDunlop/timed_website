@@ -1,10 +1,10 @@
 .PHONY: dev test-cluster test test-e2e test-data gen-api lint
 
 dev:
-	@echo "The combined connector/web dev command is added in M4."
+	uv run python scripts/dev.py
 
 test-cluster:
-	@echo "The local SSH/Slurm test cluster is added in M4."
+	uv run python dev/test_cluster/server.py
 
 test:
 	uv run pytest

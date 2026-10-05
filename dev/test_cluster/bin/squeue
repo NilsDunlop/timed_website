@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+import sys
+
+from _slurm import main
+
+raise SystemExit(main("squeue", sys.argv[1:]))

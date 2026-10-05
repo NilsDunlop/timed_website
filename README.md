@@ -34,7 +34,8 @@ the root `Makefile`.
 - M1: real Arrhenius metadata inventoried and documented
 - M2: inventory-matched synthetic data complete
 - M3: authenticated read-only data server complete
-- M4-M8: pending
+- M4: connector and local SSH/Slurm test cluster complete
+- M5-M8: pending
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be
