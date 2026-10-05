@@ -27,8 +27,9 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "-ra"
-testpaths = ["services/connector/tests", "services/dataserver/tests"]
+testpaths = ["scripts/tests", "services/connector/tests", "services/dataserver/tests"]
 pythonpath = [
+  ".",
   "services/connector/src",
   "services/dataserver/src",
 ]
@@ -36,6 +37,9 @@ pythonpath = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.ruff.per-file-target-version]
+"scripts/inspect_omezarr.py" = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

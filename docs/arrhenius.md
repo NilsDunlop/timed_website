@@ -11,9 +11,19 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 - CPU partition: `naiss2026-3-679-cpu`
 - Data root: `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr`
 
+## M1 findings
+
+- The login node's system `python3` ran the standard-library metadata inventory.
+- The login node could read metadata for all eight plate collections and all
+  4,032 field arrays without errors.
+- This confirms login-node read access only; compute-node access remains an M5
+  check.
+- The real layout is documented in `docs/data/arrhenius-inventory.json`,
+  `docs/data/CONVERSION.md`, `CLAUDE.md`, and `docs/decisions.md`.
+
 ## M5 findings
 
-- Login-node Python and uv: not yet checked.
+- Login-node Python: system `python3` works; exact version and uv remain unchecked.
 - Login-node internet access: not yet checked.
 - Compute-node data access: not yet checked.
 - Typical scheduling delay: not yet measured.

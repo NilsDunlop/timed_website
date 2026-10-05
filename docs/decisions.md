@@ -8,8 +8,31 @@ the connector owns credentials and tunnelling; the data server owns restricted
 OME-Zarr access. This directly supports a later Tauri sidecar without coupling
 the first web prototype to Tauri.
 
-## Pending M1: real OME-Zarr layout
+## 2026-10-05: adapt bare TIMED arrays through the data server
 
-The implementation will follow the metadata inventory rather than infer format
-from `.zarr` names. Until that inventory is available, test-data work uses the
-documented OME-Zarr 0.4 / Zarr v2 defaults and also covers a v0.5 / Zarr v3 image.
+M1 disproved the brief's assumption that each run is an OME-Zarr plate. The
+eight outer `.zarr` directories are plain collection folders, not Zarr groups.
+Each contains one bare Zarr v3 array per field, named `<well>_s<site>.zarr`, plus
+metadata sidecars. The field arrays have no OME namespace, `multiscales`, OMERO
+metadata, `dimension_names`, or pyramid. All 4,032 fields share one signature:
+
+- shape `(48, 3, 2500, 2500)` and documented axes `(t, c, y, x)`;
+- `uint16`, channels 405/505/625 nm, and 0.3 micrometres per pixel;
+- logical chunks `(1, 1, 625, 625)` inside one whole-array
+  `(48, 3, 2500, 2500)` shard;
+- little-endian bytes plus Blosc Zstd level 5 with byte shuffle; and
+- one resolution level.
+
+The section 4 architecture remains unchanged. The data server will additionally
+recognize a `timed_collection` dataset and expose a read-only synthetic OME-Zarr
+metadata facade for each bare field. The facade supplies axes and channel labels
+to Viv and maps array metadata/chunk requests to the existing field store. It
+does not alter, convert, or copy the remote data. Range requests remain essential
+because the sharding index and compressed chunks live within a single shard.
+
+Synthetic `test_plate.zarr` will mirror the collection-plus-bare-array layout,
+axes, dtype, single resolution, logical chunking, whole-array sharding, codecs,
+and wavelength channel labels at small dimensions. A separate standard
+OME-Zarr 0.5 image remains in the test matrix so native OME-Zarr support does not
+regress. Because a real plane is 2500 by 2500 pixels, the single-resolution data
+fits below the 4096 by 4096 texture limit noted in the brief.

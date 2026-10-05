@@ -78,13 +78,28 @@ headless mode, add a checked-in MCP configuration with working SwiftShader flags
 
 ## Real data
 
-The authoritative description will be added in M1 from
-`docs/data/arrhenius-inventory.json`. Until then, synthetic data defaults to
-OME-Zarr 0.4, Zarr v2, axes `(t, c, z, y, x)`, `uint16`, two pyramid levels, and
-chunks `(1, 1, 1, 256, 256)`.
+`docs/data/arrhenius-inventory.json` and `CONVERSION.md` are authoritative. The
+eight plate-named `.zarr` directories are plain TIMED collection folders, not
+Zarr groups or OME-Zarr plates. Each field is a bare Zarr v3 array named like
+`B02_s1.zarr`.
+
+- Every field is `uint16`, shape `(48, 3, 2500, 2500)`, axes `(t, c, y, x)`,
+  and one resolution level. `dimension_names` is absent.
+- Channels are 405, 505, and 625 nm. There are no OMERO colours or windows;
+  use viewer defaults and computed statistics.
+- Logical chunks are `(1, 1, 625, 625)` inside one whole-array shard of
+  `(48, 3, 2500, 2500)`. Compression is Blosc Zstd level 5 with byte shuffle.
+- P1 plates use rows B-O and columns 2-23: 308 wells and 616 fields each. P2
+  plates use rows C-N and columns 3-22: 196 wells and 392 fields each. Every
+  well has two fields, for 4,032 fields total.
+- The field's `timed` attribute records well, site, axes, wavelengths, and time
+  indices. Pixel size (0.3 micrometres) is documented only in conversion notes.
+- The data server must provide a synthetic, read-only OME-Zarr metadata facade
+  for Viv while mapping chunks to the untouched bare array. Keep standard
+  OME-Zarr 0.4/v2 and 0.5/v3 support as separate tested paths.
 
 ## Known gotchas
 
 - PowerShell may block npm's `.ps1` shim; use the `.cmd` shim when setting up a
   Windows workstation. Repository scripts themselves remain cross-platform.
-- M1, M5, and M7 require the operator to enter Arrhenius password and 2FA input.
+- M5 and M7 require the operator to enter Arrhenius password and 2FA input.

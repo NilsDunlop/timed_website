@@ -31,7 +31,8 @@ the root `Makefile`.
 ## Current status
 
 - M0: scaffold and tooling complete
-- M1-M8: pending
+- M1: real Arrhenius metadata inventoried and documented
+- M2-M8: pending
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be
