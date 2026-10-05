@@ -10,6 +10,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request
 from timed_connector.app import create_app
+from timed_connector.cli import _first_plate
 from timed_connector.hpc_backend import DataServerConnection
 from timed_connector.models import (
     ExistingJob,
@@ -302,6 +303,24 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     )
     assert "#SBATCH --account=naiss2026-3-679-cpu" in script
     assert "#SBATCH --partition=cpu" in script
+
+
+def test_first_plate_skips_entries_without_ome_zarr_metadata() -> None:
+    plate = {
+        "name": "PB100087_P1.1.zarr",
+        "path": "/data/PB100087_P1.1.zarr",
+        "kind": "dir",
+        "ome_zarr": {"kind": "plate", "version": "0.5", "zarr_format": 3},
+    }
+    entries = [
+        {"name": "CONVERSION.md", "kind": "file", "ome_zarr": None},
+        "invalid",
+        plate,
+    ]
+
+    assert _first_plate(entries) == plate
+    assert _first_plate(None) is None
+    assert _first_plate([{"ome_zarr": None}]) is None
 
 
 @pytest.mark.asyncio

@@ -29,7 +29,12 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 - The first submission failed before a job was created because the profile had
   swapped Slurm values: `-A naiss2026-3-679-cpu` and `-p cpu` are the verified
   Arrhenius CPU directives.
-- Compute-node data access: not yet checked.
+- The corrected profile submitted a job, reached compute node `n213`, started
+  Python 3.12.15, and completed the authenticated API handshake.
+- Compute-node data access works. The server listed the configured root and
+  identified all eight plate directories as OME-Zarr 0.5 / Zarr v3.
+- The terminal smoke test then exposed a local null-handling bug because the
+  root also contains `CONVERSION.md`; the CLI now skips non-Zarr entries.
 - Typical scheduling delay: not yet measured.
 
 ## M7 browser checklist

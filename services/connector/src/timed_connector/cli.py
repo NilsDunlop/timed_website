@@ -94,6 +94,18 @@ def _chunk_path(summary: dict[str, Any]) -> str | None:
     return f"{prefix}/{zeros}" if prefix else zeros
 
 
+def _first_plate(entries: Any) -> dict[str, Any] | None:
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ome_zarr = entry.get("ome_zarr")
+        if isinstance(ome_zarr, dict) and ome_zarr.get("kind") == "plate":
+            return entry
+    return None
+
+
 async def _terminal_try(args: argparse.Namespace) -> int:
     store = load_profiles(args.profiles)
     profile = validate_profile(store, args.profile_id)
@@ -152,14 +164,7 @@ async def _terminal_try(args: argparse.Namespace) -> int:
         )
         listing = listing_response.json()
         print(json.dumps(listing, indent=2))
-        plate = next(
-            (
-                entry
-                for entry in listing.get("entries", [])
-                if entry.get("ome_zarr", {}).get("kind") == "plate"
-            ),
-            None,
-        )
+        plate = _first_plate(listing.get("entries"))
         if plate is not None:
             linked = (
                 await _api_call(
