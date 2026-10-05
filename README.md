@@ -37,7 +37,8 @@ the root `Makefile`.
 - M4: connector and local SSH/Slurm test cluster complete
 - M5: real Arrhenius smoke test complete
 - M6: Connect, Data, and Viv viewer workflow complete
-- M7-M8: pending
+- M7: real Arrhenius browser workflow complete
+- M8: pending
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be

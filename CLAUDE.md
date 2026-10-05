@@ -177,3 +177,7 @@ is deterministic and gitignored.
 - M5 and M7 require the operator to enter Arrhenius password and 2FA input.
 - Keep `.canvas-frame` positioned; deck.gl otherwise places its canvas relative
   to the page and can cover the viewer controls.
+- Real Arrhenius timepoint changes currently take roughly 5–10 seconds. Viv
+  0.23 recreates its deck.gl tile cache when `selections` change; investigate a
+  bounded adjacent-timepoint range cache/prefetch in the custom Zarr store
+  before adding playback or claiming smooth scrubbing.

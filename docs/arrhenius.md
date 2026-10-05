@@ -55,6 +55,26 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 8. Disconnect with job cancellation enabled.
 9. In a terminal, confirm `squeue -u nilsdu` has no `timed-dataserver` job.
 
+## M7 findings
+
+- The complete website flow was validated against Arrhenius: browser-based
+  password and verification-code authentication, data browsing, linking a real
+  plate, opening a field, and using the Viv viewer.
+- Real microscopy pixels rendered correctly and the channel, contrast, and time
+  controls worked. The operator reported that the general responsiveness was
+  good.
+- Disconnect completed successfully. The local connector returned to a clean
+  `disconnected` state with no retained job id.
+- Pan and zoom work through Viv/deck.gl, but their gestures are not obvious in
+  the current UI. A small help overlay plus visible reset/zoom controls would
+  make navigation more discoverable.
+- Moving to an uncached timepoint in a real field such as `D12_s1.zarr` takes
+  roughly 5–10 seconds. The viewer already loads visible tiles lazily. In Viv
+  0.23, changing the selection recreates its deck.gl tile cache, so smooth time
+  scrubbing needs a bounded, abortable adjacent-timepoint prefetch/cache below
+  Viv rather than another lazy-loading toggle. Benchmark memory use and range
+  request reuse on the real sharded arrays before implementing it.
+
 ## Troubleshooting
 
 - Job pending indefinitely: verify the account and partition.
