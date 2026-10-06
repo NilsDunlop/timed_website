@@ -134,21 +134,51 @@ loading. Requested, rendering, and displayed timepoints are tracked separately:
 rapid slider input is debounced for 150 ms, and the status and footer change to
 the new time only after Viv reports that its viewport is complete.
 
-A 128 MiB least-recently-used cache sits below Viv at the decoded-tile boundary.
-It keys tiles by dataset, field, resolution, spatial tile, and non-spatial
-selection. Concurrent consumers share one load; cancelling a stale foreground
-request cannot cancel a still-useful prefetch. Once a frame is complete, TIMED
-prefetches the adjacent frame after a short idle delay with bounded concurrency
-and follows the user's direction through the trajectory. Three-channel fields
-fit roughly three complete decoded frames in the current budget.
+A 128 MiB least-recently-used cache sits below Viv at the decoded-pixel
+boundary and wraps both of Viv's access paths. Viv 0.23 renders a
+single-resolution loader with `ImageLayer.getRaster`, so TIMED prefetches the
+same per-channel rasters rather than display tiles; multiscale tile entries
+remain keyed by dataset, field, resolution, spatial tile, and non-spatial
+selection. Raster entries omit the spatial coordinates. Concurrent consumers
+share one load, and an orphaned load receives a 300 ms adoption window so the
+foreground renderer can take over an active prefetch after the 150 ms
+time-slider debounce without restarting its byte ranges.
+
+Once a frame is complete, TIMED prefetches the next destination on the selected
+time-jump grid after a short idle delay with bounded concurrency and follows
+the user's direction through the trajectory. It does not fetch skipped
+intermediate frames or prefetch multiscale data without a viewport-aware
+resolution policy. Three-channel fields fit roughly three complete decoded
+frames in the current budget.
 
 The connector owns one bounded HTTP client for its whole lifespan so range
-requests reuse upstream TCP connections. Zarr resources return private
-one-hour freshness, strong ETags, Last-Modified for files, conditional 304
-responses, and If-Range handling. These headers may be stored only by the
-user's private browser cache; the bearer token remains connector-only.
+requests reuse upstream TCP connections. Metadata and complete Zarr resources
+return private one-hour freshness, strong ETags, Last-Modified for files,
+conditional 304 responses, and If-Range handling. Byte-range requests bypass
+the browser HTTP cache and 206 responses are marked private and non-storable.
+This avoids Chromium sparse-cache failures when many ranges of one sharded
+object are read concurrently. The small immutable shard suffix is instead
+shared once in memory by the V3 store, and decoded pixels remain protected by
+TIMED's bounded pixel cache. The bearer token remains connector-only.
 
 The approach deliberately does not generate preview pyramids or videos. It
 improves interactive access to the authoritative arrays and leaves a later
 preview representation as an independent option if remote measurements still
 justify one.
+
+## 2026-10-06: make cross-experiment comparison explicit and additive
+
+The data browser keeps up to two user-selected wells in a comparison tray while
+the active linked dataset changes. Each tray entry owns its dataset identity,
+well, available sites, and chosen field, so identical paths such as
+`B01_s1.zarr` remain distinct across experiments. Users choose controls or
+treatments directly; TIMED does not infer a matched control in this first
+version.
+
+Viewer links continue to use `dataset`, `path`, and `compare`. A
+`compareDataset` parameter is added only when side B belongs to another linked
+dataset, preserving existing same-dataset links. The viewer loads each
+dataset's summary, metadata, Zarr source, and cache namespace independently,
+then synchronizes the common time range, channels, pan, and zoom. This keeps the
+current interaction small while leaving automated matching and richer
+batch-effect workflows as additions on top of the same two-source contract.

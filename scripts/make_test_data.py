@@ -29,7 +29,13 @@ FIELD_STORES = (
     ("B01", 1),
     ("B01", 2),
 )
-GENERATED_STORES = ("test_plate.zarr", "test_image_v04.zarr", "test_image_v05.zarr")
+COMPARISON_FIELD_STORES = (("B01", 1), ("B01", 2))
+GENERATED_STORES = (
+    "test_plate.zarr",
+    "test_plate_2.zarr",
+    "test_image_v04.zarr",
+    "test_image_v05.zarr",
+)
 GENERATED_METADATA_DIRECTORY = "metadata"
 DEFAULT_INVENTORY = Path(__file__).parents[1] / "docs" / "data" / "arrhenius-inventory.json"
 
@@ -252,10 +258,20 @@ def _write_ome_image(path: Path, data: np.ndarray, profile: DataProfile, version
     )
 
 
-def _write_plate_metadata(root: Path, profile: DataProfile) -> None:
+def _write_plate_metadata(
+    root: Path,
+    profile: DataProfile,
+    *,
+    plate_name: str,
+    plate_id: str,
+    plate_replicate: int,
+    plate_barcode: str,
+    experiment_date: str,
+    rows: list[dict[str, str]],
+) -> None:
     acquisition = {
         "project_name": "TIMED synthetic test data",
-        "plate_name": "test_plate",
+        "plate_name": plate_name,
         "cell_line": "Synthetic cells",
         "grid": {
             "num_x": 2,
@@ -278,9 +294,9 @@ def _write_plate_metadata(root: Path, profile: DataProfile) -> None:
             for wavelength in profile.channel_wavelengths
         ],
         "autofocus_enabled": True,
-        "timestamp": "2026-10-05T12:00:00",
+        "timestamp": f"{experiment_date}T12:00:00",
     }
-    (root / "acquisition" / "test_plate.json").write_text(
+    (root / "acquisition" / f"{plate_name}.json").write_text(
         json.dumps(acquisition, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -306,7 +322,88 @@ def _write_plate_metadata(root: Path, profile: DataProfile) -> None:
         "pathway",
         "mechanism_of_action",
     ]
-    rows = [
+    shared = {
+        "plate_id": plate_id,
+        "plate_series": "S1",
+        "plate_replicate": str(plate_replicate),
+        "project": "TIMED synthetic",
+        "plate_barcode": plate_barcode,
+        "experiment_date": experiment_date,
+        "cell_line": "Synthetic cells",
+        "cell_modification": "Reporter",
+        "passage": "1",
+        "seeding_density_cells_per_well": "1200",
+        "dye_program": "Three-channel",
+    }
+    with (root / "csv" / f"{plate_name}.csv").open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({**shared, **row})
+
+
+def _write_collection_acquisition(
+    plate: Path,
+    profile: DataProfile,
+    *,
+    plate_name: str,
+    wells: list[str],
+) -> None:
+    acquisition = {
+        "project_name": "TIMED synthetic test data",
+        "plate_name": plate_name,
+        "grid": {"num_x": 2, "num_y": 1, "num_t": TIMEPOINTS, "delta_t_hours": 1.0},
+        "wells": wells,
+        "channels_nm": list(profile.channel_wavelengths),
+    }
+    (plate / "acquisition_config.json").write_text(
+        json.dumps(acquisition, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -> None:
+    """Generate two collections and two native OME-Zarr compatibility fixtures."""
+    profile = load_profile(inventory_path)
+    if profile.zarr_format != 3 or profile.axes != ("t", "c", "y", "x"):
+        raise ValueError("M2 currently expects the verified Zarr v3 (t,c,y,x) TIMED signature")
+    output.mkdir(parents=True, exist_ok=True)
+    plate = _remove_generated_store(output, "test_plate.zarr")
+    comparison_plate = _remove_generated_store(output, "test_plate_2.zarr")
+    image_v04 = _remove_generated_store(output, "test_image_v04.zarr")
+    image_v05 = _remove_generated_store(output, "test_image_v05.zarr")
+    metadata = _replace_metadata_directory(output)
+    plate.mkdir()
+    comparison_plate.mkdir()
+
+    first_field = None
+    for field_index, (well, site) in enumerate(FIELD_STORES):
+        data = make_field_data(SEED + field_index * 101)
+        _write_bare_field(plate / f"{well}_s{site}.zarr", data, well, site, profile)
+        if first_field is None:
+            first_field = data
+
+    for field_index, (well, site) in enumerate(COMPARISON_FIELD_STORES):
+        data = make_field_data(SEED + 10_000 + field_index * 101)
+        _write_bare_field(comparison_plate / f"{well}_s{site}.zarr", data, well, site, profile)
+
+    _write_collection_acquisition(
+        plate,
+        profile,
+        plate_name="test_plate",
+        wells=["A01", "A02", "B01"],
+    )
+    _write_collection_acquisition(
+        comparison_plate,
+        profile,
+        plate_name="test_plate_2",
+        wells=["B01"],
+    )
+
+    compound_rows = [
         {
             "well": "A01",
             "well_type": "compound",
@@ -327,71 +424,37 @@ def _write_plate_metadata(root: Path, profile: DataProfile) -> None:
             "pathway": "MAPK/ERK Pathway",
             "mechanism_of_action": "MAPK inhibitor",
         },
-        {
-            "well": "B01",
-            "well_type": "solvent_control",
-            "cmpdname": "DMSO",
-            "target_compound_concentration_uM": "0",
-            "moa": "",
-            "target": "",
-            "pathway": "",
-            "mechanism_of_action": "",
-        },
     ]
-    shared = {
-        "plate_id": "S1.1",
-        "plate_series": "S1",
-        "plate_replicate": "1",
-        "project": "TIMED synthetic",
-        "plate_barcode": "SYNTH001",
-        "experiment_date": "2026-10-05",
-        "cell_line": "Synthetic cells",
-        "cell_modification": "Reporter",
-        "passage": "1",
-        "seeding_density_cells_per_well": "1200",
-        "dye_program": "Three-channel",
+    dmso_row = {
+        "well": "B01",
+        "well_type": "solvent_control",
+        "cmpdname": "DMSO",
+        "target_compound_concentration_uM": "0",
+        "moa": "",
+        "target": "",
+        "pathway": "",
+        "mechanism_of_action": "",
     }
-    with (root / "csv" / "test_plate.csv").open(
-        "w",
-        encoding="utf-8",
-        newline="",
-    ) as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({**shared, **row})
-
-
-def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -> None:
-    """Generate the collection and two native OME-Zarr compatibility fixtures."""
-    profile = load_profile(inventory_path)
-    if profile.zarr_format != 3 or profile.axes != ("t", "c", "y", "x"):
-        raise ValueError("M2 currently expects the verified Zarr v3 (t,c,y,x) TIMED signature")
-    output.mkdir(parents=True, exist_ok=True)
-    plate = _remove_generated_store(output, "test_plate.zarr")
-    image_v04 = _remove_generated_store(output, "test_image_v04.zarr")
-    image_v05 = _remove_generated_store(output, "test_image_v05.zarr")
-    metadata = _replace_metadata_directory(output)
-    plate.mkdir()
-
-    first_field = None
-    for field_index, (well, site) in enumerate(FIELD_STORES):
-        data = make_field_data(SEED + field_index * 101)
-        _write_bare_field(plate / f"{well}_s{site}.zarr", data, well, site, profile)
-        if first_field is None:
-            first_field = data
-
-    acquisition = {
-        "project_name": "TIMED synthetic test data",
-        "plate_name": "test_plate",
-        "grid": {"num_x": 2, "num_y": 1, "num_t": TIMEPOINTS, "delta_t_hours": 1.0},
-        "wells": ["A01", "A02", "B01"],
-        "channels_nm": list(profile.channel_wavelengths),
-    }
-    (plate / "acquisition_config.json").write_text(
-        json.dumps(acquisition, indent=2) + "\n", encoding="utf-8"
+    _write_plate_metadata(
+        metadata,
+        profile,
+        plate_name="test_plate",
+        plate_id="S1.1",
+        plate_replicate=1,
+        plate_barcode="SYNTH001",
+        experiment_date="2026-10-05",
+        rows=[*compound_rows, dmso_row],
     )
-    _write_plate_metadata(metadata, profile)
+    _write_plate_metadata(
+        metadata,
+        profile,
+        plate_name="test_plate_2",
+        plate_id="S1.2",
+        plate_replicate=2,
+        plate_barcode="SYNTH002",
+        experiment_date="2026-10-06",
+        rows=[dmso_row],
+    )
     if first_field is None:
         raise RuntimeError("No synthetic fields were generated")
     _write_ome_image(image_v04, first_field, profile, "0.4")

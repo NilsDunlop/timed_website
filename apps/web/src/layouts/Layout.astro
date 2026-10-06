@@ -542,7 +542,44 @@ const { title } = Astro.props;
     gap: 0.75rem;
   }
 
-  .comparison-field-grid label {
+  .comparison-field-grid-single {
+    grid-template-columns: minmax(12rem, 30rem);
+  }
+
+  .comparison-source-card {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.85rem;
+    border: 1px solid #cbd7c9;
+    border-radius: 0.4rem;
+    background: #f7faf6;
+  }
+
+  .comparison-source-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  .comparison-source-identity {
+    display: grid;
+    min-width: 0;
+    margin-right: auto;
+  }
+
+  .comparison-source-identity strong,
+  .comparison-source-identity small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .comparison-source-identity small {
+    color: #687269;
+  }
+
+  .comparison-source-card label {
     display: grid;
     gap: 0.4rem;
     font-weight: 700;
@@ -676,11 +713,51 @@ const { title } = Astro.props;
   }
 
   .viewer-time-control {
+    display: grid;
+    gap: 0.45rem;
     padding: 0.8rem;
     border: 1px solid #9fb7a3;
     border-radius: 0.4rem;
     background: #eef5ed;
     font-weight: 700;
+  }
+
+  .viewer-time-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.8rem;
+  }
+
+  .viewer-time-jump {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2rem;
+    padding: 0.25rem 0.5rem;
+    border-color: #78947d;
+    color: #254b30;
+    background: #fff;
+    font: inherit;
+    font-size: 0.82rem;
+  }
+
+  .viewer-time-jump:hover {
+    background: #e1ebe0;
+  }
+
+  .viewer-time-jump svg {
+    width: 1rem;
+    height: 1rem;
+    fill: currentcolor;
+  }
+
+  .viewer-time-help {
+    color: #5f6961;
+    font-size: 0.74rem;
+    font-weight: 500;
+    line-height: 1.35;
   }
 
   .viewer-time-state {
@@ -711,6 +788,7 @@ const { title } = Astro.props;
   }
 
   .channel-control input[type="range"],
+  .viewer-time-control input[type="range"],
   .viewer-controls > label input[type="range"] {
     width: 100%;
     padding: 0;
@@ -843,6 +921,7 @@ const { title } = Astro.props;
   .comparison-metadata-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
     gap: 1rem;
   }
 

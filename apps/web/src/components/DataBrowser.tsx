@@ -16,9 +16,15 @@ type Summary =
 type Field = components["schemas"]["FieldSummary"];
 type Breadcrumb = { label: string; path: string | null };
 type WellSelection = {
+  datasetId: string;
+  datasetName: string;
   path: string;
   fields: Field[];
   fieldPath: string;
+};
+type ViewerSource = {
+  datasetId: string;
+  imagePath: string;
 };
 
 const metadataColors = [
@@ -30,13 +36,17 @@ const metadataColors = [
   "#9a812f",
 ];
 
-function viewerHref(
-  datasetId: string,
-  imagePath: string,
-  comparePath?: string,
-): string {
-  const query = new URLSearchParams({ dataset: datasetId, path: imagePath });
-  if (comparePath) query.set("compare", comparePath);
+function viewerHref(primary: ViewerSource, comparison?: ViewerSource): string {
+  const query = new URLSearchParams({
+    dataset: primary.datasetId,
+    path: primary.imagePath,
+  });
+  if (comparison) {
+    query.set("compare", comparison.imagePath);
+    if (comparison.datasetId !== primary.datasetId) {
+      query.set("compareDataset", comparison.datasetId);
+    }
+  }
   return "/view?" + query.toString();
 }
 
@@ -152,11 +162,13 @@ export default function DataBrowser() {
         throw new Error(apiErrorMessage(result.error, "Could not unlink dataset"));
       }
       const linked = await loadDatasets();
+      setSelectedWells((current) =>
+        current.filter((well) => well.datasetId !== dataset.id),
+      );
       if (selected?.id === dataset.id) {
         setSelected(null);
         setSummary(null);
         setMetadata(null);
-        setSelectedWells([]);
         if (linked.length > 0) await selectDataset(linked[0]);
       }
     });
@@ -184,7 +196,6 @@ export default function DataBrowser() {
     setSelected(dataset);
     setSummary(summaryResult.data);
     setMetadata(metadataResult.data ?? null);
-    setSelectedWells([]);
     setCompoundFilter("");
     setMoaFilter("");
     setWellKind("all");
@@ -192,9 +203,15 @@ export default function DataBrowser() {
 
   async function toggleWell(wellPath: string) {
     if (!selected) return;
-    if (selectedWells.some((well) => well.path === wellPath)) {
+    if (
+      selectedWells.some(
+        (well) => well.datasetId === selected.id && well.path === wellPath,
+      )
+    ) {
       setSelectedWells((current) =>
-        current.filter((well) => well.path !== wellPath),
+        current.filter(
+          (well) => well.datasetId !== selected.id || well.path !== wellPath,
+        ),
       );
       return;
     }
@@ -215,22 +232,40 @@ export default function DataBrowser() {
       setSelectedWells((current) => {
         if (
           current.length >= 2 ||
-          current.some((well) => well.path === wellPath)
+          current.some(
+            (well) => well.datasetId === selected.id && well.path === wellPath,
+          )
         ) {
           return current;
         }
         return [
           ...current,
-          { path: wellPath, fields, fieldPath: fields[0]?.path ?? "" },
+          {
+            datasetId: selected.id,
+            datasetName: selected.name,
+            path: wellPath,
+            fields,
+            fieldPath: fields[0]?.path ?? "",
+          },
         ];
       });
     });
   }
 
-  function selectField(wellPath: string, fieldPath: string) {
+  function selectField(datasetId: string, wellPath: string, fieldPath: string) {
     setSelectedWells((current) =>
       current.map((well) =>
-        well.path === wellPath ? { ...well, fieldPath } : well,
+        well.datasetId === datasetId && well.path === wellPath
+          ? { ...well, fieldPath }
+          : well,
+      ),
+    );
+  }
+
+  function removeWell(datasetId: string, wellPath: string) {
+    setSelectedWells((current) =>
+      current.filter(
+        (well) => well.datasetId !== datasetId || well.path !== wellPath,
       ),
     );
   }
@@ -424,7 +459,13 @@ export default function DataBrowser() {
               <h2 id="summary-heading">{selected.name}</h2>
             </div>
             {summary.kind === "image" && (
-              <a className="button-link" href={viewerHref(selected.id, summary.path)}>
+              <a
+                className="button-link"
+                href={viewerHref({
+                  datasetId: selected.id,
+                  imagePath: summary.path,
+                })}
+              >
                 Open image
               </a>
             )}
@@ -541,7 +582,9 @@ export default function DataBrowser() {
 
               <PlateMetadataPanel
                 metadata={metadata}
-                selectedWell={selectedWells[0]?.path}
+                selectedWell={
+                  selectedWells.find((well) => well.datasetId === selected.id)?.path
+                }
               />
 
               <div className="selection-hint">
@@ -569,8 +612,9 @@ export default function DataBrowser() {
                     className="selection-tooltip"
                     role="tooltip"
                   >
-                    Choose one well to inspect it, or two wells to compare their
-                    time trajectories.
+                    Choose one well to inspect it, or keep it in the comparison
+                    tray while you open another linked experiment and choose a
+                    second well.
                   </span>
                 </span>
               </div>
@@ -635,7 +679,10 @@ export default function DataBrowser() {
                         ? moaColors.get(wellMetadata.moa)
                         : undefined;
                     const selectedIndex = path
-                      ? selectedWells.findIndex((well) => well.path === path)
+                      ? selectedWells.findIndex(
+                          (well) =>
+                            well.datasetId === selected.id && well.path === path,
+                        )
                       : -1;
                     const classes = [
                       "well",
@@ -696,78 +743,121 @@ export default function DataBrowser() {
                   className="subpanel well-selection-panel"
                   data-testid="well-selection"
                 >
-                  {selectedWells.length === 1 ? (
-                    <>
-                      <h3>Fields in {selectedWells[0].path}</h3>
-                      <ul className="field-list">
-                        {selectedWells[0].fields.map((field, index) => (
-                          <li key={field.path}>
-                            <span>
-                              Site {index + 1}
-                              {field.acquisition != null
-                                ? " · acquisition " + String(field.acquisition)
-                                : ""}
-                            </span>
-                            <a
-                              className="button-link"
-                              href={viewerHref(selected.id, field.path)}
-                            >
-                              Open
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <p className="eyebrow">Comparison</p>
-                        <h3>Choose a site from each well</h3>
-                      </div>
-                      <div className="comparison-field-grid">
-                        {selectedWells.map((well) => (
-                          <label key={well.path}>
-                            <span>{well.path}</span>
-                            <select
-                              aria-label={"Site for " + well.path}
-                              value={well.fieldPath}
-                              onChange={(event) =>
-                                selectField(well.path, event.target.value)
-                              }
-                            >
-                              {well.fields.map((field, index) => (
-                                <option key={field.path} value={field.path}>
-                                  Site {index + 1}
-                                  {field.acquisition != null
-                                    ? " · acquisition " +
-                                      String(field.acquisition)
-                                    : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ))}
-                      </div>
-                      <div className="comparison-action">
-                        <p className="muted">
-                          Time, channels, pan, and zoom will stay synchronized.
-                        </p>
-                        {selectedWells.every((well) => well.fieldPath) && (
-                          <a
-                            className="button-link"
-                            data-testid="open-comparison"
-                            href={viewerHref(
-                              selected.id,
-                              selectedWells[0].fieldPath,
-                              selectedWells[1].fieldPath,
-                            )}
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">Comparison tray</p>
+                      <h3>
+                        {selectedWells.length === 1
+                          ? "Choose a site for side A"
+                          : "Choose a site from each well"}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => setSelectedWells([])}
+                    >
+                      Clear tray
+                    </button>
+                  </div>
+
+                  <div
+                    className={
+                      "comparison-field-grid" +
+                      (selectedWells.length === 1 ? " comparison-field-grid-single" : "")
+                    }
+                  >
+                    {selectedWells.map((well, index) => (
+                      <div
+                        className="comparison-source-card"
+                        key={well.datasetId + "\u0000" + well.path}
+                      >
+                        <div className="comparison-source-heading">
+                          <span className="comparison-index" aria-hidden="true">
+                            {index === 0 ? "A" : "B"}
+                          </span>
+                          <span className="comparison-source-identity">
+                            <strong>{well.datasetName}</strong>
+                            <small>{well.path}</small>
+                          </span>
+                          <button
+                            type="button"
+                            className="text-button"
+                            aria-label={
+                              "Remove " + well.datasetName + " " + well.path + " from tray"
+                            }
+                            onClick={() => removeWell(well.datasetId, well.path)}
                           >
-                            Compare trajectories
-                          </a>
-                        )}
+                            Remove
+                          </button>
+                        </div>
+                        <label>
+                          <span>Site</span>
+                          <select
+                            aria-label={
+                              "Site for " + well.datasetName + " " + well.path
+                            }
+                            value={well.fieldPath}
+                            onChange={(event) =>
+                              selectField(
+                                well.datasetId,
+                                well.path,
+                                event.target.value,
+                              )
+                            }
+                          >
+                            {well.fields.map((field, fieldIndex) => (
+                              <option key={field.path} value={field.path}>
+                                Site {fieldIndex + 1}
+                                {field.acquisition != null
+                                  ? " · acquisition " + String(field.acquisition)
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
-                    </>
-                  )}
+                    ))}
+                  </div>
+
+                  <div className="comparison-action">
+                    <p className="muted">
+                      {selectedWells.length === 1
+                        ? "Inspect side A now, or open another well to add side B."
+                        : "Time, channels, pan, and zoom will stay synchronized."}
+                    </p>
+                    {selectedWells.length === 1 && selectedWells[0].fieldPath && (
+                      <a
+                        className="button-link"
+                        data-testid="open-selected"
+                        href={viewerHref({
+                          datasetId: selectedWells[0].datasetId,
+                          imagePath: selectedWells[0].fieldPath,
+                        })}
+                      >
+                        Open trajectory
+                      </a>
+                    )}
+                    {selectedWells.length === 2 &&
+                      selectedWells.every((well) => well.fieldPath) && (
+                        <a
+                          className="button-link"
+                          data-testid="open-comparison"
+                          href={viewerHref(
+                            {
+                              datasetId: selectedWells[0].datasetId,
+                              imagePath: selectedWells[0].fieldPath,
+                            },
+                            {
+                              datasetId: selectedWells[1].datasetId,
+                              imagePath: selectedWells[1].fieldPath,
+                            },
+                          )}
+                        >
+                          Compare trajectories
+                        </a>
+                      )}
+                  </div>
                 </div>
               )}
             </>

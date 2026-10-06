@@ -22,6 +22,7 @@ def test_field_pixels_are_deterministic_and_time_varying() -> None:
 def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Path) -> None:
     make_test_data.generate_test_data(tmp_path)
     plate = tmp_path / "test_plate.zarr"
+    comparison_plate = tmp_path / "test_plate_2.zarr"
     field_names = sorted(path.name for path in plate.glob("*.zarr"))
 
     assert field_names == [
@@ -33,6 +34,10 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
         "B01_s2.zarr",
     ]
     assert not (plate / "B02_s1.zarr").exists()
+    assert sorted(path.name for path in comparison_plate.glob("*.zarr")) == [
+        "B01_s1.zarr",
+        "B01_s2.zarr",
+    ]
     metadata = tmp_path / "metadata"
     acquisition = json.loads((metadata / "acquisition" / "test_plate.json").read_text("utf-8"))
     assert acquisition["plate_name"] == "test_plate"
@@ -44,6 +49,13 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
     metadata_csv = (metadata / "csv" / "test_plate.csv").read_text("utf-8")
     assert "Compound Alpha" in metadata_csv
     assert "solvent_control" in metadata_csv
+    comparison_acquisition = json.loads(
+        (metadata / "acquisition" / "test_plate_2.json").read_text("utf-8")
+    )
+    assert comparison_acquisition["plate_name"] == "test_plate_2"
+    comparison_metadata_csv = (metadata / "csv" / "test_plate_2.csv").read_text("utf-8")
+    assert "S1.2" in comparison_metadata_csv
+    assert "DMSO" in comparison_metadata_csv
 
     field = zarr.open_array(plate / "A01_s1.zarr", mode="r")
     assert field.metadata.zarr_format == 3
@@ -111,7 +123,12 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
         }
     ]
     assert errors == []
-    assert set(by_name) == {"test_plate.zarr", "test_image_v04.zarr", "test_image_v05.zarr"}
+    assert set(by_name) == {
+        "test_plate.zarr",
+        "test_plate_2.zarr",
+        "test_image_v04.zarr",
+        "test_image_v05.zarr",
+    }
     collection = by_name["test_plate.zarr"]
     assert collection["well_count"] == 3
     assert collection["field_store_count"] == 6
@@ -119,5 +136,9 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
     assert collection["field_error_count"] == 0
     assert collection["signatures"][0]["signature"]["chunks"] == [1, 1, 128, 128]
     assert collection["signatures"][0]["signature"]["shard_shape"] == [6, 3, 512, 512]
+    comparison_collection = by_name["test_plate_2.zarr"]
+    assert comparison_collection["well_count"] == 1
+    assert comparison_collection["field_store_count"] == 2
+    assert comparison_collection["fields_per_well"] == {"2": 1}
     assert by_name["test_image_v04.zarr"]["ome_zarr_version"] == "0.4"
     assert by_name["test_image_v05.zarr"]["ome_zarr_version"] == "0.5"
