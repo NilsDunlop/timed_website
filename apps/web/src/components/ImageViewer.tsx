@@ -14,11 +14,20 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { components } from "../lib/api/dataserver-schema";
 import { apiErrorMessage, dataServerClient } from "../lib/api/client";
 import {
-  cacheTileLoader,
-  type CacheableTileSource,
+  cacheImageLoader,
+  type CacheableImageSource,
   prefetchTimepoint,
-  viewerTileCache,
+  viewerPixelCache,
 } from "../lib/viewerTileCache";
+import {
+  moveTimeIndex,
+  prefetchTimeIndex,
+  timeIntervalHours,
+  timeJumpOptions,
+} from "../lib/timeNavigation";
+import { FrameReadinessTracker } from "../lib/frameReadiness";
+import { V3FetchStore } from "../lib/v3FetchStore";
+import { viewerDebug } from "../lib/viewerDebug";
 import PlateMetadataPanel, {
   type PlateMetadata,
   wellIdFromPath,
@@ -60,66 +69,6 @@ const fallbackColors: [number, number, number][] = [
   [255, 0, 255],
   [0, 255, 255],
 ];
-
-type ByteRange =
-  | { offset: number; length: number }
-  | { suffixLength: number };
-
-class V3FetchStore {
-  private root: URL;
-
-  constructor(root: string) {
-    this.root = new URL(root);
-    if (!this.root.pathname.endsWith("/")) this.root.pathname += "/";
-  }
-
-  private url(key: string): URL {
-    return new URL(key.replace(/^\//, ""), this.root);
-  }
-
-  private async read(response: Response): Promise<Uint8Array | undefined> {
-    if (response.status === 404) return undefined;
-    if (response.status !== 200 && response.status !== 206) {
-      throw new Error(
-        "Unexpected Zarr response " +
-          String(response.status) +
-          " " +
-          response.statusText,
-      );
-    }
-    return new Uint8Array(await response.arrayBuffer());
-  }
-
-  async get(
-    key: string,
-    options: RequestInit = {},
-  ): Promise<Uint8Array | undefined> {
-    if (key.endsWith("/.zattrs") || key.endsWith("/.zgroup")) {
-      return undefined;
-    }
-    return this.read(await fetch(this.url(key), options));
-  }
-
-  async getRange(
-    key: string,
-    range: ByteRange,
-    options: RequestInit = {},
-  ): Promise<Uint8Array | undefined> {
-    const headers = new Headers(options.headers);
-    if ("suffixLength" in range) {
-      headers.set("Range", "bytes=-" + String(range.suffixLength));
-    } else {
-      headers.set(
-        "Range",
-        "bytes=" +
-          String(range.offset) +
-          "-" +
-          String(range.offset + range.length - 1),
-      );
-    }
-    return this.read(await fetch(this.url(key), { ...options, headers }));
-  }
-}
 
 function parseColor(value: string | null | undefined, index: number) {
   if (value && /^[0-9a-f]{6}$/i.test(value)) {
@@ -339,73 +288,125 @@ export default function ImageViewer() {
     width: 900,
     height: 600,
   });
+  const [datasetId, setDatasetId] = useState("");
   const [datasetName, setDatasetName] = useState("");
+  const [compareDatasetId, setCompareDatasetId] = useState("");
+  const [compareDatasetName, setCompareDatasetName] = useState("");
   const [imagePath, setImagePath] = useState("");
   const [comparePath, setComparePath] = useState("");
   const [image, setImage] = useState<ImageSummary | null>(null);
   const [plateMetadata, setPlateMetadata] = useState<PlateMetadata | null>(null);
+  const [comparePlateMetadata, setComparePlateMetadata] =
+    useState<PlateMetadata | null>(null);
   const [loader, setLoader] = useState<Loader | null>(null);
   const [compareLoader, setCompareLoader] = useState<Loader | null>(null);
   const [channels, setChannels] = useState<ChannelState[]>([]);
   const [requestedTime, setRequestedTime] = useState(0);
   const [renderTime, setRenderTime] = useState(0);
   const [displayedTime, setDisplayedTime] = useState<number | null>(null);
+  const [jumpFrames, setJumpFrames] = useState(1);
   const [z, setZ] = useState(0);
   const [viewState, setViewState] = useState<CameraViewState | null>(null);
   const [controlsOpen, setControlsOpen] = useState(true);
   const [status, setStatus] = useState("Loading metadata…");
   const [error, setError] = useState("");
-  const readyImages = useRef(new Set<string>());
-  const activeFrame = useRef("");
+  const frameReadiness = useRef(new FrameReadinessTracker());
+  const settledFrame = useRef("");
   const timeDirection = useRef<1 | -1>(1);
 
   useEffect(() => {
     let active = true;
-    viewerTileCache.clear();
+    viewerPixelCache.clear();
     async function load() {
       try {
         const query = new URLSearchParams(window.location.search);
-        const datasetId = query.get("dataset");
+        const primaryDatasetId = query.get("dataset");
         const selectedPath = query.get("path");
         const requestedComparison = query.get("compare");
+        const requestedComparisonDataset =
+          query.get("compareDataset") ?? primaryDatasetId;
         const comparisonPath =
-          requestedComparison && requestedComparison !== selectedPath
+          requestedComparison &&
+          (requestedComparisonDataset !== primaryDatasetId ||
+            requestedComparison !== selectedPath)
             ? requestedComparison
             : "";
-        if (!datasetId || selectedPath == null) {
+        const comparisonDatasetId = comparisonPath
+          ? requestedComparisonDataset
+          : null;
+        viewerDebug("viewer:load-start", {
+          primary: { datasetId: primaryDatasetId, path: selectedPath },
+          comparison: comparisonDatasetId
+            ? { datasetId: comparisonDatasetId, path: comparisonPath }
+            : null,
+        });
+        if (!primaryDatasetId || selectedPath == null) {
           throw new Error("Choose an image field from the Data page first.");
         }
 
-        const [datasetsResult, summaryResult, metadataResult] = await Promise.all([
+        async function loadDatasetDetails(sourceDatasetId: string) {
+          const [summaryResult, metadataResult] = await Promise.all([
+            dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
+              params: { path: { dataset_id: sourceDatasetId } },
+            }),
+            dataServerClient.GET("/api/datasets/{dataset_id}/metadata", {
+              params: { path: { dataset_id: sourceDatasetId } },
+            }),
+          ]);
+          if (!summaryResult.data) {
+            throw new Error(
+              apiErrorMessage(summaryResult.error, "Could not load dataset summary"),
+            );
+          }
+          if (!metadataResult.data && metadataResult.response.status !== 404) {
+            throw new Error(
+              apiErrorMessage(metadataResult.error, "Could not load plate metadata"),
+            );
+          }
+          return {
+            summary: summaryResult.data,
+            metadata: metadataResult.data ?? null,
+          };
+        }
+
+        const [datasetsResult, primaryDetails, comparisonDetails] = await Promise.all([
           dataServerClient.GET("/api/datasets"),
-          dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
-            params: { path: { dataset_id: datasetId } },
-          }),
-          dataServerClient.GET("/api/datasets/{dataset_id}/metadata", {
-            params: { path: { dataset_id: datasetId } },
-          }),
+          loadDatasetDetails(primaryDatasetId),
+          comparisonDatasetId
+            ? loadDatasetDetails(comparisonDatasetId)
+            : Promise.resolve(null),
         ]);
-        if (!datasetsResult.data || !summaryResult.data) {
+        if (!datasetsResult.data) {
           throw new Error(
-            apiErrorMessage(
-              datasetsResult.error ?? summaryResult.error,
-              "Could not load the linked dataset",
-            ),
+            apiErrorMessage(datasetsResult.error, "Could not load linked datasets"),
           );
         }
         const record = datasetsResult.data.datasets.find(
-          (dataset) => dataset.id === datasetId,
+          (dataset) => dataset.id === primaryDatasetId,
         );
-        const selectedImage = imageFromSummary(summaryResult.data);
+        const comparisonRecord = comparisonDatasetId
+          ? datasetsResult.data.datasets.find(
+              (dataset) => dataset.id === comparisonDatasetId,
+            )
+          : null;
+        const selectedImage = imageFromSummary(primaryDetails.summary);
+        const comparisonImage = comparisonDetails
+          ? imageFromSummary(comparisonDetails.summary)
+          : null;
         if (!record || !selectedImage) {
           throw new Error("The linked dataset has no image metadata.");
         }
-        const linkedDatasetId = datasetId;
-        const zarrFormat = selectedImage.zarr_format;
+        if (comparisonDatasetId && (!comparisonRecord || !comparisonImage)) {
+          throw new Error("The comparison dataset has no image metadata.");
+        }
 
-        async function loadPath(path: string) {
-          const zarrRoot = encodedZarrPath(linkedDatasetId, path);
-          return zarrFormat === 3
+        async function loadSource(source: {
+          datasetId: string;
+          path: string;
+          image: ImageSummary;
+        }) {
+          const zarrRoot = encodedZarrPath(source.datasetId, source.path);
+          return source.image.zarr_format === 3
             ? loadOmeZarrFromStore(
                 new V3FetchStore(zarrRoot) as Parameters<
                   typeof loadOmeZarrFromStore
@@ -414,24 +415,50 @@ export default function ImageViewer() {
             : loadOmeZarr(zarrRoot, { type: "multiscales" });
         }
 
-        const paths = comparisonPath
-          ? [selectedPath, comparisonPath]
-          : [selectedPath];
-        const loadedImages = await Promise.all(paths.map(loadPath));
+        const sources = [
+          {
+            datasetId: primaryDatasetId,
+            path: selectedPath,
+            image: selectedImage,
+          },
+        ];
+        if (comparisonDatasetId && comparisonImage) {
+          sources.push({
+            datasetId: comparisonDatasetId,
+            path: comparisonPath,
+            image: comparisonImage,
+          });
+        }
+        viewerDebug("viewer:image-metadata-ready", {
+          sources: sources.map((source) => ({
+            datasetId: source.datasetId,
+            path: source.path,
+            zarrFormat: source.image.zarr_format,
+          })),
+          axes: selectedImage.axes,
+          levels: selectedImage.levels.length,
+        });
+        const loadedImages = await Promise.all(sources.map(loadSource));
         const loaded = loadedImages[0];
         const comparison = loadedImages[1];
         for (const [index, loadedImage] of loadedImages.entries()) {
-          cacheTileLoader(
-            loadedImage.data as unknown as CacheableTileSource[],
-            linkedDatasetId + "/" + paths[index],
-            viewerTileCache,
+          const sourceSpec = sources[index];
+          cacheImageLoader(
+            loadedImage.data as unknown as CacheableImageSource[],
+            sourceSpec.datasetId + "/" + sourceSpec.path,
+            viewerPixelCache,
           );
           for (const source of loadedImage.data) {
             source.onTileError = (reason: Error) => {
+              viewerDebug("viv:tile-error", {
+                datasetId: sourceSpec.datasetId,
+                path: sourceSpec.path,
+                reason: reason.message,
+              });
               if (active) {
                 setError(
                   "Could not load a chunk for " +
-                    paths[index] +
+                    sourceSpec.path +
                     ": " +
                     reason.message,
                 );
@@ -439,23 +466,51 @@ export default function ImageViewer() {
             };
           }
         }
-        const initialChannels = await channelStates(loaded.data, selectedImage);
+        let initialChannels = await channelStates(loaded.data, selectedImage);
+        if (comparison) {
+          const comparisonSource = comparison.data.at(-1);
+          const commonChannelCount = comparisonSource
+            ? Math.min(initialChannels.length, axisSize(comparisonSource, "c"))
+            : 0;
+          if (commonChannelCount === 0) {
+            throw new Error("The selected images have no comparable channels.");
+          }
+          initialChannels = initialChannels.slice(0, commonChannelCount);
+        }
         if (!active) return;
-        readyImages.current.clear();
+        viewerDebug("viewer:loader-ready", {
+          sources: sources.map((source) => ({
+            datasetId: source.datasetId,
+            path: source.path,
+          })),
+          channels: initialChannels.length,
+          resolutions: loaded.data.length,
+          comparison: Boolean(comparison),
+        });
+        frameReadiness.current.clear();
+        settledFrame.current = "";
         setRequestedTime(0);
         setRenderTime(0);
         setDisplayedTime(null);
+        setJumpFrames(1);
+        setDatasetId(primaryDatasetId);
         setDatasetName(record.name);
+        setCompareDatasetId(comparisonDatasetId ?? "");
+        setCompareDatasetName(comparisonRecord?.name ?? "");
         setImagePath(selectedPath || selectedImage.path);
         setComparePath(comparisonPath);
         setImage(selectedImage);
-        setPlateMetadata(metadataResult.data ?? null);
+        setPlateMetadata(primaryDetails.metadata);
+        setComparePlateMetadata(comparisonDetails?.metadata ?? null);
         setLoader(loaded.data);
         setCompareLoader(comparison?.data ?? null);
         setChannels(initialChannels);
         setViewState(null);
         setStatus(comparison ? "Rendering images…" : "Rendering image…");
       } catch (reason) {
+        viewerDebug("viewer:load-error", {
+          reason: reason instanceof Error ? reason.message : String(reason),
+        });
         if (active) {
           setError(reason instanceof Error ? reason.message : String(reason));
           setStatus("Viewer failed");
@@ -465,7 +520,8 @@ export default function ImageViewer() {
     void load();
     return () => {
       active = false;
-      viewerTileCache.clear();
+      viewerDebug("viewer:unmount");
+      viewerPixelCache.clear();
     };
   }, []);
 
@@ -485,6 +541,16 @@ export default function ImageViewer() {
     : 1;
   const channelCount = channels.length;
   const comparing = Boolean(compareLoader && comparePath);
+  const imageReadyKey = datasetId + "\u0000" + imagePath;
+  const compareReadyKey = compareDatasetId + "\u0000" + comparePath;
+  const intervalHours = timeIntervalHours(
+    image,
+    plateMetadata?.plate?.acquisition?.interval_minutes,
+  );
+  const jumpOptions = useMemo(
+    () => timeJumpOptions(timeCount, intervalHours),
+    [intervalHours, timeCount],
+  );
   const selections = useMemo(
     () =>
       source
@@ -509,37 +575,153 @@ export default function ImageViewer() {
     Math.floor(6 / Math.max(1, channelCount * (comparing ? 2 : 1))),
   );
 
-  const commitTime = useCallback((nextTime: number) => {
-    setRenderTime((currentTime) => {
-      if (nextTime !== currentTime) {
-        timeDirection.current = nextTime > currentTime ? 1 : -1;
+  const completeFrame = useCallback(
+    (
+      readyFrame: string,
+      readyTime: number,
+      readyPaths: string[],
+      source: "active-callback" | "recorded-before-activation",
+    ) => {
+      const expected = comparing ? 2 : 1;
+      if (
+        frameReadiness.current.activeFrame !== readyFrame ||
+        readyPaths.length < expected
+      ) {
+        return false;
       }
-      return nextTime;
-    });
-  }, []);
+      if (settledFrame.current === readyFrame) return true;
+
+      settledFrame.current = readyFrame;
+      viewerDebug("frame:ready", {
+        frameKey: readyFrame,
+        timepoint: readyTime + 1,
+        paths: readyPaths,
+        source,
+        cachedEntries: viewerPixelCache.size,
+        cachedBytes: viewerPixelCache.byteLength,
+      });
+      setDisplayedTime(readyTime);
+      setStatus(comparing ? "Images ready" : "Image ready");
+      return true;
+    },
+    [comparing],
+  );
+
+  const commitTime = useCallback(
+    (nextTime: number) => {
+      const nextFrame = nextTime + ":" + z;
+      if (nextFrame !== frameReadiness.current.activeFrame) {
+        frameReadiness.current.prepare(nextFrame);
+      }
+      setRenderTime((currentTime) => {
+        if (nextTime !== currentTime) {
+          timeDirection.current = nextTime > currentTime ? 1 : -1;
+          viewerDebug("time:commit", {
+            from: currentTime + 1,
+            to: nextTime + 1,
+            direction: timeDirection.current,
+          });
+        }
+        return nextTime;
+      });
+    },
+    [z],
+  );
+
+  useEffect(() => {
+    if (!jumpOptions.some((option) => option.frames === jumpFrames)) {
+      setJumpFrames(jumpOptions[0]?.frames ?? 1);
+    }
+  }, [jumpFrames, jumpOptions]);
 
   useEffect(() => {
     if (requestedTime === renderTime) return;
+    viewerDebug("time:debounce-scheduled", {
+      requested: requestedTime + 1,
+      rendered: renderTime + 1,
+      delayMs: 150,
+    });
     const timer = window.setTimeout(() => commitTime(requestedTime), 150);
     return () => window.clearTimeout(timer);
   }, [commitTime, renderTime, requestedTime]);
 
   useEffect(() => {
     if (!loader) return;
-    activeFrame.current = frameKey;
-    readyImages.current.clear();
-    setStatus(
-      comparing
-        ? "Loading time " + String(renderTime + 1) + " in both images…"
-        : "Loading time " + String(renderTime + 1) + "…",
-    );
-  }, [compareLoader, comparing, frameKey, loader, renderTime]);
+    const readiness = frameReadiness.current.activate(frameKey);
+    viewerDebug("frame:render-start", {
+      frameKey,
+      timepoint: renderTime + 1,
+      z: z + 1,
+      comparison: comparing,
+      requested: requestedTime + 1,
+      recordedPaths: readiness.paths,
+    });
+    if (
+      !completeFrame(
+        frameKey,
+        renderTime,
+        readiness.paths,
+        "recorded-before-activation",
+      )
+    ) {
+      setStatus(
+        comparing
+          ? "Loading time " + String(renderTime + 1) + " in both images…"
+          : "Loading time " + String(renderTime + 1) + "…",
+      );
+    }
+  }, [
+    compareLoader,
+    comparing,
+    completeFrame,
+    frameKey,
+    loader,
+    renderTime,
+  ]);
 
   useEffect(() => {
     if (loader && requestedTime !== renderTime) {
+      viewerDebug("time:requested", {
+        requested: requestedTime + 1,
+        rendered: renderTime + 1,
+        displayed: displayedTime == null ? null : displayedTime + 1,
+      });
       setStatus("Preparing time " + String(requestedTime + 1) + "…");
     }
-  }, [loader, renderTime, requestedTime]);
+  }, [displayedTime, loader, renderTime, requestedTime]);
+
+  useEffect(() => {
+    if (!loader || displayedTime === renderTime) return;
+    const waitingFor = frameKey;
+    const timer = window.setTimeout(() => {
+      if (frameReadiness.current.activeFrame !== waitingFor) return;
+      viewerDebug("frame:still-waiting", {
+        frameKey: waitingFor,
+        requested: requestedTime + 1,
+        rendered: renderTime + 1,
+        displayed: displayedTime == null ? null : displayedTime + 1,
+        readyPaths: frameReadiness.current.pathsFor(waitingFor),
+        expectedPaths: comparing
+          ? [imageReadyKey, compareReadyKey]
+          : [imageReadyKey],
+        cachedEntries: viewerPixelCache.size,
+        cachedBytes: viewerPixelCache.byteLength,
+        waitedMs: 10_000,
+      });
+    }, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [
+    comparePath,
+    comparing,
+    displayedTime,
+    frameKey,
+    imagePath,
+    imageReadyKey,
+    loader,
+    compareReadyKey,
+    renderTime,
+    requestedTime,
+  ]);
 
   useEffect(() => {
     if (
@@ -553,20 +735,39 @@ export default function ImageViewer() {
       return;
     }
 
-    let targetTime = renderTime + timeDirection.current;
-    if (targetTime < 0 || targetTime >= timeCount) {
-      targetTime = renderTime - timeDirection.current;
-    }
-    if (targetTime < 0 || targetTime >= timeCount) return;
+    const targetTime = prefetchTimeIndex(
+      renderTime,
+      timeDirection.current,
+      jumpFrames,
+      timeCount,
+    );
+    if (targetTime == null) return;
 
     const controller = new AbortController();
+    let started = false;
+    let completed = false;
+    viewerDebug("prefetch:scheduled", {
+      from: renderTime + 1,
+      to: targetTime + 1,
+      jumpFrames,
+      direction: timeDirection.current,
+      delayMs: 250,
+    });
     const timer = window.setTimeout(() => {
+      started = true;
+      viewerDebug("prefetch:start", {
+        from: renderTime + 1,
+        to: targetTime + 1,
+        comparison: comparing,
+        strategy: "single-resolution-raster",
+        rasters: channelCount * (comparing ? 2 : 1),
+      });
       const nextSelections = Array.from(
         { length: channelCount },
         (_unused, index) => selectionFor(loader[0], index, targetTime, z),
       );
       const primary = prefetchTimepoint(
-        loader as unknown as CacheableTileSource[],
+        loader as unknown as CacheableImageSource[],
         nextSelections,
         controller.signal,
         comparing ? 3 : 6,
@@ -582,20 +783,38 @@ export default function ImageViewer() {
         work = Promise.all([
           primary,
           prefetchTimepoint(
-            compareLoader as unknown as CacheableTileSource[],
+            compareLoader as unknown as CacheableImageSource[],
             nextComparisonSelections,
             controller.signal,
             3,
           ),
         ]).then(() => undefined);
       }
-      void work.catch(() => {
-        // Prefetch is opportunistic; foreground rendering reports real failures.
-      });
+      void work.then(
+        () => {
+          completed = true;
+          viewerDebug("prefetch:complete", { timepoint: targetTime + 1 });
+        },
+        (reason: unknown) => {
+          viewerDebug(
+            controller.signal.aborted ? "prefetch:aborted" : "prefetch:error",
+            {
+              timepoint: targetTime + 1,
+              reason: reason instanceof Error ? reason.message : String(reason),
+            },
+          );
+        },
+      );
     }, 250);
 
     return () => {
       window.clearTimeout(timer);
+      if (!completed) {
+        viewerDebug(
+          started ? "prefetch:cancel-active" : "prefetch:cancel-scheduled",
+          { timepoint: targetTime + 1 },
+        );
+      }
       controller.abort();
     };
   }, [
@@ -603,6 +822,7 @@ export default function ImageViewer() {
     compareLoader,
     comparing,
     displayedTime,
+    jumpFrames,
     loader,
     renderTime,
     requestedTime,
@@ -650,26 +870,55 @@ export default function ImageViewer() {
     return event.viewState;
   }
 
-  const markReady = useCallback((path: string, readyFrame: string, readyTime: number) => {
-    if (readyFrame !== activeFrame.current) return;
-    readyImages.current.add(path);
-    const expected = comparing ? 2 : 1;
-    if (readyImages.current.size >= expected) {
-      setDisplayedTime(readyTime);
-      setStatus(comparing ? "Images ready" : "Image ready");
-    }
-  }, [comparing]);
+  const markReady = useCallback(
+    (path: string, readyFrame: string, readyTime: number) => {
+      const readiness = frameReadiness.current.record(readyFrame, path);
+      viewerDebug("viv:viewport-load", {
+        path,
+        readyFrame,
+        activeFrame: frameReadiness.current.activeFrame,
+        timepoint: readyTime + 1,
+        relation: readiness.active ? "active" : "inactive-recorded",
+        readyPaths: readiness.paths,
+      });
+      if (readiness.active) {
+        completeFrame(
+          readyFrame,
+          readyTime,
+          readiness.paths,
+          "active-callback",
+        );
+      }
+    },
+    [completeFrame],
+  );
 
   const markPrimaryReady = useCallback(
-    () => markReady(imagePath, frameKey, renderTime),
-    [frameKey, imagePath, markReady, renderTime],
+    () => markReady(imageReadyKey, frameKey, renderTime),
+    [frameKey, imageReadyKey, markReady, renderTime],
   );
   const markComparisonReady = useCallback(
-    () => markReady(comparePath, frameKey, renderTime),
-    [comparePath, frameKey, markReady, renderTime],
+    () => markReady(compareReadyKey, frameKey, renderTime),
+    [compareReadyKey, frameKey, markReady, renderTime],
   );
 
   const firstLevel = image?.levels[0];
+  const jumpIndex = Math.max(
+    0,
+    jumpOptions.findIndex((option) => option.frames === jumpFrames),
+  );
+  const jumpOption = jumpOptions[jumpIndex];
+  const nextJumpOption = jumpOptions[(jumpIndex + 1) % jumpOptions.length];
+  const cycleTimeJump = () => {
+    const nextFrames = nextJumpOption?.frames ?? 1;
+    viewerDebug("time:jump-change", {
+      fromFrames: jumpFrames,
+      toFrames: nextFrames,
+      fromLabel: jumpOption?.label,
+      toLabel: nextJumpOption?.label,
+    });
+    setJumpFrames(nextFrames);
+  };
   return (
     <div
       className={
@@ -684,23 +933,69 @@ export default function ImageViewer() {
         </div>
 
         {timeCount > 1 && (
-          <label className="viewer-time-control">
-            <span>Time: {requestedTime + 1} / {timeCount}</span>
+          <div className="viewer-time-control">
+            <div className="viewer-time-heading">
+              <label htmlFor="time-slider">
+                Time: {requestedTime + 1} / {timeCount}
+              </label>
+              <button
+                type="button"
+                className="viewer-time-jump"
+                data-testid="time-jump"
+                aria-label={
+                  "Time jump " +
+                  (jumpOption?.label ?? "1 frame") +
+                  "; activate for " +
+                  (nextJumpOption?.label ?? "1 frame")
+                }
+                title={
+                  "Change time jump to " + (nextJumpOption?.label ?? "1 frame")
+                }
+                onClick={cycleTimeJump}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 5v14l8-7-8-7Zm9 0v14l8-7-8-7Z" />
+                </svg>
+                <span>{jumpOption?.label ?? "1 frame"}</span>
+              </button>
+            </div>
             <input
+              id="time-slider"
               data-testid="time-slider"
               type="range"
               min={0}
               max={timeCount - 1}
+              step={1}
               value={requestedTime}
               onChange={(event) => setRequestedTime(Number(event.target.value))}
+              onKeyDown={(event) => {
+                let direction: 1 | -1 | null = null;
+                if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+                  direction = 1;
+                } else if (
+                  event.key === "ArrowLeft" ||
+                  event.key === "ArrowDown"
+                ) {
+                  direction = -1;
+                }
+                if (direction == null) return;
+                event.preventDefault();
+                setRequestedTime((current) =>
+                  moveTimeIndex(current, direction, jumpFrames, timeCount),
+                );
+              }}
               onPointerUp={() => commitTime(requestedTime)}
             />
+            <small className="viewer-time-help">
+              Fast-forward changes the jump; arrow keys navigate. Dragging still
+              selects any frame.
+            </small>
             {displayedTime != null && displayedTime !== requestedTime && (
               <small className="viewer-time-state" data-testid="displayed-time-hint">
                 Showing time {displayedTime + 1} while time {requestedTime + 1} loads
               </small>
             )}
-          </label>
+          </div>
         )}
         {zCount > 1 && (
           <label>
@@ -711,7 +1006,13 @@ export default function ImageViewer() {
               min={0}
               max={zCount - 1}
               value={z}
-              onChange={(event) => setZ(Number(event.target.value))}
+              onChange={(event) => {
+                const nextZ = Number(event.target.value);
+                if (nextZ !== z) {
+                  frameReadiness.current.prepare(renderTime + ":" + nextZ);
+                  setZ(nextZ);
+                }
+              }}
             />
           </label>
         )}
@@ -875,7 +1176,7 @@ export default function ImageViewer() {
                     <span className="comparison-index">A</span>
                     <div>
                       <strong>{wellIdFromPath(imagePath) || "First well"}</strong>
-                      <small>{imagePath}</small>
+                      <small>{datasetName + " · " + imagePath}</small>
                     </div>
                   </header>
                   <VivCanvas
@@ -894,7 +1195,7 @@ export default function ImageViewer() {
                     <span className="comparison-index">B</span>
                     <div>
                       <strong>{wellIdFromPath(comparePath) || "Second well"}</strong>
-                      <small>{comparePath}</small>
+                      <small>{compareDatasetName + " · " + comparePath}</small>
                     </div>
                   </header>
                   <VivCanvas
@@ -923,9 +1224,19 @@ export default function ImageViewer() {
         </div>
 
         <p className="viewer-status-line">
-          <strong>{datasetName || "Dataset"}</strong>
+          <strong>
+            {comparing
+              ? (datasetName || "Dataset A") +
+                " vs " +
+                (compareDatasetName || "Dataset B")
+              : datasetName || "Dataset"}
+          </strong>
           <span>{imagePath}</span>
-          {comparing && <span>vs {comparePath}</span>}
+          {comparing && (
+            <span>
+              vs {comparePath}
+            </span>
+          )}
           <span>
             shape {firstLevel?.shape.join(" × ") ?? source?.shape.join(" × ") ?? "—"}
           </span>
@@ -938,16 +1249,16 @@ export default function ImageViewer() {
         {comparing ? (
           <div className="comparison-metadata-grid">
             <div className="stack">
-              <h2>Well A</h2>
+              <h2>Well A · {datasetName}</h2>
               <PlateMetadataPanel
                 metadata={plateMetadata}
                 selectedWell={wellIdFromPath(imagePath)}
               />
             </div>
             <div className="stack">
-              <h2>Well B</h2>
+              <h2>Well B · {compareDatasetName}</h2>
               <PlateMetadataPanel
-                metadata={plateMetadata}
+                metadata={comparePlateMetadata}
                 selectedWell={wellIdFromPath(comparePath)}
               />
             </div>
