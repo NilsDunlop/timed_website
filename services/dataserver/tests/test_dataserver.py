@@ -236,7 +236,7 @@ def test_collection_plate_well_summary_and_ome_facade(
         assert ranged.content == shard.read_bytes()[10:30]
         assert ranged.headers["content-range"] == f"bytes 10-29/{shard.stat().st_size}"
         assert ranged.headers["accept-ranges"] == "bytes"
-        assert ranged.headers["cache-control"] == "private, max-age=3600"
+        assert ranged.headers["cache-control"] == "private, no-store"
         assert "last-modified" in ranged.headers
         shard_etag = ranged.headers["etag"]
 
@@ -257,6 +257,7 @@ def test_collection_plate_well_summary_and_ome_facade(
         )
         assert matching_if_range.status_code == 206
         assert matching_if_range.content == shard.read_bytes()[10:30]
+        assert matching_if_range.headers["cache-control"] == "private, no-store"
 
         stale_if_range = client.get(
             f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
@@ -279,6 +280,7 @@ def test_collection_plate_well_summary_and_ome_facade(
             },
         )
         assert matching_date_if_range.status_code == 206
+        assert matching_date_if_range.headers["cache-control"] == "private, no-store"
 
         head = client.head(
             f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",

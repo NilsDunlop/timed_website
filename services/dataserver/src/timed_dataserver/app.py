@@ -46,6 +46,7 @@ from .registry import DatasetRegistry
 RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 STREAM_BLOCK_SIZE = 1024 * 1024
 PRIVATE_CACHE_CONTROL = "private, max-age=3600"
+PRIVATE_RANGE_CACHE_CONTROL = "private, no-store"
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,7 @@ def _memory_response(
         return Response(content, media_type=content_type, headers=headers)
     start, end = bounds
     body = content[start : end + 1]
+    headers["Cache-Control"] = PRIVATE_RANGE_CACHE_CONTROL
     headers.update(
         {
             "Content-Length": str(len(body)),
@@ -232,6 +234,7 @@ def _file_response(
     length = max(0, end - start + 1)
     headers["Content-Length"] = str(length)
     if bounds is not None:
+        headers["Cache-Control"] = PRIVATE_RANGE_CACHE_CONTROL
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     return StreamingResponse(
         _file_blocks(path, start, length),

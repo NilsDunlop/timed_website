@@ -69,11 +69,11 @@ passwords, verification codes, key passphrases, or data-server tokens here.
   the current UI. A small help overlay plus visible reset/zoom controls would
   make navigation more discoverable.
 - Moving to an uncached timepoint in a real field such as `D12_s1.zarr` takes
-  roughly 5–10 seconds. The viewer already loads visible tiles lazily. In Viv
-  0.23, changing the selection recreates its deck.gl tile cache, so smooth time
-  scrubbing needs a bounded, abortable adjacent-timepoint prefetch/cache below
-  Viv rather than another lazy-loading toggle. Benchmark memory use and range
-  request reuse on the real sharded arrays before implementing it.
+  roughly 5–10 seconds. Viv 0.23 renders the current single-resolution fields
+  through `ImageLayer.getRaster`, so TIMED prefetches the next selected jump
+  destination through that exact path and retains decoded pixels in a bounded
+  cache. Completed prefetches become foreground cache hits; an in-flight
+  prefetch has a short handoff window instead of being cancelled and restarted.
 
 ## Troubleshooting
 
@@ -82,6 +82,31 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 - Tunnel failure: verify that the login node can reach the compute-node host.
 - Data permission failure: verify read access from a compute node, not just login.
 - uv/Python setup failure: check login-node internet access and available modules.
+
+### Viewer loading diagnostics
+
+To diagnose a frame that remains loading while the data server shows no new
+GET requests, append `&debug=viewer` to the viewer URL and reload it. Keep the
+browser developer tools Console open with Info messages enabled. Diagnostic
+lines begin with `[TIMED viewer` and cover:
+
+- requested, committed, rendering, and displayed timepoints;
+- Zarr fetch start, response status, byte count, and elapsed time;
+- decoded-pixel cache hits, misses, shared pending loads, handoffs, and evictions;
+- prefetch scheduling, completion, cancellation, or failure;
+- Viv viewport-complete callbacks, including callbacks ignored as stale; and
+- a `frame:still-waiting` snapshot after ten seconds.
+
+The messages omit authorization headers and tokens. Copy the messages from the
+last `time:requested` or `time:commit` through `frame:still-waiting`, along
+with the matching data-server GET log lines. Remove `debug=viewer` to disable
+the diagnostics.
+
+TIMED deliberately bypasses the browser HTTP cache for sharded byte-range
+requests. Chromium sparse cache entries can reject concurrent operations for
+the same shard and leave Viv waiting for one missing tile. Metadata remains
+cacheable, identical shard-footer reads are shared in memory, and decoded image
+rasters or tiles remain in TIMED's bounded cache.
 
 ## Questions for NAISS
 
