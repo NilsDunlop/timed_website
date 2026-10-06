@@ -16,7 +16,7 @@ import { apiErrorMessage, dataServerClient } from "../lib/api/client";
 import {
   cacheImageLoader,
   type CacheableImageSource,
-  prefetchTimepoint,
+  prefetchTimepoints,
   viewerPixelCache,
 } from "../lib/viewerTileCache";
 import {
@@ -60,6 +60,18 @@ type ChannelState = {
   domain: [number, number];
   contrast: [number, number];
 };
+
+type ViewerSourceState = {
+  datasetId: string;
+  datasetName: string;
+  path: string;
+  image: ImageSummary;
+  metadata: PlateMetadata | null;
+  loader: Loader;
+  readyKey: string;
+};
+
+const MAX_VIEWER_SOURCES = 4;
 
 const fallbackColors: [number, number, number][] = [
   [0, 0, 255],
@@ -288,18 +300,7 @@ export default function ImageViewer() {
     width: 900,
     height: 600,
   });
-  const [datasetId, setDatasetId] = useState("");
-  const [datasetName, setDatasetName] = useState("");
-  const [compareDatasetId, setCompareDatasetId] = useState("");
-  const [compareDatasetName, setCompareDatasetName] = useState("");
-  const [imagePath, setImagePath] = useState("");
-  const [comparePath, setComparePath] = useState("");
-  const [image, setImage] = useState<ImageSummary | null>(null);
-  const [plateMetadata, setPlateMetadata] = useState<PlateMetadata | null>(null);
-  const [comparePlateMetadata, setComparePlateMetadata] =
-    useState<PlateMetadata | null>(null);
-  const [loader, setLoader] = useState<Loader | null>(null);
-  const [compareLoader, setCompareLoader] = useState<Loader | null>(null);
+  const [viewerSources, setViewerSources] = useState<ViewerSourceState[]>([]);
   const [channels, setChannels] = useState<ChannelState[]>([]);
   const [requestedTime, setRequestedTime] = useState(0);
   const [renderTime, setRenderTime] = useState(0);
@@ -322,27 +323,28 @@ export default function ImageViewer() {
         const query = new URLSearchParams(window.location.search);
         const primaryDatasetId = query.get("dataset");
         const selectedPath = query.get("path");
-        const requestedComparison = query.get("compare");
-        const requestedComparisonDataset =
-          query.get("compareDataset") ?? primaryDatasetId;
-        const comparisonPath =
-          requestedComparison &&
-          (requestedComparisonDataset !== primaryDatasetId ||
-            requestedComparison !== selectedPath)
-            ? requestedComparison
-            : "";
-        const comparisonDatasetId = comparisonPath
-          ? requestedComparisonDataset
-          : null;
-        viewerDebug("viewer:load-start", {
-          primary: { datasetId: primaryDatasetId, path: selectedPath },
-          comparison: comparisonDatasetId
-            ? { datasetId: comparisonDatasetId, path: comparisonPath }
-            : null,
-        });
         if (!primaryDatasetId || selectedPath == null) {
           throw new Error("Choose an image field from the Data page first.");
         }
+        const comparisonPaths = query
+          .getAll("compare")
+          .slice(0, MAX_VIEWER_SOURCES - 1);
+        const comparisonDatasetIds = query.getAll("compareDataset");
+        const requestedSources = [
+          { datasetId: primaryDatasetId, path: selectedPath },
+          ...comparisonPaths.map((path, index) => ({
+            datasetId: comparisonDatasetIds[index] ?? primaryDatasetId,
+            path,
+          })),
+        ];
+        const seenSources = new Set<string>();
+        const sourceSpecs = requestedSources.filter((source) => {
+          const key = source.datasetId + "\u0000" + source.path;
+          if (seenSources.has(key)) return false;
+          seenSources.add(key);
+          return true;
+        });
+        viewerDebug("viewer:load-start", { sources: sourceSpecs });
 
         async function loadDatasetDetails(sourceDatasetId: string) {
           const [summaryResult, metadataResult] = await Promise.all([
@@ -369,36 +371,47 @@ export default function ImageViewer() {
           };
         }
 
-        const [datasetsResult, primaryDetails, comparisonDetails] = await Promise.all([
+        const detailRequests = new Map<
+          string,
+          ReturnType<typeof loadDatasetDetails>
+        >();
+        const detailsFor = (sourceDatasetId: string) => {
+          let request = detailRequests.get(sourceDatasetId);
+          if (!request) {
+            request = loadDatasetDetails(sourceDatasetId);
+            detailRequests.set(sourceDatasetId, request);
+          }
+          return request;
+        };
+        const [datasetsResult, sourceDetails] = await Promise.all([
           dataServerClient.GET("/api/datasets"),
-          loadDatasetDetails(primaryDatasetId),
-          comparisonDatasetId
-            ? loadDatasetDetails(comparisonDatasetId)
-            : Promise.resolve(null),
+          Promise.all(sourceSpecs.map((source) => detailsFor(source.datasetId))),
         ]);
         if (!datasetsResult.data) {
           throw new Error(
             apiErrorMessage(datasetsResult.error, "Could not load linked datasets"),
           );
         }
-        const record = datasetsResult.data.datasets.find(
-          (dataset) => dataset.id === primaryDatasetId,
-        );
-        const comparisonRecord = comparisonDatasetId
-          ? datasetsResult.data.datasets.find(
-              (dataset) => dataset.id === comparisonDatasetId,
-            )
-          : null;
-        const selectedImage = imageFromSummary(primaryDetails.summary);
-        const comparisonImage = comparisonDetails
-          ? imageFromSummary(comparisonDetails.summary)
-          : null;
-        if (!record || !selectedImage) {
-          throw new Error("The linked dataset has no image metadata.");
-        }
-        if (comparisonDatasetId && (!comparisonRecord || !comparisonImage)) {
-          throw new Error("The comparison dataset has no image metadata.");
-        }
+        const configuredSources = sourceSpecs.map((source, index) => {
+          const details = sourceDetails[index];
+          const record = datasetsResult.data.datasets.find(
+            (dataset) => dataset.id === source.datasetId,
+          );
+          const selectedImage = details
+            ? imageFromSummary(details.summary)
+            : null;
+          if (!record || !selectedImage || !details) {
+            throw new Error(
+              "Linked dataset " + source.datasetId + " has no image metadata.",
+            );
+          }
+          return {
+            ...source,
+            datasetName: record.name,
+            image: selectedImage,
+            metadata: details.metadata,
+          };
+        });
 
         async function loadSource(source: {
           datasetId: string;
@@ -415,34 +428,18 @@ export default function ImageViewer() {
             : loadOmeZarr(zarrRoot, { type: "multiscales" });
         }
 
-        const sources = [
-          {
-            datasetId: primaryDatasetId,
-            path: selectedPath,
-            image: selectedImage,
-          },
-        ];
-        if (comparisonDatasetId && comparisonImage) {
-          sources.push({
-            datasetId: comparisonDatasetId,
-            path: comparisonPath,
-            image: comparisonImage,
-          });
-        }
         viewerDebug("viewer:image-metadata-ready", {
-          sources: sources.map((source) => ({
+          sources: configuredSources.map((source) => ({
             datasetId: source.datasetId,
             path: source.path,
             zarrFormat: source.image.zarr_format,
           })),
-          axes: selectedImage.axes,
-          levels: selectedImage.levels.length,
+          axes: configuredSources[0].image.axes,
+          levels: configuredSources[0].image.levels.length,
         });
-        const loadedImages = await Promise.all(sources.map(loadSource));
-        const loaded = loadedImages[0];
-        const comparison = loadedImages[1];
+        const loadedImages = await Promise.all(configuredSources.map(loadSource));
         for (const [index, loadedImage] of loadedImages.entries()) {
-          const sourceSpec = sources[index];
+          const sourceSpec = configuredSources[index];
           cacheImageLoader(
             loadedImage.data as unknown as CacheableImageSource[],
             sourceSpec.datasetId + "/" + sourceSpec.path,
@@ -466,26 +463,42 @@ export default function ImageViewer() {
             };
           }
         }
-        let initialChannels = await channelStates(loaded.data, selectedImage);
-        if (comparison) {
-          const comparisonSource = comparison.data.at(-1);
-          const commonChannelCount = comparisonSource
-            ? Math.min(initialChannels.length, axisSize(comparisonSource, "c"))
-            : 0;
-          if (commonChannelCount === 0) {
-            throw new Error("The selected images have no comparable channels.");
-          }
-          initialChannels = initialChannels.slice(0, commonChannelCount);
+        const primaryLoaded = loadedImages[0];
+        const primarySpec = configuredSources[0];
+        if (!primaryLoaded || !primarySpec) {
+          throw new Error("The viewer has no image source.");
         }
+        let initialChannels = await channelStates(
+          primaryLoaded.data,
+          primarySpec.image,
+        );
+        const commonChannelCount = loadedImages.reduce(
+          (count, loadedImage) => {
+            const loadedSource = loadedImage.data.at(-1);
+            return loadedSource
+              ? Math.min(count, axisSize(loadedSource, "c"))
+              : 0;
+          },
+          initialChannels.length,
+        );
+        if (commonChannelCount === 0) {
+          throw new Error("The selected images have no comparable channels.");
+        }
+        initialChannels = initialChannels.slice(0, commonChannelCount);
         if (!active) return;
+        const loadedSources = configuredSources.map((source, index) => ({
+          ...source,
+          loader: loadedImages[index].data,
+          readyKey: source.datasetId + "\u0000" + source.path,
+        }));
         viewerDebug("viewer:loader-ready", {
-          sources: sources.map((source) => ({
+          sources: loadedSources.map((source) => ({
             datasetId: source.datasetId,
             path: source.path,
           })),
           channels: initialChannels.length,
-          resolutions: loaded.data.length,
-          comparison: Boolean(comparison),
+          resolutions: primaryLoaded.data.length,
+          sourceCount: loadedSources.length,
         });
         frameReadiness.current.clear();
         settledFrame.current = "";
@@ -493,20 +506,12 @@ export default function ImageViewer() {
         setRenderTime(0);
         setDisplayedTime(null);
         setJumpFrames(1);
-        setDatasetId(primaryDatasetId);
-        setDatasetName(record.name);
-        setCompareDatasetId(comparisonDatasetId ?? "");
-        setCompareDatasetName(comparisonRecord?.name ?? "");
-        setImagePath(selectedPath || selectedImage.path);
-        setComparePath(comparisonPath);
-        setImage(selectedImage);
-        setPlateMetadata(primaryDetails.metadata);
-        setComparePlateMetadata(comparisonDetails?.metadata ?? null);
-        setLoader(loaded.data);
-        setCompareLoader(comparison?.data ?? null);
+        setViewerSources(loadedSources);
         setChannels(initialChannels);
         setViewState(null);
-        setStatus(comparison ? "Rendering images…" : "Rendering image…");
+        setStatus(
+          loadedSources.length > 1 ? "Rendering images…" : "Rendering image…",
+        );
       } catch (reason) {
         viewerDebug("viewer:load-error", {
           reason: reason instanceof Error ? reason.message : String(reason),
@@ -525,24 +530,35 @@ export default function ImageViewer() {
     };
   }, []);
 
+  const primaryViewerSource = viewerSources[0] ?? null;
+  const loader = primaryViewerSource?.loader ?? null;
   const source = loader?.[0];
-  const comparisonSource = compareLoader?.[0];
-  const timeCount = source
-    ? Math.min(
-        axisSize(source, "t"),
-        comparisonSource ? axisSize(comparisonSource, "t") : Number.POSITIVE_INFINITY,
-      )
-    : 1;
-  const zCount = source
-    ? Math.min(
-        axisSize(source, "z"),
-        comparisonSource ? axisSize(comparisonSource, "z") : Number.POSITIVE_INFINITY,
-      )
-    : 1;
+  const image = primaryViewerSource?.image ?? null;
+  const imagePath = primaryViewerSource?.path ?? "";
+  const datasetName = primaryViewerSource?.datasetName ?? "";
+  const plateMetadata = primaryViewerSource?.metadata ?? null;
+  const sourceCount = viewerSources.length;
+  const comparing = sourceCount > 1;
+  const imageSources = useMemo(
+    () =>
+      viewerSources
+        .map((viewerSource) => viewerSource.loader[0])
+        .filter((viewerSource): viewerSource is Source => Boolean(viewerSource)),
+    [viewerSources],
+  );
+  const timeCount =
+    imageSources.length > 0
+      ? Math.min(...imageSources.map((imageSource) => axisSize(imageSource, "t")))
+      : 1;
+  const zCount =
+    imageSources.length > 0
+      ? Math.min(...imageSources.map((imageSource) => axisSize(imageSource, "z")))
+      : 1;
   const channelCount = channels.length;
-  const comparing = Boolean(compareLoader && comparePath);
-  const imageReadyKey = datasetId + "\u0000" + imagePath;
-  const compareReadyKey = compareDatasetId + "\u0000" + comparePath;
+  const readyKeys = useMemo(
+    () => viewerSources.map((viewerSource) => viewerSource.readyKey),
+    [viewerSources],
+  );
   const intervalHours = timeIntervalHours(
     image,
     plateMetadata?.plate?.acquisition?.interval_minutes,
@@ -551,28 +567,20 @@ export default function ImageViewer() {
     () => timeJumpOptions(timeCount, intervalHours),
     [intervalHours, timeCount],
   );
-  const selections = useMemo(
+  const selectionsBySource = useMemo(
     () =>
-      source
-        ? Array.from({ length: channelCount }, (_unused, index) =>
-            selectionFor(source, index, renderTime, z),
-          )
-        : [],
-    [channelCount, source, renderTime, z],
+      imageSources.map((imageSource) =>
+        Array.from({ length: channelCount }, (_unused, index) =>
+          selectionFor(imageSource, index, renderTime, z),
+        ),
+      ),
+    [channelCount, imageSources, renderTime, z],
   );
-  const comparisonSelections = useMemo(
-    () =>
-      comparisonSource
-        ? Array.from({ length: channelCount }, (_unused, index) =>
-            selectionFor(comparisonSource, index, renderTime, z),
-          )
-        : [],
-    [channelCount, comparisonSource, renderTime, z],
-  );
+  const selections = selectionsBySource[0] ?? [];
   const frameKey = renderTime + ":" + z;
   const requestBudget = Math.max(
     1,
-    Math.floor(6 / Math.max(1, channelCount * (comparing ? 2 : 1))),
+    Math.floor(6 / Math.max(1, channelCount * sourceCount)),
   );
 
   const completeFrame = useCallback(
@@ -582,7 +590,7 @@ export default function ImageViewer() {
       readyPaths: string[],
       source: "active-callback" | "recorded-before-activation",
     ) => {
-      const expected = comparing ? 2 : 1;
+      const expected = sourceCount;
       if (
         frameReadiness.current.activeFrame !== readyFrame ||
         readyPaths.length < expected
@@ -601,10 +609,10 @@ export default function ImageViewer() {
         cachedBytes: viewerPixelCache.byteLength,
       });
       setDisplayedTime(readyTime);
-      setStatus(comparing ? "Images ready" : "Image ready");
+      setStatus(sourceCount > 1 ? "Images ready" : "Image ready");
       return true;
     },
-    [comparing],
+    [sourceCount],
   );
 
   const commitTime = useCallback(
@@ -652,7 +660,7 @@ export default function ImageViewer() {
       frameKey,
       timepoint: renderTime + 1,
       z: z + 1,
-      comparison: comparing,
+      sourceCount,
       requested: requestedTime + 1,
       recordedPaths: readiness.paths,
     });
@@ -665,18 +673,21 @@ export default function ImageViewer() {
       )
     ) {
       setStatus(
-        comparing
-          ? "Loading time " + String(renderTime + 1) + " in both images…"
+        sourceCount > 1
+          ? "Loading time " +
+              String(renderTime + 1) +
+              " in " +
+              String(sourceCount) +
+              " images…"
           : "Loading time " + String(renderTime + 1) + "…",
       );
     }
   }, [
-    compareLoader,
-    comparing,
     completeFrame,
     frameKey,
     loader,
     renderTime,
+    sourceCount,
   ]);
 
   useEffect(() => {
@@ -701,9 +712,7 @@ export default function ImageViewer() {
         rendered: renderTime + 1,
         displayed: displayedTime == null ? null : displayedTime + 1,
         readyPaths: frameReadiness.current.pathsFor(waitingFor),
-        expectedPaths: comparing
-          ? [imageReadyKey, compareReadyKey]
-          : [imageReadyKey],
+        expectedPaths: readyKeys,
         cachedEntries: viewerPixelCache.size,
         cachedBytes: viewerPixelCache.byteLength,
         waitedMs: 10_000,
@@ -711,22 +720,18 @@ export default function ImageViewer() {
     }, 10_000);
     return () => window.clearTimeout(timer);
   }, [
-    comparePath,
-    comparing,
     displayedTime,
     frameKey,
-    imagePath,
-    imageReadyKey,
     loader,
-    compareReadyKey,
+    readyKeys,
     renderTime,
     requestedTime,
   ]);
 
   useEffect(() => {
     if (
-      !loader ||
-      loader.length !== 1 ||
+      viewerSources.length === 0 ||
+      viewerSources.some((viewerSource) => viewerSource.loader.length !== 1) ||
       requestedTime !== renderTime ||
       displayedTime !== renderTime ||
       timeCount <= 1 ||
@@ -758,38 +763,27 @@ export default function ImageViewer() {
       viewerDebug("prefetch:start", {
         from: renderTime + 1,
         to: targetTime + 1,
-        comparison: comparing,
+        sourceCount,
         strategy: "single-resolution-raster",
-        rasters: channelCount * (comparing ? 2 : 1),
+        rasters: channelCount * sourceCount,
       });
-      const nextSelections = Array.from(
-        { length: channelCount },
-        (_unused, index) => selectionFor(loader[0], index, targetTime, z),
-      );
-      const primary = prefetchTimepoint(
-        loader as unknown as CacheableImageSource[],
-        nextSelections,
-        controller.signal,
-        comparing ? 3 : 6,
-      );
-
-      let work = primary;
-      if (comparing && compareLoader?.length === 1) {
-        const nextComparisonSelections = Array.from(
-          { length: channelCount },
-          (_unused, index) =>
-            selectionFor(compareLoader[0], index, targetTime, z),
-        );
-        work = Promise.all([
-          primary,
-          prefetchTimepoint(
-            compareLoader as unknown as CacheableImageSource[],
-            nextComparisonSelections,
-            controller.signal,
-            3,
+      const work = prefetchTimepoints(
+        viewerSources.map((viewerSource) => ({
+          loader: viewerSource.loader as unknown as CacheableImageSource[],
+          selections: Array.from(
+            { length: channelCount },
+            (_unused, index) =>
+              selectionFor(
+                viewerSource.loader[0],
+                index,
+                targetTime,
+                z,
+              ),
           ),
-        ]).then(() => undefined);
-      }
+        })),
+        controller.signal,
+        3,
+      );
       void work.then(
         () => {
           completed = true;
@@ -819,14 +813,13 @@ export default function ImageViewer() {
     };
   }, [
     channelCount,
-    compareLoader,
-    comparing,
     displayedTime,
     jumpFrames,
-    loader,
     renderTime,
     requestedTime,
+    sourceCount,
     timeCount,
+    viewerSources,
     z,
   ]);
 
@@ -893,13 +886,16 @@ export default function ImageViewer() {
     [completeFrame],
   );
 
-  const markPrimaryReady = useCallback(
-    () => markReady(imageReadyKey, frameKey, renderTime),
-    [frameKey, imageReadyKey, markReady, renderTime],
+  const markSourceReady = useCallback(
+    (readyKey: string) => markReady(readyKey, frameKey, renderTime),
+    [frameKey, markReady, renderTime],
   );
-  const markComparisonReady = useCallback(
-    () => markReady(compareReadyKey, frameKey, renderTime),
-    [compareReadyKey, frameKey, markReady, renderTime],
+  const sourceReadyCallbacks = useMemo(
+    () =>
+      viewerSources.map((viewerSource) => () =>
+        markSourceReady(viewerSource.readyKey),
+      ),
+    [markSourceReady, viewerSources],
   );
 
   const firstLevel = image?.levels[0];
@@ -1168,46 +1164,50 @@ export default function ImageViewer() {
             </button>
           </div>
 
-          {loader && channels.length > 0 &&
-            (comparing && compareLoader ? (
-              <div className="comparison-view-grid" data-testid="comparison-view">
-                <article className="comparison-view">
-                  <header>
-                    <span className="comparison-index">A</span>
-                    <div>
-                      <strong>{wellIdFromPath(imagePath) || "First well"}</strong>
-                      <small>{datasetName + " · " + imagePath}</small>
-                    </div>
-                  </header>
-                  <VivCanvas
-                    loader={loader}
-                    channels={channels}
-                    selections={selections}
-                    viewState={viewState}
-                    onViewStateChange={handleViewStateChange}
-                    onReady={markPrimaryReady}
-                    onResize={setPrimaryDimensions}
-                    maxRequests={requestBudget}
-                  />
-                </article>
-                <article className="comparison-view">
-                  <header>
-                    <span className="comparison-index">B</span>
-                    <div>
-                      <strong>{wellIdFromPath(comparePath) || "Second well"}</strong>
-                      <small>{compareDatasetName + " · " + comparePath}</small>
-                    </div>
-                  </header>
-                  <VivCanvas
-                    loader={compareLoader}
-                    channels={channels}
-                    selections={comparisonSelections}
-                    viewState={viewState}
-                    onViewStateChange={handleViewStateChange}
-                    onReady={markComparisonReady}
-                    maxRequests={requestBudget}
-                  />
-                </article>
+          {loader &&
+            channels.length > 0 &&
+            (comparing ? (
+              <div
+                className="comparison-view-grid"
+                data-testid="comparison-view"
+                data-count={sourceCount}
+              >
+                {viewerSources.map((viewerSource, index) => {
+                  const label = "ABCD"[index];
+                  return (
+                    <article
+                      className="comparison-view"
+                      key={viewerSource.readyKey}
+                    >
+                      <header>
+                        <span className="comparison-index">{label}</span>
+                        <div>
+                          <strong>
+                            {wellIdFromPath(viewerSource.path) ||
+                              "Well " + label}
+                          </strong>
+                          <small>
+                            {viewerSource.datasetName +
+                              " · " +
+                              viewerSource.path}
+                          </small>
+                        </div>
+                      </header>
+                      <VivCanvas
+                        loader={viewerSource.loader}
+                        channels={channels}
+                        selections={selectionsBySource[index] ?? []}
+                        viewState={viewState}
+                        onViewStateChange={handleViewStateChange}
+                        onReady={sourceReadyCallbacks[index]}
+                        onResize={
+                          index === 0 ? setPrimaryDimensions : undefined
+                        }
+                        maxRequests={requestBudget}
+                      />
+                    </article>
+                  );
+                })}
               </div>
             ) : (
               <VivCanvas
@@ -1216,7 +1216,7 @@ export default function ImageViewer() {
                 selections={selections}
                 viewState={viewState}
                 onViewStateChange={handleViewStateChange}
-                onReady={markPrimaryReady}
+                onReady={sourceReadyCallbacks[0]}
                 onResize={setPrimaryDimensions}
                 maxRequests={requestBudget}
               />
@@ -1226,17 +1226,16 @@ export default function ImageViewer() {
         <p className="viewer-status-line">
           <strong>
             {comparing
-              ? (datasetName || "Dataset A") +
-                " vs " +
-                (compareDatasetName || "Dataset B")
+              ? viewerSources
+                  .map((viewerSource) => viewerSource.datasetName)
+                  .join(" vs ")
               : datasetName || "Dataset"}
           </strong>
-          <span>{imagePath}</span>
-          {comparing && (
-            <span>
-              vs {comparePath}
-            </span>
-          )}
+          <span>
+            {viewerSources
+              .map((viewerSource) => viewerSource.path)
+              .join(" vs ")}
+          </span>
           <span>
             shape {firstLevel?.shape.join(" × ") ?? source?.shape.join(" × ") ?? "—"}
           </span>
@@ -1247,21 +1246,21 @@ export default function ImageViewer() {
         </p>
 
         {comparing ? (
-          <div className="comparison-metadata-grid">
-            <div className="stack">
-              <h2>Well A · {datasetName}</h2>
-              <PlateMetadataPanel
-                metadata={plateMetadata}
-                selectedWell={wellIdFromPath(imagePath)}
-              />
-            </div>
-            <div className="stack">
-              <h2>Well B · {compareDatasetName}</h2>
-              <PlateMetadataPanel
-                metadata={comparePlateMetadata}
-                selectedWell={wellIdFromPath(comparePath)}
-              />
-            </div>
+          <div
+            className="comparison-metadata-grid"
+            data-count={sourceCount}
+          >
+            {viewerSources.map((viewerSource, index) => (
+              <div className="stack" key={viewerSource.readyKey}>
+                <h2>
+                  Well {"ABCD"[index]} · {viewerSource.datasetName}
+                </h2>
+                <PlateMetadataPanel
+                  metadata={viewerSource.metadata}
+                  selectedWell={wellIdFromPath(viewerSource.path)}
+                />
+              </div>
+            ))}
           </div>
         ) : (
           <PlateMetadataPanel

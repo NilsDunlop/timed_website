@@ -27,6 +27,8 @@ type ViewerSource = {
   imagePath: string;
 };
 
+const MAX_COMPARISON_SOURCES = 4;
+
 const metadataColors = [
   "#3b82a0",
   "#b86b35",
@@ -36,16 +38,17 @@ const metadataColors = [
   "#9a812f",
 ];
 
-function viewerHref(primary: ViewerSource, comparison?: ViewerSource): string {
+function viewerHref(
+  primary: ViewerSource,
+  comparisons: ViewerSource[] = [],
+): string {
   const query = new URLSearchParams({
     dataset: primary.datasetId,
     path: primary.imagePath,
   });
-  if (comparison) {
-    query.set("compare", comparison.imagePath);
-    if (comparison.datasetId !== primary.datasetId) {
-      query.set("compareDataset", comparison.datasetId);
-    }
+  for (const comparison of comparisons) {
+    query.append("compare", comparison.imagePath);
+    query.append("compareDataset", comparison.datasetId);
   }
   return "/view?" + query.toString();
 }
@@ -215,7 +218,7 @@ export default function DataBrowser() {
       );
       return;
     }
-    if (selectedWells.length >= 2) return;
+    if (selectedWells.length >= MAX_COMPARISON_SOURCES) return;
     await run(async () => {
       const result = await dataServerClient.GET(
         "/api/datasets/{dataset_id}/wells/{well_path}",
@@ -231,7 +234,7 @@ export default function DataBrowser() {
       const fields = result.data.fields;
       setSelectedWells((current) => {
         if (
-          current.length >= 2 ||
+          current.length >= MAX_COMPARISON_SOURCES ||
           current.some(
             (well) => well.datasetId === selected.id && well.path === wellPath,
           )
@@ -593,7 +596,7 @@ export default function DataBrowser() {
                     ? "Select a well"
                     : selectedWells.length === 1
                       ? "One well selected"
-                      : "Two wells selected"}
+                      : String(selectedWells.length) + " wells selected"}
                 </strong>
                 <span className="selection-help">
                   <button
@@ -612,9 +615,9 @@ export default function DataBrowser() {
                     className="selection-tooltip"
                     role="tooltip"
                   >
-                    Choose one well to inspect it, or keep it in the comparison
-                    tray while you open another linked experiment and choose a
-                    second well.
+                    Choose one well to inspect it, or keep up to four wells in
+                    the comparison tray while you move between linked
+                    experiments.
                   </span>
                 </span>
               </div>
@@ -716,7 +719,8 @@ export default function DataBrowser() {
                         }
                         disabled={
                           busy ||
-                          (selectedWells.length >= 2 && selectedIndex < 0)
+                          (selectedWells.length >= MAX_COMPARISON_SOURCES &&
+                            selectedIndex < 0)
                         }
                         aria-label={"Well " + row + column}
                         aria-pressed={selectedIndex >= 0}
@@ -749,7 +753,7 @@ export default function DataBrowser() {
                       <h3>
                         {selectedWells.length === 1
                           ? "Choose a site for side A"
-                          : "Choose a site from each well"}
+                          : "Choose a site for each well"}
                       </h3>
                     </div>
                     <button
@@ -766,6 +770,7 @@ export default function DataBrowser() {
                       "comparison-field-grid" +
                       (selectedWells.length === 1 ? " comparison-field-grid-single" : "")
                     }
+                    data-count={selectedWells.length}
                   >
                     {selectedWells.map((well, index) => (
                       <div
@@ -774,7 +779,7 @@ export default function DataBrowser() {
                       >
                         <div className="comparison-source-heading">
                           <span className="comparison-index" aria-hidden="true">
-                            {index === 0 ? "A" : "B"}
+                            {"ABCD"[index]}
                           </span>
                           <span className="comparison-source-identity">
                             <strong>{well.datasetName}</strong>
@@ -838,7 +843,7 @@ export default function DataBrowser() {
                         Open trajectory
                       </a>
                     )}
-                    {selectedWells.length === 2 &&
+                    {selectedWells.length >= 2 &&
                       selectedWells.every((well) => well.fieldPath) && (
                         <a
                           className="button-link"
@@ -848,13 +853,13 @@ export default function DataBrowser() {
                               datasetId: selectedWells[0].datasetId,
                               imagePath: selectedWells[0].fieldPath,
                             },
-                            {
-                              datasetId: selectedWells[1].datasetId,
-                              imagePath: selectedWells[1].fieldPath,
-                            },
+                            selectedWells.slice(1).map((well) => ({
+                              datasetId: well.datasetId,
+                              imagePath: well.fieldPath,
+                            })),
                           )}
                         >
-                          Compare trajectories
+                          Compare {selectedWells.length} trajectories
                         </a>
                       )}
                   </div>

@@ -326,12 +326,37 @@ export async function prefetchTimepoint(
   signal: AbortSignal,
   concurrency = 3,
 ): Promise<void> {
-  const source = loader[0];
-  if (loader.length !== 1 || !source || selections.length === 0) return;
-
-  const tasks = selections.map(
-    (selection) => () => source.getRaster({ selection, signal }),
+  return prefetchTimepoints(
+    [{ loader, selections }],
+    signal,
+    concurrency,
   );
+}
+
+export type TimepointPrefetchSource = {
+  loader: CacheableImageSource[];
+  selections: PixelSelection[];
+};
+
+/**
+ * Prefetch rasters from multiple visible images through one global concurrency
+ * budget. This prevents each comparison panel from starting its own full set
+ * of remote range requests.
+ */
+export async function prefetchTimepoints(
+  sources: TimepointPrefetchSource[],
+  signal: AbortSignal,
+  concurrency = 3,
+): Promise<void> {
+  const tasks = sources.flatMap(({ loader, selections }) => {
+    const source = loader[0];
+    if (loader.length !== 1 || !source) return [];
+    return selections.map(
+      (selection) => () => source.getRaster({ selection, signal }),
+    );
+  });
+  if (tasks.length === 0) return;
+
   let next = 0;
   const workers = Array.from(
     { length: Math.min(Math.max(1, concurrency), tasks.length) },
@@ -347,5 +372,5 @@ export async function prefetchTimepoint(
   await Promise.all(workers);
 }
 
-export const VIEWER_PIXEL_CACHE_BYTES = 128 * 1024 * 1024;
+export const VIEWER_PIXEL_CACHE_BYTES = 256 * 1024 * 1024;
 export const viewerPixelCache = new DecodedPixelCache(VIEWER_PIXEL_CACHE_BYTES);

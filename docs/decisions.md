@@ -168,17 +168,31 @@ justify one.
 
 ## 2026-10-06: make cross-experiment comparison explicit and additive
 
-The data browser keeps up to two user-selected wells in a comparison tray while
+The data browser keeps up to four user-selected wells in a comparison tray while
 the active linked dataset changes. Each tray entry owns its dataset identity,
 well, available sites, and chosen field, so identical paths such as
 `B01_s1.zarr` remain distinct across experiments. Users choose controls or
 treatments directly; TIMED does not infer a matched control in this first
 version.
 
-Viewer links continue to use `dataset`, `path`, and `compare`. A
-`compareDataset` parameter is added only when side B belongs to another linked
-dataset, preserving existing same-dataset links. The viewer loads each
-dataset's summary, metadata, Zarr source, and cache namespace independently,
-then synchronizes the common time range, channels, pan, and zoom. This keeps the
-current interaction small while leaving automated matching and richer
-batch-effect workflows as additions on top of the same two-source contract.
+Viewer links continue to use `dataset`, `path`, `compare`, and
+`compareDataset`. Additional sources repeat the latter two parameters in the
+same order; existing one- and two-source links remain valid. The viewer loads
+each dataset's summary, metadata, Zarr source, and cache namespace
+independently, while repeated wells from one dataset share their summary and
+metadata request. It synchronizes the common time range, channels, pan, and
+zoom across all visible fields.
+
+Viv's built-in side-by-side viewer is fixed at two images, so TIMED retains one
+controlled Viv canvas per source and shares external view state between them.
+Two and four sources use a two-column grid; a third source is centered on the
+second row. Metadata columns use intrinsic heights so expanding one does not
+reflow another.
+
+Four three-channel 2500 by 2500 uint16 fields occupy about 143 MiB per decoded
+timepoint before GPU copies. The decoded-pixel cache therefore has a lazy
+256 MiB ceiling, enough to retain one complete four-field prefetch destination
+without allocating that memory up front. All sources share one three-request
+prefetch budget rather than starting an independent queue per canvas. Four is a
+deliberate UI and resource cap; larger cohorts should use a different overview
+or pagination design.

@@ -30,9 +30,16 @@ FIELD_STORES = (
     ("B01", 2),
 )
 COMPARISON_FIELD_STORES = (("B01", 1), ("B01", 2))
+COMPARISON_PLATES = (
+    ("test_plate_2", "S1.2", 2, "SYNTH002", "2026-10-06"),
+    ("test_plate_3", "S1.3", 3, "SYNTH003", "2026-10-07"),
+    ("test_plate_4", "S1.4", 4, "SYNTH004", "2026-10-08"),
+)
 GENERATED_STORES = (
     "test_plate.zarr",
     "test_plate_2.zarr",
+    "test_plate_3.zarr",
+    "test_plate_4.zarr",
     "test_image_v04.zarr",
     "test_image_v05.zarr",
 )
@@ -366,18 +373,25 @@ def _write_collection_acquisition(
 
 
 def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -> None:
-    """Generate two collections and two native OME-Zarr compatibility fixtures."""
+    """Generate four collections and two native OME-Zarr compatibility fixtures."""
     profile = load_profile(inventory_path)
     if profile.zarr_format != 3 or profile.axes != ("t", "c", "y", "x"):
         raise ValueError("M2 currently expects the verified Zarr v3 (t,c,y,x) TIMED signature")
     output.mkdir(parents=True, exist_ok=True)
     plate = _remove_generated_store(output, "test_plate.zarr")
-    comparison_plate = _remove_generated_store(output, "test_plate_2.zarr")
+    comparison_plates = [
+        (
+            plate_spec,
+            _remove_generated_store(output, plate_spec[0] + ".zarr"),
+        )
+        for plate_spec in COMPARISON_PLATES
+    ]
     image_v04 = _remove_generated_store(output, "test_image_v04.zarr")
     image_v05 = _remove_generated_store(output, "test_image_v05.zarr")
     metadata = _replace_metadata_directory(output)
     plate.mkdir()
-    comparison_plate.mkdir()
+    for _plate_spec, comparison_plate in comparison_plates:
+        comparison_plate.mkdir()
 
     first_field = None
     for field_index, (well, site) in enumerate(FIELD_STORES):
@@ -386,9 +400,19 @@ def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -
         if first_field is None:
             first_field = data
 
-    for field_index, (well, site) in enumerate(COMPARISON_FIELD_STORES):
-        data = make_field_data(SEED + 10_000 + field_index * 101)
-        _write_bare_field(comparison_plate / f"{well}_s{site}.zarr", data, well, site, profile)
+    for plate_index, (_plate_spec, comparison_plate) in enumerate(
+        comparison_plates,
+        start=1,
+    ):
+        for field_index, (well, site) in enumerate(COMPARISON_FIELD_STORES):
+            data = make_field_data(SEED + plate_index * 10_000 + field_index * 101)
+            _write_bare_field(
+                comparison_plate / f"{well}_s{site}.zarr",
+                data,
+                well,
+                site,
+                profile,
+            )
 
     _write_collection_acquisition(
         plate,
@@ -396,12 +420,13 @@ def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -
         plate_name="test_plate",
         wells=["A01", "A02", "B01"],
     )
-    _write_collection_acquisition(
-        comparison_plate,
-        profile,
-        plate_name="test_plate_2",
-        wells=["B01"],
-    )
+    for (plate_name, *_metadata), comparison_plate in comparison_plates:
+        _write_collection_acquisition(
+            comparison_plate,
+            profile,
+            plate_name=plate_name,
+            wells=["B01"],
+        )
 
     compound_rows = [
         {
@@ -445,16 +470,23 @@ def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -
         experiment_date="2026-10-05",
         rows=[*compound_rows, dmso_row],
     )
-    _write_plate_metadata(
-        metadata,
-        profile,
-        plate_name="test_plate_2",
-        plate_id="S1.2",
-        plate_replicate=2,
-        plate_barcode="SYNTH002",
-        experiment_date="2026-10-06",
-        rows=[dmso_row],
-    )
+    for (
+        plate_name,
+        plate_id,
+        plate_replicate,
+        plate_barcode,
+        experiment_date,
+    ) in COMPARISON_PLATES:
+        _write_plate_metadata(
+            metadata,
+            profile,
+            plate_name=plate_name,
+            plate_id=plate_id,
+            plate_replicate=plate_replicate,
+            plate_barcode=plate_barcode,
+            experiment_date=experiment_date,
+            rows=[dmso_row],
+        )
     if first_field is None:
         raise RuntimeError("No synthetic fields were generated")
     _write_ome_image(image_v04, first_field, profile, "0.4")

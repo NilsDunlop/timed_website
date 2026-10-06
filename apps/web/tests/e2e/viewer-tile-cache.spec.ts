@@ -5,6 +5,8 @@ import {
   type CacheableImageSource,
   DecodedPixelCache,
   prefetchTimepoint,
+  prefetchTimepoints,
+  VIEWER_PIXEL_CACHE_BYTES,
 } from "../../src/lib/viewerTileCache";
 
 function pixels(bytes = 8) {
@@ -110,6 +112,46 @@ test("prefetches single-resolution channel rasters with bounded concurrency", as
   expect(rasterLoads).toBe(3);
   expect(tileLoads).toBe(0);
   expect(maximumActive).toBe(2);
+});
+
+test("shares one concurrency budget across four prefetched images", async () => {
+  let active = 0;
+  let maximumActive = 0;
+  let rasterLoads = 0;
+  const sources = Array.from({ length: 4 }, () => {
+    const source: CacheableImageSource = {
+      shape: [3, 4, 4],
+      labels: ["c", "y", "x"],
+      tileSize: 2,
+      async getRaster() {
+        rasterLoads += 1;
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        active -= 1;
+        return pixels();
+      },
+      async getTile() {
+        return pixels();
+      },
+    };
+    return {
+      loader: [source],
+      selections: [{ c: 0 }, { c: 1 }, { c: 2 }],
+    };
+  });
+
+  await prefetchTimepoints(
+    sources,
+    new AbortController().signal,
+    3,
+  );
+
+  expect(rasterLoads).toBe(12);
+  expect(maximumActive).toBe(3);
+  expect(VIEWER_PIXEL_CACHE_BYTES).toBeGreaterThanOrEqual(
+    4 * 3 * 2500 * 2500 * Uint16Array.BYTES_PER_ELEMENT,
+  );
 });
 
 test("serves a completed raster prefetch to the foreground without reloading", async () => {

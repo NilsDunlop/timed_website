@@ -546,6 +546,12 @@ const { title } = Astro.props;
     grid-template-columns: minmax(12rem, 30rem);
   }
 
+  .comparison-field-grid[data-count="3"] > :last-child {
+    grid-column: 1 / -1;
+    width: calc((100% - 0.75rem) / 2);
+    justify-self: center;
+  }
+
   .comparison-source-card {
     display: grid;
     gap: 0.75rem;
@@ -876,6 +882,12 @@ const { title } = Astro.props;
     gap: 0.85rem;
   }
 
+  .comparison-view-grid[data-count="3"] > :last-child {
+    grid-column: 1 / -1;
+    width: calc((100% - 0.85rem) / 2);
+    justify-self: center;
+  }
+
   .comparison-view {
     display: grid;
     min-width: 0;
@@ -918,11 +930,24 @@ const { title } = Astro.props;
     min-height: 20rem;
   }
 
+  .comparison-view-grid:is([data-count="3"], [data-count="4"])
+    .comparison-view
+    .canvas-frame {
+    height: min(46vh, 30rem);
+    min-height: 16rem;
+  }
+
   .comparison-metadata-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: 1rem;
+  }
+
+  .comparison-metadata-grid[data-count="3"] > :last-child {
+    grid-column: 1 / -1;
+    width: calc((100% - 1rem) / 2);
+    justify-self: center;
   }
 
   .comparison-metadata-grid > .stack > h2 {
@@ -963,6 +988,14 @@ const { title } = Astro.props;
     .comparison-view-grid,
     .comparison-metadata-grid {
       grid-template-columns: 1fr;
+    }
+
+    .comparison-field-grid[data-count="3"] > :last-child,
+    .comparison-view-grid[data-count="3"] > :last-child,
+    .comparison-metadata-grid[data-count="3"] > :last-child {
+      grid-column: auto;
+      width: auto;
+      justify-self: stretch;
     }
 
     .viewer-heading-actions {

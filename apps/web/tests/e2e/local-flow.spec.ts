@@ -43,7 +43,7 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(selectionTooltip).toBeHidden();
   await selectionHelp.hover();
   await expect(selectionTooltip).toContainText(
-    "Choose one well to inspect it, or keep it in the comparison tray while you open another linked experiment and choose a second well.",
+    "Choose one well to inspect it, or keep up to four wells in the comparison tray while you move between linked experiments.",
   );
   await expect(page.locator(".well-selector-legend")).toBeVisible();
   await page
@@ -223,22 +223,66 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(comparisonTray).toContainText("Choose a site for side A");
 
   await root.getByRole("button", { name: "Open folder" }).click();
-  const comparisonPlate = page
-    .getByRole("listitem")
-    .filter({ hasText: "test_plate_2.zarr" });
-  await comparisonPlate.getByRole("button", { name: "Link" }).click();
-  await expect(
-    page.getByRole("heading", { name: "test_plate_2.zarr" }),
-  ).toBeVisible();
-  await expect(comparisonTray).toContainText("test_plate.zarr");
-  await page.getByRole("button", { name: "Well B1" }).click();
+  const comparisonPlateNames = [
+    "test_plate_2.zarr",
+    "test_plate_3.zarr",
+    "test_plate_4.zarr",
+  ];
+  for (const [index, plateName] of comparisonPlateNames.entries()) {
+    const comparisonPlate = page
+      .getByRole("listitem")
+      .filter({ hasText: plateName });
+    await comparisonPlate.getByRole("button", { name: "Link" }).click();
+    await expect(
+      page.getByRole("heading", { name: plateName }),
+    ).toBeVisible();
+    await expect(comparisonTray).toContainText("test_plate.zarr");
+    await page.getByRole("button", { name: "Well B1" }).click();
+    await expect(comparisonTray).toContainText(plateName);
+    await expect(
+      comparisonTray.locator(".comparison-source-card"),
+    ).toHaveCount(index + 2);
+
+    if (index === 1) {
+      const trayGrid = comparisonTray.locator(".comparison-field-grid");
+      await expect(trayGrid).toHaveAttribute("data-count", "3");
+      const gridBox = await trayGrid.boundingBox();
+      const thirdBox = await trayGrid
+        .locator(".comparison-source-card")
+        .nth(2)
+        .boundingBox();
+      expect(gridBox).not.toBeNull();
+      expect(thirdBox).not.toBeNull();
+      expect(
+        Math.abs(
+          (thirdBox?.x ?? 0) +
+            (thirdBox?.width ?? 0) / 2 -
+            ((gridBox?.x ?? 0) + (gridBox?.width ?? 0) / 2),
+        ),
+      ).toBeLessThan(1);
+    }
+  }
   await expect(page.getByTestId("well-selection")).toContainText(
-    "Choose a site from each well",
+    "Choose a site for each well",
   );
-  await expect(comparisonTray).toContainText("test_plate_2.zarr");
+  await expect(page.getByTestId("open-comparison")).toHaveText(
+    "Compare 4 trajectories",
+  );
   await page.getByTestId("open-comparison").click();
 
   await expect(page).toHaveURL(/compareDataset=/);
+  expect(
+    await page.evaluate(
+      () => new URL(window.location.href).searchParams.getAll("compare").length,
+    ),
+  ).toBe(3);
+  expect(
+    await page.evaluate(
+      () =>
+        new URL(window.location.href).searchParams.getAll("compareDataset")
+          .length,
+    ),
+  ).toBe(3);
   await expect(
     page.getByRole("heading", { name: "Compare trajectories" }),
   ).toBeVisible();
@@ -246,18 +290,27 @@ test("starts a local server, renders time data, and stops it", async ({
     timeout: 60_000,
   });
   const comparison = page.getByTestId("comparison-view");
-  await expect(comparison.locator(".comparison-view")).toHaveCount(2);
-  await expect(comparison.locator("canvas")).toHaveCount(2);
+  await expect(comparison).toHaveAttribute("data-count", "4");
+  await expect(comparison.locator(".comparison-view")).toHaveCount(4);
+  await expect(comparison.locator("canvas")).toHaveCount(4);
   await expect(
     page.getByRole("heading", { name: "Well A · test_plate.zarr" }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Well B · test_plate_2.zarr" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Well C · test_plate_3.zarr" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Well D · test_plate_4.zarr" }),
+  ).toBeVisible();
   const comparisonMetadata = page.getByTestId("plate-metadata");
-  await expect(comparisonMetadata).toHaveCount(2);
+  await expect(comparisonMetadata).toHaveCount(4);
   await expect(comparisonMetadata.nth(0)).toContainText("S1.1");
   await expect(comparisonMetadata.nth(1)).toContainText("S1.2");
+  await expect(comparisonMetadata.nth(2)).toContainText("S1.3");
+  await expect(comparisonMetadata.nth(3)).toContainText("S1.4");
   const secondMetadataBeforeExpansion =
     await comparisonMetadata.nth(1).boundingBox();
   const scrollBeforeExpansion = await page.evaluate(() => window.scrollY);
