@@ -59,6 +59,11 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(metadataPanel).toContainText("Plate and well information");
   await expect(metadataPanel).toContainText("Compound Alpha");
   await expect(metadataPanel).toContainText("1.25");
+  const browserBiologicalAnnotation = metadataPanel
+    .locator("details")
+    .filter({ hasText: "Biological annotation" });
+  await expect(browserBiologicalAnnotation).toContainText("MOA");
+  await expect(browserBiologicalAnnotation).not.toHaveAttribute("open", "");
   await expect(
     metadataPanel.locator("details").filter({ hasText: "Plate and experiment" }),
   ).not.toHaveAttribute("open", "");
@@ -74,14 +79,39 @@ test("starts a local server, renders time data, and stops it", async ({
     timeout: 60_000,
   });
   await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Image viewer for Compound Alpha",
+    }),
+  ).toBeAttached();
+  const singleSourceFacts = page.getByTestId("viewer-source-facts");
+  await expect(singleSourceFacts).toContainText("Compound");
+  await expect(singleSourceFacts).toContainText("Compound Alpha");
+  await expect(singleSourceFacts).toContainText("Concentration");
+  await expect(singleSourceFacts).toContainText("1.25 µM");
+  await expect(singleSourceFacts).toContainText("Well");
+  await expect(singleSourceFacts).toContainText("A01");
+  await expect(singleSourceFacts).toContainText("Site");
+  await expect(singleSourceFacts).toContainText("1");
+  await expect(singleSourceFacts).toContainText("Plate");
+  await expect(singleSourceFacts).toContainText("S1.1");
+  await expect(page.locator(".viewer-title-content")).not.toContainText("|");
+  await expect(page.locator(".viewer-stage")).not.toContainText(".zarr");
+  await expect(
     page.getByText("Drag to pan · scroll or pinch to zoom", { exact: true }),
   ).toHaveCount(0);
-  await expect(page.getByTestId("plate-metadata")).toContainText(
-    "Plate and well information",
-  );
-  await expect(page.getByTestId("plate-metadata")).toContainText(
-    "Compound Alpha",
-  );
+  const viewerMetadata = page.getByTestId("plate-metadata");
+  await expect(viewerMetadata.locator("summary")).toHaveText([
+    "Biological annotation",
+    "Plate and experiment",
+    "Acquisition",
+  ]);
+  await expect(viewerMetadata).not.toContainText("Plate and well information");
+  await expect(viewerMetadata).toContainText("MOA");
+  await expect(viewerMetadata).toContainText("AKT");
+  for (const details of await viewerMetadata.locator("details").all()) {
+    await expect(details).not.toHaveAttribute("open", "");
+  }
   await expect(
     page.getByRole("slider", { name: /contrast maximum/i }).first(),
   ).toHaveValue("65535");
@@ -104,6 +134,15 @@ test("starts a local server, renders time data, and stops it", async ({
 
   const timeSlider = page.getByTestId("time-slider");
   const timeJump = page.getByTestId("time-jump");
+  const timeHelp = page.getByRole("button", {
+    name: "Time navigation help",
+  });
+  const timeTooltip = page.getByRole("tooltip");
+  await expect(timeTooltip).toBeHidden();
+  await timeHelp.hover();
+  await expect(timeTooltip).toContainText(
+    "Fast-forward changes the jump. Arrow keys navigate, including when controls are hidden. Dragging selects any frame.",
+  );
   await expect(timeJump).toContainText("1 h");
   await timeJump.click();
   await expect(timeJump).toContainText("2 h");
@@ -212,6 +251,22 @@ test("starts a local server, renders time data, and stops it", async ({
     backwardDiagnostics.some((message) => message.includes("frame:ready")),
   ).toBe(true);
 
+  await page.getByRole("button", { name: "Hide controls" }).click();
+  await expect(page.locator("#image-controls")).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("displayed-time")).toHaveText("t 6 / 6");
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByTestId("displayed-time")).toHaveText("t 4 / 6");
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready");
+  expect(
+    viewerDiagnostics.some((message) =>
+      message.includes("time:keyboard-jump"),
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Show controls" }).click();
+  await expect(page.getByTestId("time-slider")).toHaveValue("3");
+
   await page.getByRole("link", { name: "Data", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Browse TIMED" }),
@@ -293,20 +348,60 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(comparison).toHaveAttribute("data-count", "4");
   await expect(comparison.locator(".comparison-view")).toHaveCount(4);
   await expect(comparison.locator("canvas")).toHaveCount(4);
+  const comparisonHeaderHeights = await comparison
+    .locator(".comparison-view > header")
+    .evaluateAll((headers) =>
+      headers.map((header) => header.getBoundingClientRect().height),
+    );
+  expect(Math.max(...comparisonHeaderHeights)).toBeLessThanOrEqual(56);
+  const comparisonHeaderOffsets = await comparison
+    .locator(".comparison-view > header")
+    .evaluateAll((headers) =>
+      headers.map((header) => {
+        const headerBox = header.getBoundingClientRect();
+        const badgeBox = header.children[0]?.getBoundingClientRect();
+        const factsBox = header.children[1]?.getBoundingClientRect();
+        if (!badgeBox || !factsBox) return Number.POSITIVE_INFINITY;
+        const contentCenter = (badgeBox.left + factsBox.right) / 2;
+        const headerCenter = (headerBox.left + headerBox.right) / 2;
+        return Math.abs(contentCenter - headerCenter);
+      }),
+    );
+  expect(Math.max(...comparisonHeaderOffsets)).toBeLessThanOrEqual(1);
+  const comparisonSourceFacts = page.getByTestId("viewer-source-facts");
+  await expect(comparisonSourceFacts).toHaveCount(4);
+  for (const [index, facts] of (
+    await comparisonSourceFacts.all()
+  ).entries()) {
+    await expect(facts).toContainText("Compound");
+    await expect(facts).toContainText("DMSO");
+    await expect(facts).toContainText("0 µM");
+    await expect(facts).toContainText("B01");
+    await expect(facts).toContainText("Site");
+    await expect(facts).toContainText("Plate");
+    await expect(facts).toContainText("S1." + String(index + 1));
+    await expect(facts).not.toContainText("|");
+  }
   await expect(
-    page.getByRole("heading", { name: "Well A · test_plate.zarr" }),
+    page.getByRole("heading", { name: "Well A details" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Well B · test_plate_2.zarr" }),
+    page.getByRole("heading", { name: "Well B details" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Well C · test_plate_3.zarr" }),
+    page.getByRole("heading", { name: "Well C details" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Well D · test_plate_4.zarr" }),
+    page.getByRole("heading", { name: "Well D details" }),
   ).toBeVisible();
+  await expect(page.locator(".viewer-stage")).not.toContainText(".zarr");
   const comparisonMetadata = page.getByTestId("plate-metadata");
   await expect(comparisonMetadata).toHaveCount(4);
+  await expect(comparisonMetadata.nth(0).locator("summary")).toHaveText([
+    "Biological annotation",
+    "Plate and experiment",
+    "Acquisition",
+  ]);
   await expect(comparisonMetadata.nth(0)).toContainText("S1.1");
   await expect(comparisonMetadata.nth(1)).toContainText("S1.2");
   await expect(comparisonMetadata.nth(2)).toContainText("S1.3");
@@ -347,6 +442,38 @@ test("starts a local server, renders time data, and stops it", async ({
     path: testInfo.outputPath("local-comparison.png"),
     fullPage: true,
   });
+
+  const dualViewUrl = await page.evaluate(() => {
+    const url = new URL(window.location.href);
+    const comparisonPath = url.searchParams.getAll("compare")[0];
+    const comparisonDataset = url.searchParams.getAll("compareDataset")[0];
+    url.searchParams.delete("compare");
+    url.searchParams.delete("compareDataset");
+    if (comparisonPath) url.searchParams.append("compare", comparisonPath);
+    if (comparisonDataset) {
+      url.searchParams.append("compareDataset", comparisonDataset);
+    }
+    return url.pathname + url.search;
+  });
+  await page.goto(dualViewUrl);
+  await expect(page.getByTestId("viewer-status")).toHaveText("Images ready", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("comparison-view")).toHaveAttribute(
+    "data-count",
+    "2",
+  );
+  const dualCanvasBottom = await page
+    .locator(".comparison-view .canvas-frame")
+    .evaluateAll((canvases) =>
+      Math.max(
+        ...canvases.map((canvas) => canvas.getBoundingClientRect().bottom),
+      ),
+    );
+  const dualStatusTop = await page
+    .locator(".viewer-status-line")
+    .evaluate((status) => status.getBoundingClientRect().top);
+  expect(dualStatusTop - dualCanvasBottom).toBeLessThanOrEqual(32);
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
   await page.getByRole("link", { name: "Connect", exact: true }).click();
