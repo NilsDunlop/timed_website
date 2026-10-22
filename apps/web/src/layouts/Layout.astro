@@ -571,6 +571,9 @@ const { title } = Astro.props;
   .comparison-source-identity {
     display: grid;
     min-width: 0;
+  }
+
+  .comparison-source-heading .comparison-source-identity {
     margin-right: auto;
   }
 
@@ -674,6 +677,15 @@ const { title } = Astro.props;
     margin-bottom: 0.75rem;
   }
 
+  .metadata-panel-details-only {
+    gap: 0;
+  }
+
+  .metadata-panel-details-only details:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
   .well-metadata-grid {
     grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   }
@@ -712,6 +724,12 @@ const { title } = Astro.props;
     margin-top: 0;
   }
 
+  .viewer-stage {
+    min-width: 0;
+    align-self: start;
+    align-content: start;
+  }
+
   .viewer-controls > label,
   .channel-control label {
     display: grid;
@@ -736,6 +754,12 @@ const { title } = Astro.props;
     gap: 0.5rem 0.8rem;
   }
 
+  .viewer-time-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
   .viewer-time-jump {
     display: inline-flex;
     align-items: center;
@@ -757,13 +781,6 @@ const { title } = Astro.props;
     width: 1rem;
     height: 1rem;
     fill: currentcolor;
-  }
-
-  .viewer-time-help {
-    color: #5f6961;
-    font-size: 0.74rem;
-    font-weight: 500;
-    line-height: 1.35;
   }
 
   .viewer-time-state {
@@ -812,6 +829,73 @@ const { title } = Astro.props;
     font-size: clamp(1.35rem, 3vw, 2.25rem);
     letter-spacing: -0.02em;
     overflow-wrap: anywhere;
+  }
+
+  .visually-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  .viewer-title-block {
+    min-width: 0;
+    flex: 1 1 34rem;
+  }
+
+  .viewer-title-content {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.7rem 1.25rem;
+  }
+
+  .viewer-source-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+  }
+
+  .viewer-source-facts > div {
+    display: grid;
+    min-width: 5rem;
+    align-content: center;
+    gap: 0.08rem;
+    padding: 0.38rem 0.62rem;
+    border: 1px solid #d2ddd2;
+    border-radius: 0.4rem;
+    background: #f8faf7;
+  }
+
+  .viewer-source-facts > .viewer-source-compound {
+    min-width: 10rem;
+  }
+
+  .viewer-source-facts dt {
+    color: #667168;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1.1;
+    text-transform: uppercase;
+  }
+
+  .viewer-source-facts dd {
+    margin: 0;
+    color: #1c2c21;
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .viewer-source-compound dd {
+    font-size: 1.02rem;
   }
 
   .viewer-heading-actions {
@@ -879,7 +963,7 @@ const { title } = Astro.props;
   .comparison-view-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.85rem;
+    gap: 0.65rem 0.85rem;
   }
 
   .comparison-view-grid[data-count="3"] > :last-child {
@@ -891,26 +975,47 @@ const { title } = Astro.props;
   .comparison-view {
     display: grid;
     min-width: 0;
-    gap: 0.55rem;
+    gap: 0.35rem;
   }
 
   .comparison-view > header {
     display: flex;
     min-width: 0;
+    min-height: 3rem;
+    padding: 0.25rem 0.45rem;
     align-items: center;
+    justify-content: center;
     gap: 0.55rem;
   }
 
-  .comparison-view > header div {
+  .comparison-source-identity {
     display: grid;
     min-width: 0;
+    flex: 0 1 auto;
+    gap: 0.3rem;
   }
 
-  .comparison-view > header small {
-    overflow: hidden;
-    color: #687269;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .viewer-source-facts-compact {
+    gap: 0.25rem;
+  }
+
+  .viewer-source-facts-compact > div {
+    min-width: 0;
+    padding: 0.24rem 0.42rem;
+    border-radius: 0.3rem;
+  }
+
+  .viewer-source-facts-compact > .viewer-source-compound {
+    min-width: 7rem;
+  }
+
+  .viewer-source-facts-compact dt {
+    font-size: 0.52rem;
+  }
+
+  .viewer-source-facts-compact dd {
+    font-size: 0.76rem;
+    overflow-wrap: anywhere;
   }
 
   .comparison-index {
@@ -1000,6 +1105,14 @@ const { title } = Astro.props;
 
     .viewer-heading-actions {
       justify-content: flex-start;
+    }
+
+    .viewer-source-facts:not(.viewer-source-facts-compact) {
+      width: 100%;
+    }
+
+    .viewer-source-facts:not(.viewer-source-facts-compact) > div {
+      flex: 1 1 6rem;
     }
 
     .canvas-frame {

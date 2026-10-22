@@ -29,6 +29,8 @@ import { FrameReadinessTracker } from "../lib/frameReadiness";
 import { V3FetchStore } from "../lib/v3FetchStore";
 import { viewerDebug } from "../lib/viewerDebug";
 import PlateMetadataPanel, {
+  doseLabel,
+  findWellMetadata,
   type PlateMetadata,
   wellIdFromPath,
 } from "./PlateMetadataPanel";
@@ -63,12 +65,19 @@ type ChannelState = {
 
 type ViewerSourceState = {
   datasetId: string;
-  datasetName: string;
   path: string;
   image: ImageSummary;
   metadata: PlateMetadata | null;
   loader: Loader;
   readyKey: string;
+};
+
+type ViewerSourceIdentity = {
+  compound: string;
+  concentration: string;
+  well: string;
+  site: string;
+  plate: string;
 };
 
 const MAX_VIEWER_SOURCES = 4;
@@ -95,6 +104,66 @@ function parseColor(value: string | null | undefined, index: number) {
 
 function imageFromSummary(summary: Summary): ImageSummary | null {
   return summary.kind === "image" ? summary : (summary.first_image ?? null);
+}
+
+function siteIdFromPath(path: string): string | undefined {
+  const collection = /_s(\d+)\.zarr$/i.exec(path);
+  if (collection?.[1]) {
+    return String(Number.parseInt(collection[1], 10));
+  }
+  return /^[A-Za-z]+\/\d+\/([^/]+)(?:\/|$)/.exec(path)?.[1];
+}
+
+function viewerSourceIdentity(source: ViewerSourceState): ViewerSourceIdentity {
+  const wellId = wellIdFromPath(source.path);
+  const well = findWellMetadata(source.metadata, wellId);
+  return {
+    compound:
+      well?.compound?.trim() || (well?.is_control ? "Control" : "Not specified"),
+    concentration: doseLabel(well?.dose_um),
+    well: wellId ?? "Not specified",
+    site: siteIdFromPath(source.path) ?? "Not specified",
+    plate: source.metadata?.plate?.plate_id?.trim() || "Not specified",
+  };
+}
+
+function ViewerSourceFacts({
+  identity,
+  compact = false,
+}: {
+  identity: ViewerSourceIdentity;
+  compact?: boolean;
+}) {
+  return (
+    <dl
+      className={
+        "viewer-source-facts" +
+        (compact ? " viewer-source-facts-compact" : "")
+      }
+      data-testid="viewer-source-facts"
+    >
+      <div className="viewer-source-compound">
+        <dt>Compound</dt>
+        <dd>{identity.compound}</dd>
+      </div>
+      <div>
+        <dt>Concentration</dt>
+        <dd>{identity.concentration}</dd>
+      </div>
+      <div>
+        <dt>Well</dt>
+        <dd>{identity.well}</dd>
+      </div>
+      <div>
+        <dt>Site</dt>
+        <dd>{identity.site}</dd>
+      </div>
+      <div>
+        <dt>Plate</dt>
+        <dd>{identity.plate}</dd>
+      </div>
+    </dl>
+  );
 }
 
 function axisSize(source: Source, axis: string): number {
@@ -383,31 +452,21 @@ export default function ImageViewer() {
           }
           return request;
         };
-        const [datasetsResult, sourceDetails] = await Promise.all([
-          dataServerClient.GET("/api/datasets"),
-          Promise.all(sourceSpecs.map((source) => detailsFor(source.datasetId))),
-        ]);
-        if (!datasetsResult.data) {
-          throw new Error(
-            apiErrorMessage(datasetsResult.error, "Could not load linked datasets"),
-          );
-        }
+        const sourceDetails = await Promise.all(
+          sourceSpecs.map((source) => detailsFor(source.datasetId)),
+        );
         const configuredSources = sourceSpecs.map((source, index) => {
           const details = sourceDetails[index];
-          const record = datasetsResult.data.datasets.find(
-            (dataset) => dataset.id === source.datasetId,
-          );
           const selectedImage = details
             ? imageFromSummary(details.summary)
             : null;
-          if (!record || !selectedImage || !details) {
+          if (!selectedImage || !details) {
             throw new Error(
               "Linked dataset " + source.datasetId + " has no image metadata.",
             );
           }
           return {
             ...source,
-            datasetName: record.name,
             image: selectedImage,
             metadata: details.metadata,
           };
@@ -535,8 +594,10 @@ export default function ImageViewer() {
   const source = loader?.[0];
   const image = primaryViewerSource?.image ?? null;
   const imagePath = primaryViewerSource?.path ?? "";
-  const datasetName = primaryViewerSource?.datasetName ?? "";
   const plateMetadata = primaryViewerSource?.metadata ?? null;
+  const primaryIdentity = primaryViewerSource
+    ? viewerSourceIdentity(primaryViewerSource)
+    : null;
   const sourceCount = viewerSources.length;
   const comparing = sourceCount > 1;
   const imageSources = useMemo(
@@ -636,11 +697,61 @@ export default function ImageViewer() {
     [z],
   );
 
+  const requestTimeMove = useCallback(
+    (direction: 1 | -1) => {
+      setRequestedTime((current) =>
+        moveTimeIndex(current, direction, jumpFrames, timeCount),
+      );
+    },
+    [jumpFrames, timeCount],
+  );
+
   useEffect(() => {
     if (!jumpOptions.some((option) => option.frames === jumpFrames)) {
       setJumpFrames(jumpOptions[0]?.frames ?? 1);
     }
   }, [jumpFrames, jumpOptions]);
+
+  useEffect(() => {
+    if (controlsOpen || !loader || timeCount <= 1) return;
+
+    const handleHiddenControlsKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement ||
+        (event.target instanceof HTMLElement && event.target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const direction =
+        event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
+      if (direction == null) return;
+
+      event.preventDefault();
+      viewerDebug("time:keyboard-jump", {
+        direction,
+        jumpFrames,
+        controlsOpen: false,
+      });
+      requestTimeMove(direction);
+    };
+
+    window.addEventListener("keydown", handleHiddenControlsKeyDown, true);
+    return () =>
+      window.removeEventListener("keydown", handleHiddenControlsKeyDown, true);
+  }, [
+    controlsOpen,
+    jumpFrames,
+    loader,
+    requestTimeMove,
+    timeCount,
+  ]);
 
   useEffect(() => {
     if (requestedTime === renderTime) return;
@@ -934,26 +1045,50 @@ export default function ImageViewer() {
               <label htmlFor="time-slider">
                 Time: {requestedTime + 1} / {timeCount}
               </label>
-              <button
-                type="button"
-                className="viewer-time-jump"
-                data-testid="time-jump"
-                aria-label={
-                  "Time jump " +
-                  (jumpOption?.label ?? "1 frame") +
-                  "; activate for " +
-                  (nextJumpOption?.label ?? "1 frame")
-                }
-                title={
-                  "Change time jump to " + (nextJumpOption?.label ?? "1 frame")
-                }
-                onClick={cycleTimeJump}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 5v14l8-7-8-7Zm9 0v14l8-7-8-7Z" />
-                </svg>
-                <span>{jumpOption?.label ?? "1 frame"}</span>
-              </button>
+              <div className="viewer-time-actions">
+                <span className="selection-help">
+                  <button
+                    type="button"
+                    className="selection-info"
+                    aria-label="Time navigation help"
+                    aria-describedby="time-navigation-help"
+                  >
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="8" />
+                      <path d="M10 9v5M10 6.2v.1" />
+                    </svg>
+                  </button>
+                  <span
+                    id="time-navigation-help"
+                    className="selection-tooltip"
+                    role="tooltip"
+                  >
+                    Fast-forward changes the jump. Arrow keys navigate,
+                    including when controls are hidden. Dragging selects
+                    any frame.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="viewer-time-jump"
+                  data-testid="time-jump"
+                  aria-label={
+                    "Time jump " +
+                    (jumpOption?.label ?? "1 frame") +
+                    "; activate for " +
+                    (nextJumpOption?.label ?? "1 frame")
+                  }
+                  title={
+                    "Change time jump to " + (nextJumpOption?.label ?? "1 frame")
+                  }
+                  onClick={cycleTimeJump}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 5v14l8-7-8-7Zm9 0v14l8-7-8-7Z" />
+                  </svg>
+                  <span>{jumpOption?.label ?? "1 frame"}</span>
+                </button>
+              </div>
             </div>
             <input
               id="time-slider"
@@ -976,16 +1111,10 @@ export default function ImageViewer() {
                 }
                 if (direction == null) return;
                 event.preventDefault();
-                setRequestedTime((current) =>
-                  moveTimeIndex(current, direction, jumpFrames, timeCount),
-                );
+                requestTimeMove(direction);
               }}
               onPointerUp={() => commitTime(requestedTime)}
             />
-            <small className="viewer-time-help">
-              Fast-forward changes the jump; arrow keys navigate. Dragging still
-              selects any frame.
-            </small>
             {displayedTime != null && displayedTime !== requestedTime && (
               <small className="viewer-time-state" data-testid="displayed-time-hint">
                 Showing time {displayedTime + 1} while time {requestedTime + 1} loads
@@ -1084,13 +1213,24 @@ export default function ImageViewer() {
 
       <section className="viewer-stage stack" aria-labelledby="viewer-heading">
         <div className="section-heading">
-          <div>
+          <div className="viewer-title-block">
             <p className="eyebrow">
               {comparing ? "Synchronized viewer" : "Viewer"}
             </p>
-            <h1 id="viewer-heading">
-              {comparing ? "Compare trajectories" : imagePath || "Loading image"}
-            </h1>
+            <div className="viewer-title-content">
+              {comparing ? (
+                <h1 id="viewer-heading">Compare trajectories</h1>
+              ) : primaryIdentity ? (
+                <>
+                  <h1 id="viewer-heading" className="visually-hidden">
+                    Image viewer for {primaryIdentity.compound}
+                  </h1>
+                  <ViewerSourceFacts identity={primaryIdentity} />
+                </>
+              ) : (
+                <h1 id="viewer-heading">Loading image</h1>
+              )}
+            </div>
           </div>
           <div className="viewer-heading-actions">
             <span
@@ -1174,6 +1314,7 @@ export default function ImageViewer() {
               >
                 {viewerSources.map((viewerSource, index) => {
                   const label = "ABCD"[index];
+                  const identity = viewerSourceIdentity(viewerSource);
                   return (
                     <article
                       className="comparison-view"
@@ -1181,16 +1322,8 @@ export default function ImageViewer() {
                     >
                       <header>
                         <span className="comparison-index">{label}</span>
-                        <div>
-                          <strong>
-                            {wellIdFromPath(viewerSource.path) ||
-                              "Well " + label}
-                          </strong>
-                          <small>
-                            {viewerSource.datasetName +
-                              " · " +
-                              viewerSource.path}
-                          </small>
+                        <div className="comparison-source-identity">
+                          <ViewerSourceFacts identity={identity} compact />
                         </div>
                       </header>
                       <VivCanvas
@@ -1224,18 +1357,6 @@ export default function ImageViewer() {
         </div>
 
         <p className="viewer-status-line">
-          <strong>
-            {comparing
-              ? viewerSources
-                  .map((viewerSource) => viewerSource.datasetName)
-                  .join(" vs ")
-              : datasetName || "Dataset"}
-          </strong>
-          <span>
-            {viewerSources
-              .map((viewerSource) => viewerSource.path)
-              .join(" vs ")}
-          </span>
           <span>
             shape {firstLevel?.shape.join(" × ") ?? source?.shape.join(" × ") ?? "—"}
           </span>
@@ -1252,12 +1373,11 @@ export default function ImageViewer() {
           >
             {viewerSources.map((viewerSource, index) => (
               <div className="stack" key={viewerSource.readyKey}>
-                <h2>
-                  Well {"ABCD"[index]} · {viewerSource.datasetName}
-                </h2>
+                <h2>Well {"ABCD"[index]} details</h2>
                 <PlateMetadataPanel
                   metadata={viewerSource.metadata}
                   selectedWell={wellIdFromPath(viewerSource.path)}
+                  detailsOnly
                 />
               </div>
             ))}
@@ -1266,6 +1386,7 @@ export default function ImageViewer() {
           <PlateMetadataPanel
             metadata={plateMetadata}
             selectedWell={wellIdFromPath(imagePath)}
+            detailsOnly
           />
         )}
       </section>

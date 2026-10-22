@@ -6,6 +6,7 @@ export type WellMetadata = components["schemas"]["WellMetadataSummary"];
 type Props = {
   metadata: PlateMetadata | null;
   selectedWell?: string;
+  detailsOnly?: boolean;
 };
 
 export function wellIdFromPath(path: string): string | undefined {
@@ -43,6 +44,7 @@ export function findWellMetadata(
 export default function PlateMetadataPanel({
   metadata,
   selectedWell,
+  detailsOnly = false,
 }: Props) {
   if (!metadata?.available || !metadata.plate) return null;
   const plate = metadata.plate;
@@ -50,58 +52,82 @@ export default function PlateMetadataPanel({
   const well = findWellMetadata(metadata, selectedWell);
 
   return (
-    <section className="subpanel metadata-panel stack" data-testid="plate-metadata">
-      <div>
-        <p className="eyebrow">Experiment metadata</p>
-        <h3>{well ? "Plate and well information" : "Plate information"}</h3>
-      </div>
-
-      {well && (
-        <>
-          <dl className="status-grid well-metadata-grid">
-            <div>
-              <dt>Well</dt>
-              <dd>{well.well}</dd>
-            </div>
-            <div>
-              <dt>Compound</dt>
-              <dd>{shown(well.compound)}</dd>
-            </div>
-            <div>
-              <dt>Dose</dt>
-              <dd>{doseLabel(well.dose_um)}</dd>
-            </div>
-            <div>
-              <dt>Type</dt>
-              <dd>{well.is_control ? "Solvent control" : shown(well.well_type)}</dd>
-            </div>
-            <div>
-              <dt>MOA</dt>
-              <dd>{shown(well.moa)}</dd>
-            </div>
-          </dl>
-
-          {(well.target || well.pathway || well.mechanism_of_action) && (
-            <details>
-              <summary>Biological annotation</summary>
-              <dl className="status-grid metadata-annotation-grid">
-                <div>
-                  <dt>Target</dt>
-                  <dd>{shown(well.target)}</dd>
-                </div>
-                <div>
-                  <dt>Pathway</dt>
-                  <dd>{shown(well.pathway)}</dd>
-                </div>
-                <div>
-                  <dt>Mechanism</dt>
-                  <dd>{shown(well.mechanism_of_action)}</dd>
-                </div>
-              </dl>
-            </details>
-          )}
-        </>
+    <section
+      className={
+        "subpanel metadata-panel stack" +
+        (detailsOnly ? " metadata-panel-details-only" : "")
+      }
+      data-testid="plate-metadata"
+      aria-label="Experiment metadata"
+    >
+      {!detailsOnly && (
+        <div>
+          <p className="eyebrow">Experiment metadata</p>
+          <h3>{well ? "Plate and well information" : "Plate information"}</h3>
+        </div>
       )}
+
+      {well && !detailsOnly && (
+        <dl className="status-grid well-metadata-grid">
+          <div>
+            <dt>Well</dt>
+            <dd>{well.well}</dd>
+          </div>
+          <div>
+            <dt>Compound</dt>
+            <dd>{shown(well.compound)}</dd>
+          </div>
+          <div>
+            <dt>Dose</dt>
+            <dd>{doseLabel(well.dose_um)}</dd>
+          </div>
+          <div>
+            <dt>Type</dt>
+            <dd>
+              {well.is_control ? "Solvent control" : shown(well.well_type)}
+            </dd>
+          </div>
+        </dl>
+      )}
+
+      {well &&
+        (detailsOnly ||
+          well.moa ||
+          well.target ||
+          well.pathway ||
+          well.mechanism_of_action) && (
+          <details>
+            <summary>Biological annotation</summary>
+            <dl className="status-grid metadata-annotation-grid">
+              {detailsOnly && (
+                <div>
+                  <dt>Treatment type</dt>
+                  <dd>
+                    {well.is_control
+                      ? "Solvent control"
+                      : shown(well.well_type)}
+                  </dd>
+                </div>
+              )}
+              <div>
+                <dt>MOA</dt>
+                <dd>{shown(well.moa)}</dd>
+              </div>
+              <div>
+                <dt>Target</dt>
+                <dd>{shown(well.target)}</dd>
+              </div>
+              <div>
+                <dt>Pathway</dt>
+                <dd>{shown(well.pathway)}</dd>
+              </div>
+              <div>
+                <dt>Mechanism</dt>
+                <dd>{shown(well.mechanism_of_action)}</dd>
+              </div>
+            </dl>
+          </details>
+        )}
 
       <details>
         <summary>Plate and experiment</summary>
