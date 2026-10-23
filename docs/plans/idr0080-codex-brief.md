@@ -89,10 +89,11 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
    - `.gitignore` entries for the four data inputs: `docs/data/inspection-2026-10-22/`, `docs/data/packed-display-survey.json`, `docs/data/idr0080-extras.json` and `docs/data/idr0080-mask-contract.json`. Check with `git status` that none of them is staged.
    - `AGENTS.md` at the repository root. It should say that agents follow `CLAUDE.md`, the single source of repository conventions.
    - This brief.
-5. **Operator:** copy `~/.timed/profiles.yaml` to `~/.timed/profiles.multi.yaml` and add the collections from section 4.1.
-   - Run the branch with `uv run python scripts/dev.py --profiles ~/.timed/profiles.multi.yaml`.
-   - Main's strict profile validation rejects the new `collections` key, so `profiles.yaml` stays as it is until R1.
-   - Add a `PROFILES` variable to the Makefile's `dev` target.
+5. Use the repository profile for branch development.
+   - `config/profiles.example.yaml` is the operator's active Arrhenius profile. Add the idr0080 data root and both collections from section 4.1 there in C1.
+   - Run the branch with `uv run python scripts/dev.py --profiles config/profiles.example.yaml`.
+   - Main keeps its own copy of the file, so its profile and application remain unchanged until the branch is merged.
+   - Default the Makefile's `PROFILES` variable to `config/profiles.example.yaml`.
 6. Make Arrhenius test runs always use the code just built.
    - Set the data-server version to `0.4.0.dev0`: in its `pyproject.toml` and `__init__`, and in the root and connector pins.
    - Change `prepare_remote_server` so that for `.dev` versions, the remote install directory is keyed by the version plus the first 12 hex digits of the wheel's SHA-256. Each test then runs the build just made, and a job still running an older build is never overwritten.
@@ -521,7 +522,7 @@ Each milestone ends with its tests green, the existing suites green, and a push.
 - **V1. Viewer and plate view**, including the shared `PlateGrid` (section 4.5).
   *Done when* the idr0080 end-to-end tests pass and the TIMED regression tests are unchanged.
 - **X1. Same perturbation across plates** (section 4.6).
-- **A1. Operator, on Arrhenius**, with `profiles.multi.yaml`:
+- **A1. Operator, on Arrhenius**, with `config/profiles.example.yaml`:
   1. TIMED is preselected and identical to main.
   2. Open idr0080, A549, 14610, A01 site 1, and compare it with the inspection previews.
   3. Compare A01 across three plates in different cell lines, plus an EMPTY control.
@@ -530,7 +531,7 @@ Each milestone ends with its tests green, the existing suites green, and a push.
 - **R1. Merge.**
   - Update `README.md`, `CLAUDE.md` and `docs/decisions.md`. Add `docs/data/IDR0080.md` (Appendices A–B) and `docs/ADDING_DATASETS.md`.
   - Set the version to `0.4.0`.
-  - **Operator:** move the collections into `~/.timed/profiles.yaml`.
+  - Keep the released collections in `config/profiles.example.yaml`; they reach `main` with the merge.
   - Merge and tag `v0.4.0`.
 
 **Phase 2** (`feature/idr0080-masks`, from `main` after R1):

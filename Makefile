@@ -1,6 +1,6 @@
 .PHONY: dev test-cluster test test-e2e test-data gen-api lint
 
-PROFILES ?= $(HOME)/.timed/profiles.yaml
+PROFILES ?= config/profiles.example.yaml
 
 dev:
 	uv run python scripts/dev.py --profiles "$(PROFILES)"

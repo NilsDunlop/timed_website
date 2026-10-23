@@ -212,3 +212,16 @@ connection-file removal, local-process shutdown, SSH shutdown, and port-forward
 shutdown each have a bounded cleanup budget. Cleanup always clears the private
 transport references and publishes a terminal state: `disconnected` when every
 step succeeds, or `error` with the failed or timed-out steps when it does not.
+
+## 2026-10-23: use the repository profile for IDR0080 branch development
+
+The operator runs TIMED with the real Arrhenius connection settings in
+`config/profiles.example.yaml`; there is no user-level `~/.timed/profiles.yaml`
+on this workstation. IDR0080 branch work therefore updates that repository
+profile in C1 and runs with
+`uv run python scripts/dev.py --profiles config/profiles.example.yaml`.
+
+The Makefile defaults `PROFILES` to the same repository path while retaining an
+override for other environments. Because `main` has its own Git copy, adding
+the data root and collections on `feature/idr0080` does not change the main
+application before merge.
