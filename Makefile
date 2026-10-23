@@ -1,7 +1,9 @@
 .PHONY: dev test-cluster test test-e2e test-data gen-api lint
 
+PROFILES ?= $(HOME)/.timed/profiles.yaml
+
 dev:
-	uv run python scripts/dev.py
+	uv run python scripts/dev.py --profiles "$(PROFILES)"
 
 test-cluster:
 	uv run python dev/test_cluster/server.py
