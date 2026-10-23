@@ -73,7 +73,9 @@ test("starts a local server, renders time data, and stops it", async ({
   await page.evaluate(() =>
     window.localStorage.setItem("timed.viewer.debug", "1"),
   );
-  await page.getByTestId("open-selected").click();
+  const openSelected = page.getByTestId("open-selected");
+  await expect(openSelected).toHaveText("Open trajectory");
+  await openSelected.click();
 
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
     timeout: 60_000,
@@ -112,9 +114,30 @@ test("starts a local server, renders time data, and stops it", async ({
   for (const details of await viewerMetadata.locator("details").all()) {
     await expect(details).not.toHaveAttribute("open", "");
   }
-  await expect(
-    page.getByRole("slider", { name: /contrast maximum/i }).first(),
-  ).toHaveValue("65535");
+  for (const channel of ["405 nm", "505 nm", "625 nm"]) {
+    const checkbox = page.getByRole("checkbox", {
+      name: channel,
+      exact: true,
+    });
+    const channelControl = page.locator(".channel-control").filter({
+      has: checkbox,
+    });
+    await expect(checkbox).toBeVisible();
+    await expect(
+      page.getByRole("slider", {
+        name: `${channel} contrast minimum`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("slider", {
+        name: `${channel} contrast maximum`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(channelControl).toContainText("Contrast minimum: 100");
+    await expect(channelControl).toContainText("Contrast maximum: 65535");
+  }
   expect(
     viewerDiagnostics.some((message) => message.includes("viewer:loader-ready")),
   ).toBe(true);
@@ -134,6 +157,8 @@ test("starts a local server, renders time data, and stops it", async ({
 
   const timeSlider = page.getByTestId("time-slider");
   const timeJump = page.getByTestId("time-jump");
+  await expect(timeSlider).toBeVisible();
+  await expect(timeJump).toBeVisible();
   const timeHelp = page.getByRole("button", {
     name: "Time navigation help",
   });
