@@ -80,6 +80,7 @@ class ChannelSummary(ApiModel):
     name: str
     color: str | None = None
     window: WindowSummary | None = None
+    active: bool | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ResolutionLevel(ApiModel):

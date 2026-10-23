@@ -186,6 +186,8 @@ export interface components {
         };
         /** ChannelSummary */
         ChannelSummary: {
+            /** Active */
+            active?: boolean | null;
             /** Color */
             color?: string | null;
             /** Name */

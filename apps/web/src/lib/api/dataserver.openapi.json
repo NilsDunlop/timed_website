@@ -108,6 +108,17 @@
       "ChannelSummary": {
         "additionalProperties": false,
         "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
           "color": {
             "anyOf": [
               {

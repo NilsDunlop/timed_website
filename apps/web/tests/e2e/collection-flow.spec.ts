@@ -51,23 +51,37 @@ test("scopes collection browsing and restores an opened plate", async ({ page })
   await expect(
     page.getByRole("button", { name: "test_plate", exact: true }),
   ).toHaveCount(0);
-  await expect(page.locator(".file-list li")).toHaveCount(31);
-  await expect(page.locator(".file-list")).not.toContainText("plain-file.txt");
-  const listingFilter = page.getByLabel("Filter this dataset");
-  await expect(listingFilter).toBeVisible();
-  await listingFilter.fill("31");
-  await expect(page.locator(".file-list li")).toHaveCount(1);
-  await expect(page.locator(".file-list")).toContainText("group-31");
+  await expect(page.locator(".file-list li")).toHaveCount(2);
+  const a549 = page.locator(".file-list li").filter({
+    has: page.getByText("idr0080-A549", { exact: true }),
+  });
+  await expect(a549).toContainText("2 plates");
+  await a549.getByRole("button", { name: "Open folder" }).click();
+  await expect(page.locator(".file-list li")).toHaveCount(2);
+  const packedPlate = page.locator(".file-list li").filter({
+    has: page.getByText("SQ00014610", { exact: true }),
+  });
+  await expect(packedPlate).toContainText("5 wells · 2 sites · 5 channels");
+  await packedPlate.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByRole("heading", { name: "SQ00014610" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Well A1" })).toBeVisible();
 
   await datasetSelector.selectOption("__files__");
   await expect(page).toHaveURL(/\/data$/);
   await expect(page.getByRole("heading", { name: "Browse data roots" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Linked datasets" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Unlink" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unlink" })).toHaveCount(2);
   await expect(
     page.getByRole("button", { name: "test_plate.zarr", exact: true }),
   ).toBeVisible();
   await expect(tray).toContainText("test_plate.zarr");
+  const packedDataset = page.locator(".dataset-list li").filter({
+    has: page.getByRole("button", { name: "SQ00014610", exact: true }),
+  });
+  await packedDataset.getByRole("button", { name: "Unlink" }).click();
+  await expect(
+    page.getByRole("button", { name: "SQ00014610", exact: true }),
+  ).toHaveCount(0);
 
   await datasetSelector.selectOption("timed");
   await page.getByRole("button", { name: "test_plate", exact: true }).click();
@@ -85,10 +99,13 @@ test("scopes collection browsing and restores an opened plate", async ({ page })
   await expect(page.getByRole("heading", { name: "test_plate" })).toBeVisible();
   await expect(page).toHaveURL(/\/data\?collection=timed&dataset=/);
 
-  await page.locator(".dataset-list li").getByRole("button", {
-    name: "Remove",
-  }).click();
-  await expect(page.locator(".dataset-list li")).toHaveCount(0);
+  const timedDataset = page.locator(".dataset-list li").filter({
+    has: page.getByRole("button", { name: "test_plate", exact: true }),
+  });
+  await timedDataset.getByRole("button", { name: "Remove" }).click();
+  await expect(
+    page.getByRole("button", { name: "test_plate", exact: true }),
+  ).toHaveCount(0);
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await page

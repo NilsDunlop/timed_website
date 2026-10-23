@@ -255,6 +255,7 @@ def _channels(omero: Any) -> list[ChannelSummary]:
                 name=str(value.get("label", f"Channel {index + 1}")),
                 color=str(value["color"]) if value.get("color") is not None else None,
                 window=window,
+                active=value.get("active") if isinstance(value.get("active"), bool) else None,
             )
         )
     return result

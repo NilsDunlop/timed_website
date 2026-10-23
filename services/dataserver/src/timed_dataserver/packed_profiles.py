@@ -43,6 +43,17 @@ class PackedGeometry:
 
 
 @dataclass(frozen=True, slots=True)
+class PackedCodec:
+    """Pinned Zarr chunk codec settings for a packed dataset."""
+
+    cname: str = "zstd"
+    clevel: int = 3
+    shuffle: str = "shuffle"
+    blocksize: int = 0
+    typesize: int = 2
+
+
+@dataclass(frozen=True, slots=True)
 class PackedDatasetProfile:
     """Immutable description of a packed index whose identity is pinned."""
 
@@ -52,6 +63,7 @@ class PackedDatasetProfile:
     channels: tuple[PackedChannel, ...]
     experiment_cell_lines: tuple[tuple[str, str], ...]
     metadata_path: str
+    codec: PackedCodec = PackedCodec()
     dtype: str = "uint16"
     plate_prefix: str = "SQ000"
     member_prefix: str = "idr0080/raw/"

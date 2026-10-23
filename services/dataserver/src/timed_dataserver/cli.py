@@ -42,6 +42,12 @@ def _parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--connection-file", required=True, type=Path)
     serve_parser.add_argument("--environment", choices=("local", "hpc"), required=True)
     serve_parser.add_argument("--state-dir", type=Path, default=Path.home() / ".timed")
+    serve_parser.add_argument(
+        "--packed-cache-mb",
+        type=int,
+        default=1024,
+        help="decoded packed-field cache size in MiB (default: 1024)",
+    )
 
     subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
     return parser
@@ -145,7 +151,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         state_dir=args.state_dir,
         environment=args.environment,
         metadata_root=args.metadata_root,
+        packed_cache_mb=args.packed_cache_mb,
     )
+    if settings.packed_cache_mb <= 0:
+        raise SystemExit("--packed-cache-mb must be greater than zero")
     try:
         asyncio.run(
             serve(

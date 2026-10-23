@@ -273,3 +273,40 @@ canonicalization. This makes repeated links idempotent and allows a new server
 process to reopen the same packed plate without pretending the virtual suffix
 exists on disk. D1 exposes traversal and linking; summaries, wells and Zarr
 resources remain unavailable until the D2 facade is installed.
+
+## 2026-10-23: cache and serve packed images one field at a time
+
+The first chunk request for a packed field loads and decodes all five channel
+planes as one unit. A single-flight, byte-bounded LRU shares that work across
+concurrent requests and keeps at most 1 GiB by default; `serve
+--packed-cache-mb` can change the budget. The cache key includes the index and
+tar revisions, so replacement data cannot reuse stale pixels. At most four
+distinct cold fields load at once, bounding their transient encoded and decoded
+buffers as well as tar I/O. Read-only tar descriptors are cached for reuse and
+closed with the server lifespan.
+
+Adjacent channel members are read in one exact positional span. Non-adjacent
+members fall back to concurrent positional reads under one four-operation
+limit. All members resolved from one tar must share one descriptor and revision
+snapshot; a concurrent replacement retries source resolution instead of mixing
+bytes and validators. Every member is bounds checked, short reads fail, and a
+header must have the expected USTAR name and size. Header verification includes
+the expected member identity, so an index rewrite cannot reuse an unrelated
+verification. A mismatch refuses that tar until restart, while transient header
+I/O and TIFF contract errors fail only the request. TIFF payloads must be
+single-page, uncompressed, 2-D uint16 planes at the profile shape. All tar I/O,
+TIFF decoding, and Blosc encoding run in a worker thread.
+
+Packed fields are exposed as an in-memory OME-Zarr 0.5 / Zarr v3 facade rather
+than converted data. Group and array metadata, sparse plate summaries, and
+well/site listings come from the pinned code profile and catalogue. Chunk
+responses use deterministic validators derived from the source member,
+revision, coordinates, and codec, and report whether the decoded field cache
+was a hit or miss. The E2E harness copies the small generated packed fixture to
+a disjoint runtime data root, so collection scoping mirrors Arrhenius while the
+same facade is exercised locally and through the SSH/Slurm test cluster.
+
+D2 activates the facade only for the exact generated-fixture profile. Other
+detected packed indexes remain listable but return a clear 422 when opened.
+D3 replaces that temporary milestone boundary with the pinned real idr0080
+profile and the generic inferred-profile fallback required for Phase 1.

@@ -8,6 +8,7 @@ import platform
 import re
 import socket
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC
 from email.utils import formatdate, parsedate_to_datetime
@@ -50,6 +51,16 @@ from .packed import (
     is_packed_index,
     resolve_packed_virtual_path_in_thread,
 )
+from .packed_facade import (
+    PackedChunkRequest,
+    PackedFacadeNotFoundError,
+    PackedMetadataRequest,
+    packed_plate_summary,
+    packed_well_fields,
+    parse_packed_resource,
+)
+from .packed_io import PackedReader, PackedReadError
+from .packed_profiles import PackedDatasetProfile, profile_for_index
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
 from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
 from .registry import DatasetRegistry
@@ -72,6 +83,7 @@ class ServerSettings:
     state_dir: Path
     environment: Literal["local", "hpc"]
     metadata_root: Path | None = None
+    packed_cache_mb: int = 1024
 
 
 def _forbidden(exc: Exception) -> HTTPException:
@@ -176,11 +188,17 @@ def _memory_response(
     range_header: str | None,
     if_none_match: str | None,
     if_range: str | None,
+    *,
+    etag: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> Response:
     size = len(content)
-    digest = hashlib.blake2s(content, digest_size=16).hexdigest()
-    etag = f'"{digest}"'
+    if etag is None:
+        digest = hashlib.blake2s(content, digest_size=16).hexdigest()
+        etag = f'"{digest}"'
     headers = _cache_headers(etag)
+    if extra_headers is not None:
+        headers.update(extra_headers)
     if _etag_matches(if_none_match, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     range_header = _range_for_validator(range_header, if_range, etag)
@@ -188,7 +206,7 @@ def _memory_response(
         bounds = _range_bounds(range_header, size)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
             detail=str(exc),
             headers={**headers, "Content-Range": f"bytes */{size}"},
         ) from exc
@@ -246,7 +264,7 @@ def _file_response(
         bounds = _range_bounds(range_header, size)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
             detail=str(exc),
             headers={**headers, "Content-Range": f"bytes */{size}"},
         ) from exc
@@ -272,13 +290,24 @@ def _file_response(
 
 def create_app(settings: ServerSettings, token: str) -> FastAPI:
     """Create one isolated data-server application."""
+    if settings.packed_cache_mb <= 0:
+        raise ValueError("Packed cache size must be greater than zero")
     guard = RootGuard(settings.data_roots)
     registry = DatasetRegistry(settings.state_dir)
     packed_catalogues = PackedCatalogueCache()
+    packed_reader = PackedReader(cache_bytes=settings.packed_cache_mb * 1024 * 1024)
     metadata_catalog = (
         PlateMetadataCatalog(settings.metadata_root) if settings.metadata_root is not None else None
     )
     require_token = bearer_auth(token)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            await anyio.to_thread.run_sync(packed_reader.close)
+
     app = FastAPI(
         title="TIMED data server",
         version=__version__,
@@ -286,12 +315,25 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         docs_url=None,
         redoc_url=None,
         dependencies=[Depends(require_token)],
+        lifespan=lifespan,
     )
     app.state.settings = settings
     app.state.guard = guard
     app.state.registry = registry
     app.state.metadata_catalog = metadata_catalog
     app.state.packed_catalogues = packed_catalogues
+    app.state.packed_reader = packed_reader
+
+    def packed_profile(packed: PackedVirtualPath) -> PackedDatasetProfile:
+        profile = profile_for_index(packed.index_path.name, packed.catalogue.row_count)
+        if profile is None:
+            raise _unprocessable(
+                PackedIndexError(
+                    "Packed index has no matching code profile: "
+                    f"{packed.index_path.name} ({packed.catalogue.row_count} rows)"
+                )
+            )
+        return profile
 
     async def packed_path(raw: str) -> PackedVirtualPath | None:
         try:
@@ -500,10 +542,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     async def summarize_dataset(dataset_id: str) -> DatasetSummary:
         _record, path, descriptor, packed = await linked(dataset_id)
         if packed is not None:
-            raise HTTPException(
-                status_code=422,
-                detail="Packed dataset summaries are not available yet",
-            )
+            try:
+                return packed_plate_summary(packed, packed_profile(packed))
+            except PackedFacadeNotFoundError as exc:
+                raise _not_found(str(exc)) from exc
         try:
             return dataset_summary(path, descriptor)
         except PathForbiddenError as exc:
@@ -518,10 +560,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     async def summarize_well(dataset_id: str, well_path: str) -> WellFieldsResponse:
         _record, path, descriptor, packed = await linked(dataset_id)
         if packed is not None:
-            raise HTTPException(
-                status_code=422,
-                detail="Packed dataset wells are not available yet",
-            )
+            try:
+                return packed_well_fields(packed, well_path)
+            except PackedFacadeNotFoundError as exc:
+                raise _not_found(str(exc)) from exc
         if descriptor.info.kind != "plate":
             raise HTTPException(status_code=422, detail="Dataset is not a plate")
         try:
@@ -562,7 +604,45 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     ) -> Response:
         _record, dataset_path, descriptor, packed = await linked(dataset_id)
         if packed is not None:
-            raise _not_found("Packed Zarr resources are not available yet")
+            profile = packed_profile(packed)
+            try:
+                resource = parse_packed_resource(packed, profile, resource_path)
+            except PackedFacadeNotFoundError as exc:
+                raise _not_found(str(exc)) from exc
+            if isinstance(resource, PackedMetadataRequest):
+                return _memory_response(
+                    resource.content,
+                    "application/json",
+                    range_header,
+                    if_none_match,
+                    if_range,
+                )
+            if not isinstance(resource, PackedChunkRequest):
+                raise _not_found(f"Unknown packed facade resource: {resource_path}")
+            try:
+                chunk = await anyio.to_thread.run_sync(
+                    packed_reader.get_chunk,
+                    packed.catalogue,
+                    profile,
+                    resource.field.experiment,
+                    resource.field.plate,
+                    resource.field.well,
+                    resource.field.site,
+                    resource.channel,
+                    resource.chunk_y,
+                    resource.chunk_x,
+                )
+            except PackedReadError as exc:
+                raise _unprocessable(exc) from exc
+            return _memory_response(
+                chunk.content,
+                "application/octet-stream",
+                range_header,
+                if_none_match,
+                if_range,
+                etag=chunk.etag,
+                extra_headers={"X-TIMED-Cache": chunk.cache_status},
+            )
         try:
             guard.child(dataset_path, resource_path, must_exist=False)
             virtual = (

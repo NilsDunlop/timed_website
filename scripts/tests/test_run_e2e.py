@@ -10,15 +10,17 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
     known_hosts = tmp_path / "known_hosts"
     timed_root = tmp_path / "timed"
     idr0080_root = tmp_path / "idr0080-like"
+    idr0080_index = idr0080_root / "idr0080-raw.index.parquet"
     timed_root.mkdir()
     idr0080_root.mkdir()
+    idr0080_index.touch()
 
     _profile(
         profiles_path,
         "/cluster/timed",
         str(timed_root),
-        "/cluster/idr0080-like",
-        str(idr0080_root),
+        "/cluster/idr0080-like/idr0080-raw.index.parquet",
+        str(idr0080_index),
         known_hosts,
     )
 
@@ -52,6 +54,6 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
             "id": "idr0080",
             "title": "idr0080 · Cell Health",
             "description": "CRISPR Cell Painting · test collection",
-            "path": str(idr0080_root),
+            "path": str(idr0080_index),
         },
     ]

@@ -25,6 +25,13 @@ def test_idr0080_fixture_profile_identity_and_geometry_are_pinned() -> None:
     assert profile.plate_name(14610) == "SQ00014610"
     assert profile.member_prefix == "idr0080/raw/"
     assert profile.metadata_path == "metadata/metadata_idr0080.csv"
+    assert (
+        profile.codec.cname,
+        profile.codec.clevel,
+        profile.codec.shuffle,
+        profile.codec.blocksize,
+        profile.codec.typesize,
+    ) == ("zstd", 3, "shuffle", 0, 2)
     assert profile.experiment_cell_lines == (
         ("idr0080-A549", "A549"),
         ("idr0080-ES2", "ES2"),

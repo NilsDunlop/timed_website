@@ -118,10 +118,12 @@ def _profile(
     path: Path,
     cluster_data_root: str,
     local_data_root: str,
-    cluster_idr0080_root: str,
-    local_idr0080_root: str,
+    cluster_idr0080_index: str,
+    local_idr0080_index: str,
     known_hosts: Path,
 ) -> None:
+    cluster_idr0080_root = cluster_idr0080_index.rsplit("/", 1)[0]
+    local_idr0080_root = str(Path(local_idr0080_index).parent)
     timed_collection = {
         "id": "timed",
         "title": "TIMED",
@@ -172,7 +174,7 @@ def _profile(
                 "data_roots": [cluster_data_root, cluster_idr0080_root],
                 "collections": [
                     {**timed_collection, "path": cluster_data_root},
-                    {**idr0080_collection, "path": cluster_idr0080_root},
+                    {**idr0080_collection, "path": cluster_idr0080_index},
                 ],
             },
             {
@@ -182,7 +184,7 @@ def _profile(
                 "data_roots": [local_data_root, local_idr0080_root],
                 "collections": [
                     {**timed_collection, "path": local_data_root},
-                    {**idr0080_collection, "path": local_idr0080_root},
+                    {**idr0080_collection, "path": local_idr0080_index},
                 ],
             },
         ]
@@ -306,6 +308,10 @@ def main() -> int:
         raise RuntimeError("Build the web application before using --built-ui")
     if not real_local and (not TEST_DATA.is_dir() or not (TEST_DATA / "metadata").is_dir()):
         raise RuntimeError("Run `make test-data` before the browser suite")
+    packed_source = TEST_DATA / "packed" / "idr0080-like"
+    packed_source_index = packed_source / "idr0080-raw.index.parquet"
+    if not real_local and not packed_source_index.is_file():
+        raise RuntimeError("Run `make test-data` to create the packed browser fixture")
     required_ports = [arguments.connector_port]
     if not arguments.built_ui:
         required_ports.append(arguments.web_port)
@@ -317,14 +323,10 @@ def main() -> int:
     run_id = uuid.uuid4().hex
     runtime = REPOSITORY_ROOT / ".timed" / "e2e" / run_id
     runtime.mkdir(parents=True)
-    idr0080_fixture = runtime / "idr0080-like"
-    idr0080_fixture.mkdir()
-    for index in range(31):
-        (idr0080_fixture / f"group-{index + 1:02d}").mkdir()
-    (idr0080_fixture / "plain-file.txt").write_text(
-        "Collection browsing hides plain files.\n",
-        encoding="utf-8",
-    )
+    packed_fixture = runtime / "idr0080-like"
+    if not real_local:
+        shutil.copytree(packed_source, packed_fixture)
+    packed_index = packed_fixture / "idr0080-raw.index.parquet"
     profiles = runtime / "profiles.yaml"
     known_hosts = runtime / "known_hosts"
     processes: list[subprocess.Popen[bytes]] = []
@@ -342,7 +344,7 @@ def main() -> int:
         if os.name == "nt":
             repository_for_cluster = _wsl_path(REPOSITORY_ROOT)
             cluster_data_root = _wsl_path(TEST_DATA)
-            cluster_idr0080_root = _wsl_path(idr0080_fixture)
+            cluster_idr0080_index = _wsl_path(packed_index)
             cluster_state = "/tmp/timed-e2e-" + run_id
             cluster_command = (
                 "cd "
@@ -358,7 +360,7 @@ def main() -> int:
         else:
             repository_for_cluster = str(REPOSITORY_ROOT)
             cluster_data_root = str(TEST_DATA.resolve())
-            cluster_idr0080_root = str(idr0080_fixture.resolve())
+            cluster_idr0080_index = str(packed_index.resolve())
             cluster_state = str(runtime / "cluster")
             cluster_environment = os.environ.copy()
             cluster_environment.update(
@@ -379,8 +381,8 @@ def main() -> int:
             profiles,
             cluster_data_root,
             str(TEST_DATA.resolve()),
-            cluster_idr0080_root,
-            str(idr0080_fixture.resolve()),
+            cluster_idr0080_index,
+            str(packed_index.resolve()),
             known_hosts,
         )
         services.append(("cluster", cluster_arguments, cluster_environment))
@@ -417,9 +419,7 @@ def main() -> int:
                 ],
                 {
                     **os.environ,
-                    "TIMED_CONNECTOR_ORIGIN": (
-                        f"http://127.0.0.1:{arguments.connector_port}"
-                    ),
+                    "TIMED_CONNECTOR_ORIGIN": (f"http://127.0.0.1:{arguments.connector_port}"),
                 },
             )
         )

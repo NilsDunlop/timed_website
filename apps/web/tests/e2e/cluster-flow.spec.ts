@@ -12,7 +12,9 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
   page.on("pageerror", (reason) => browserErrors.push(reason.message));
 
   await page.goto("/");
-  await page.getByLabel("Compute profile").selectOption("test-cluster");
+  await page
+    .getByLabel("Compute profile")
+    .selectOption("test-cluster-datasets");
   await page.getByRole("button", { name: "Connect", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Confirm SSH host key" })).toBeVisible();
@@ -31,19 +33,16 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
     fullPage: true,
   });
   await page.getByRole("link", { name: "Data", exact: true }).click();
-  await expect(
-    page.getByRole("combobox", { name: "Dataset" }),
-  ).toHaveCount(0);
+  const datasetSelector = page.getByRole("combobox", { name: "Dataset" });
+  await expect(datasetSelector).toHaveValue("timed");
 
-  const root = page.getByRole("listitem").filter({ hasText: "test-data" });
-  await expect(root).toBeVisible();
-  await root.getByRole("button", { name: "Open folder" }).click();
+  const plate = page.locator(".file-list li").filter({
+    has: page.getByText("test_plate", { exact: true }),
+  });
+  await expect(plate).toContainText("test_plate");
+  await plate.getByRole("button", { name: "Open" }).click();
 
-  const plate = page.getByRole("listitem").filter({ hasText: "test_plate.zarr" });
-  await expect(plate).toContainText("OME-Zarr plate");
-  await plate.getByRole("button", { name: "Link" }).click();
-
-  await expect(page.getByRole("heading", { name: "test_plate.zarr" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "test_plate" })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("data-browser.png"),
     fullPage: true,
@@ -85,13 +84,12 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
 
   for (const imageName of ["test_image_v04.zarr", "test_image_v05.zarr"]) {
     await page.getByRole("link", { name: "Data", exact: true }).click();
-    const imageRoot = page.getByRole("listitem").filter({ hasText: "test-data" });
-    await imageRoot.getByRole("button", { name: "Open folder" }).click();
+    const displayName = imageName.replace(".zarr", "");
     const imageEntry = page
       .getByRole("listitem")
-      .filter({ hasText: imageName });
-    await imageEntry.getByRole("button", { name: "Link" }).click();
-    await expect(page.getByRole("heading", { name: imageName })).toBeVisible();
+      .filter({ hasText: displayName });
+    await imageEntry.getByRole("button", { name: "Open" }).click();
+    await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     await page.getByRole("link", { name: "Open image" }).click();
     await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
       timeout: 60_000,
@@ -100,6 +98,27 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
     const imageFrame = await pixelSignature(page, imageCanvas);
     expect(imageFrame.range).toBeGreaterThan(5);
   }
+
+  await page.getByRole("link", { name: "Data", exact: true }).click();
+  await datasetSelector.selectOption("idr0080");
+  await page
+    .locator(".file-list li")
+    .filter({ hasText: "idr0080-A549" })
+    .getByRole("button", { name: "Open folder" })
+    .click();
+  const packedPlate = page.locator(".file-list li").filter({
+    hasText: "SQ00014610",
+  });
+  await packedPlate.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByRole("heading", { name: "SQ00014610" })).toBeVisible();
+  await page.getByRole("button", { name: "Well A1" }).click();
+  await page.getByTestId("open-selected").click();
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
+    timeout: 60_000,
+  });
+  const packedCanvas = page.locator(".canvas-frame canvas").first();
+  const packedFrame = await pixelSignature(page, packedCanvas);
+  expect(packedFrame.range).toBeGreaterThan(5);
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await page

@@ -765,3 +765,35 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "/api/datasets/{dataset_id}/metadata" in document["paths"]
     assert "/zarr/{dataset_id}/{resource_path}" in document["paths"]
     assert "openapi-placeholder" not in output
+
+
+def test_packed_cache_budget_must_be_positive(data_root: Path, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="greater than zero"):
+        create_app(
+            ServerSettings(
+                data_roots=(data_root,),
+                state_dir=tmp_path / "state",
+                environment="local",
+                packed_cache_mb=0,
+            ),
+            TOKEN,
+        )
+
+    with pytest.raises(SystemExit, match="--packed-cache-mb must be greater than zero"):
+        main(
+            [
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+                "--data-root",
+                str(data_root),
+                "--connection-file",
+                str(tmp_path / "connection.json"),
+                "--environment",
+                "local",
+                "--packed-cache-mb",
+                "0",
+            ]
+        )
