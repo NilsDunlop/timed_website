@@ -93,6 +93,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CollectionConfig */
+        CollectionConfig: {
+            /**
+             * Default
+             * @default false
+             */
+            default: boolean;
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Path */
+            path: string;
+            /** Title */
+            title: string;
+        };
         /** ConnectRequest */
         ConnectRequest: {
             /** Profile Id */
@@ -137,6 +153,8 @@ export interface components {
              * @default true
              */
             auto_install_uv: boolean;
+            /** Collections */
+            collections?: components["schemas"]["CollectionConfig"][];
             /** Data Roots */
             data_roots: string[];
             /** Host */

@@ -31,6 +31,9 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
     fullPage: true,
   });
   await page.getByRole("link", { name: "Data", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Dataset" }),
+  ).toHaveCount(0);
 
   const root = page.getByRole("listitem").filter({ hasText: "test-data" });
   await expect(root).toBeVisible();

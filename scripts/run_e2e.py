@@ -118,37 +118,72 @@ def _profile(
     path: Path,
     cluster_data_root: str,
     local_data_root: str,
+    cluster_idr0080_root: str,
+    local_idr0080_root: str,
     known_hosts: Path,
 ) -> None:
+    timed_collection = {
+        "id": "timed",
+        "title": "TIMED",
+        "description": "Live-cell time-lapse · test fixture · 3 channels",
+        "default": True,
+    }
+    idr0080_collection = {
+        "id": "idr0080",
+        "title": "idr0080 · Cell Health",
+        "description": "CRISPR Cell Painting · test collection",
+    }
+    cluster_profile = {
+        "id": "test-cluster",
+        "name": "Test cluster (local SSH/Slurm harness)",
+        "kind": "slurm",
+        "host": "127.0.0.1",
+        "port": 2222,
+        "username": "dev",
+        "known_hosts": str(known_hosts),
+        "data_roots": [cluster_data_root],
+        "metadata_root": cluster_data_root.rstrip("/") + "/metadata",
+        "slurm": {
+            "account": "dev",
+            "partition": "cpu",
+            "time": "00:10:00",
+            "cpus": 1,
+            "mem": "1G",
+        },
+        "remote_state_dir": "~/.timed",
+        "auto_install_uv": True,
+        "module_loads": [],
+    }
+    local_profile = {
+        "id": "local",
+        "name": "This computer",
+        "kind": "local",
+        "data_roots": [local_data_root],
+        "metadata_root": str(Path(local_data_root) / "metadata"),
+    }
     value = {
         "profiles": [
+            cluster_profile,
+            local_profile,
             {
-                "id": "test-cluster",
-                "name": "Test cluster (local SSH/Slurm harness)",
-                "kind": "slurm",
-                "host": "127.0.0.1",
-                "port": 2222,
-                "username": "dev",
-                "known_hosts": str(known_hosts),
-                "data_roots": [cluster_data_root],
-                "metadata_root": cluster_data_root.rstrip("/") + "/metadata",
-                "slurm": {
-                    "account": "dev",
-                    "partition": "cpu",
-                    "time": "00:10:00",
-                    "cpus": 1,
-                    "mem": "1G",
-                },
-                "remote_state_dir": "~/.timed",
-                "auto_install_uv": True,
-                "module_loads": [],
+                **cluster_profile,
+                "id": "test-cluster-datasets",
+                "name": "Test cluster with datasets",
+                "data_roots": [cluster_data_root, cluster_idr0080_root],
+                "collections": [
+                    {**timed_collection, "path": cluster_data_root},
+                    {**idr0080_collection, "path": cluster_idr0080_root},
+                ],
             },
             {
-                "id": "local",
-                "name": "This computer",
-                "kind": "local",
-                "data_roots": [local_data_root],
-                "metadata_root": str(Path(local_data_root) / "metadata"),
+                **local_profile,
+                "id": "local-datasets",
+                "name": "This computer with datasets",
+                "data_roots": [local_data_root, local_idr0080_root],
+                "collections": [
+                    {**timed_collection, "path": local_data_root},
+                    {**idr0080_collection, "path": local_idr0080_root},
+                ],
             },
         ]
     }
@@ -282,6 +317,14 @@ def main() -> int:
     run_id = uuid.uuid4().hex
     runtime = REPOSITORY_ROOT / ".timed" / "e2e" / run_id
     runtime.mkdir(parents=True)
+    idr0080_fixture = runtime / "idr0080-like"
+    idr0080_fixture.mkdir()
+    for index in range(31):
+        (idr0080_fixture / f"group-{index + 1:02d}").mkdir()
+    (idr0080_fixture / "plain-file.txt").write_text(
+        "Collection browsing hides plain files.\n",
+        encoding="utf-8",
+    )
     profiles = runtime / "profiles.yaml"
     known_hosts = runtime / "known_hosts"
     processes: list[subprocess.Popen[bytes]] = []
@@ -299,6 +342,7 @@ def main() -> int:
         if os.name == "nt":
             repository_for_cluster = _wsl_path(REPOSITORY_ROOT)
             cluster_data_root = _wsl_path(TEST_DATA)
+            cluster_idr0080_root = _wsl_path(idr0080_fixture)
             cluster_state = "/tmp/timed-e2e-" + run_id
             cluster_command = (
                 "cd "
@@ -314,6 +358,7 @@ def main() -> int:
         else:
             repository_for_cluster = str(REPOSITORY_ROOT)
             cluster_data_root = str(TEST_DATA.resolve())
+            cluster_idr0080_root = str(idr0080_fixture.resolve())
             cluster_state = str(runtime / "cluster")
             cluster_environment = os.environ.copy()
             cluster_environment.update(
@@ -334,6 +379,8 @@ def main() -> int:
             profiles,
             cluster_data_root,
             str(TEST_DATA.resolve()),
+            cluster_idr0080_root,
+            str(idr0080_fixture.resolve()),
             known_hosts,
         )
         services.append(("cluster", cluster_arguments, cluster_environment))

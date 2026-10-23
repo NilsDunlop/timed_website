@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
+import type { components as connectorComponents } from "../lib/api/connector-schema";
 import type { components } from "../lib/api/dataserver-schema";
-import { apiErrorMessage, dataServerClient } from "../lib/api/client";
+import { apiErrorMessage, connectorClient, dataServerClient } from "../lib/api/client";
+import {
+  collectionEntryName,
+  dataSelectionHref,
+  initialCollection,
+  pathIsInCollection,
+} from "../lib/collectionNavigation";
 import PlateMetadataPanel, {
   doseLabel,
   type PlateMetadata,
@@ -9,7 +16,9 @@ import PlateMetadataPanel, {
 } from "./PlateMetadataPanel";
 
 type Dataset = components["schemas"]["DatasetRecord"];
+type DataCollection = connectorComponents["schemas"]["CollectionConfig"];
 type Entry = components["schemas"]["FilesystemEntry"];
+type EntryWithDetail = Entry & { detail?: string | null };
 type Summary =
   | components["schemas"]["ImageSummary"]
   | components["schemas"]["PlateSummary"];
@@ -18,6 +27,7 @@ type Breadcrumb = { label: string; path: string | null };
 type WellSelection = {
   datasetId: string;
   datasetName: string;
+  collectionId: string | null;
   path: string;
   fields: Field[];
   fieldPath: string;
@@ -28,6 +38,7 @@ type ViewerSource = {
 };
 
 const MAX_COMPARISON_SOURCES = 4;
+const FILES_SELECTION = "__files__";
 
 const metadataColors = [
   "#3b82a0",
@@ -41,6 +52,7 @@ const metadataColors = [
 function viewerHref(
   primary: ViewerSource,
   comparisons: ViewerSource[] = [],
+  collectionId: string | null = null,
 ): string {
   const query = new URLSearchParams({
     dataset: primary.datasetId,
@@ -50,12 +62,152 @@ function viewerHref(
     query.append("compare", comparison.imagePath);
     query.append("compareDataset", comparison.datasetId);
   }
+  if (collectionId) query.set("collection", collectionId);
   return "/view?" + query.toString();
 }
 
+function ComparisonTray({
+  wells,
+  onClear,
+  onSelectField,
+  onRemoveWell,
+}: {
+  wells: WellSelection[];
+  onClear: () => void;
+  onSelectField: (
+    datasetId: string,
+    wellPath: string,
+    fieldPath: string,
+  ) => void;
+  onRemoveWell: (datasetId: string, wellPath: string) => void;
+}) {
+  if (wells.length === 0) return null;
+  return (
+    <div className="subpanel well-selection-panel" data-testid="well-selection">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Comparison tray</p>
+          <h3>
+            {wells.length === 1
+              ? "Choose a site for side A"
+              : "Choose a site for each well"}
+          </h3>
+        </div>
+        <button type="button" className="text-button" onClick={onClear}>
+          Clear tray
+        </button>
+      </div>
+
+      <div
+        className={
+          "comparison-field-grid" +
+          (wells.length === 1 ? " comparison-field-grid-single" : "")
+        }
+        data-count={wells.length}
+      >
+        {wells.map((well, index) => (
+          <div
+            className="comparison-source-card"
+            key={well.datasetId + "\u0000" + well.path}
+          >
+            <div className="comparison-source-heading">
+              <span className="comparison-index" aria-hidden="true">
+                {"ABCD"[index]}
+              </span>
+              <span className="comparison-source-identity">
+                <strong>{well.datasetName}</strong>
+                <small>{well.path}</small>
+              </span>
+              <button
+                type="button"
+                className="text-button"
+                aria-label={
+                  "Remove " + well.datasetName + " " + well.path + " from tray"
+                }
+                onClick={() => onRemoveWell(well.datasetId, well.path)}
+              >
+                Remove
+              </button>
+            </div>
+            <label>
+              <span>Site</span>
+              <select
+                aria-label={"Site for " + well.datasetName + " " + well.path}
+                value={well.fieldPath}
+                onChange={(event) =>
+                  onSelectField(well.datasetId, well.path, event.target.value)
+                }
+              >
+                {well.fields.map((field, fieldIndex) => (
+                  <option key={field.path} value={field.path}>
+                    Site {fieldIndex + 1}
+                    {field.acquisition != null
+                      ? " · acquisition " + String(field.acquisition)
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ))}
+      </div>
+
+      <div className="comparison-action">
+        <p className="muted">
+          {wells.length === 1
+            ? "Inspect side A now, or open another well to add side B."
+            : "Time, channels, pan, and zoom will stay synchronized."}
+        </p>
+        {wells.length === 1 && wells[0].fieldPath && (
+          <a
+            className="button-link"
+            data-testid="open-selected"
+            href={viewerHref(
+              {
+                datasetId: wells[0].datasetId,
+                imagePath: wells[0].fieldPath,
+              },
+              [],
+              wells[0].collectionId,
+            )}
+          >
+            Open trajectory
+          </a>
+        )}
+        {wells.length >= 2 && wells.every((well) => well.fieldPath) && (
+          <a
+            className="button-link"
+            data-testid="open-comparison"
+            href={viewerHref(
+              {
+                datasetId: wells[0].datasetId,
+                imagePath: wells[0].fieldPath,
+              },
+              wells.slice(1).map((well) => ({
+                datasetId: well.datasetId,
+                imagePath: well.fieldPath,
+              })),
+              wells[0].collectionId,
+            )}
+          >
+            Compare {wells.length} trajectories
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DataBrowser() {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [entries, setEntries] = useState<EntryWithDetail[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [collections, setCollections] = useState<DataCollection[]>([]);
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
+    null,
+  );
+  const [collectionRootPath, setCollectionRootPath] = useState<string | null>(
+    null,
+  );
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([
     { label: "Data roots", path: null },
   ]);
@@ -66,9 +218,12 @@ export default function DataBrowser() {
   const [compoundFilter, setCompoundFilter] = useState("");
   const [moaFilter, setMoaFilter] = useState("");
   const [wellKind, setWellKind] = useState<"all" | "treatment" | "control">("all");
+  const [entryFilter, setEntryFilter] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const activeCollection =
+    collections.find((collection) => collection.id === activeCollectionId) ?? null;
   const currentPath = breadcrumbs.at(-1)?.path ?? null;
 
   const loadListing = useCallback(async (path: string | null) => {
@@ -79,6 +234,7 @@ export default function DataBrowser() {
       throw new Error(apiErrorMessage(result.error, "Could not list data folder"));
     }
     setEntries(result.data.entries);
+    return result.data.path;
   }, []);
 
   const loadDatasets = useCallback(async () => {
@@ -95,8 +251,62 @@ export default function DataBrowser() {
     async function load() {
       setBusy(true);
       try {
-        const [, linked] = await Promise.all([loadListing(null), loadDatasets()]);
-        if (active && linked.length > 0) {
+        const [profilesResult, sessionResult, linked] = await Promise.all([
+          connectorClient.GET("/connector/profiles"),
+          connectorClient.GET("/connector/session"),
+          loadDatasets(),
+        ]);
+        if (!profilesResult.data) {
+          throw new Error(
+            apiErrorMessage(profilesResult.error, "Could not load connector profiles"),
+          );
+        }
+        if (!sessionResult.data) {
+          throw new Error(
+            apiErrorMessage(sessionResult.error, "Could not load connector session"),
+          );
+        }
+        const profile = profilesResult.data.find(
+          (candidate) => candidate.id === sessionResult.data.profile_id,
+        );
+        const availableCollections = profile?.collections ?? [];
+        const requested = new URLSearchParams(window.location.search);
+        const collection =
+          availableCollections.length > 0
+            ? initialCollection(
+                availableCollections,
+                requested.get("collection"),
+              )
+            : null;
+        if (!active) return;
+        setCollections(availableCollections);
+        setActiveCollectionId(collection?.id ?? null);
+        const listedPath = await loadListing(collection?.path ?? null);
+        const canonicalCollectionPath = collection
+          ? (listedPath ?? collection.path)
+          : null;
+        setCollectionRootPath(canonicalCollectionPath);
+        setBreadcrumbs(
+          collection
+            ? [{ label: collection.title, path: canonicalCollectionPath }]
+            : [{ label: "Data roots", path: null }],
+        );
+
+        if (collection) {
+          const requestedDatasetId = requested.get("dataset");
+          const reopened =
+            linked.find(
+              (dataset) =>
+                dataset.id === requestedDatasetId &&
+                pathIsInCollection(dataset.path, canonicalCollectionPath ?? collection.path),
+            ) ?? null;
+          window.history.replaceState(
+            window.history.state,
+            "",
+            dataSelectionHref(collection.id, reopened?.id ?? null),
+          );
+          if (reopened) await selectDataset(reopened);
+        } else if (linked.length > 0) {
           await selectDataset(linked[0]);
         }
       } catch (reason) {
@@ -125,12 +335,63 @@ export default function DataBrowser() {
     }
   }
 
+  function replaceDataUrl(
+    collectionId: string | null,
+    datasetId: string | null = null,
+  ) {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      dataSelectionHref(collectionId, datasetId),
+    );
+  }
+
+  function clearDatasetDetails() {
+    setSelected(null);
+    setSummary(null);
+    setMetadata(null);
+    setCompoundFilter("");
+    setMoaFilter("");
+    setWellKind("all");
+  }
+
+  async function changeDataSelection(value: string) {
+    await run(async () => {
+      const collection =
+        value === FILES_SELECTION
+          ? null
+          : collections.find((candidate) => candidate.id === value) ?? null;
+      setActiveCollectionId(collection?.id ?? null);
+      setCollectionRootPath(collection?.path ?? null);
+      setEntryFilter("");
+      clearDatasetDetails();
+      replaceDataUrl(collection?.id ?? null);
+      const listedPath = await loadListing(collection?.path ?? null);
+      const canonicalCollectionPath = collection
+        ? (listedPath ?? collection.path)
+        : null;
+      setCollectionRootPath(canonicalCollectionPath);
+      setBreadcrumbs(
+        collection
+          ? [{ label: collection.title, path: canonicalCollectionPath }]
+          : [{ label: "Data roots", path: null }],
+      );
+      if (!collection && datasets.length > 0) {
+        await selectDataset(datasets[0]);
+      }
+    });
+  }
+
   async function browse(entry: Entry) {
     await run(async () => {
       await loadListing(entry.path);
+      setEntryFilter("");
       setBreadcrumbs((current) => [
         ...current,
-        { label: entry.name, path: entry.path },
+        {
+          label: activeCollection ? collectionEntryName(entry.name) : entry.name,
+          path: entry.path,
+        },
       ]);
     });
   }
@@ -139,6 +400,7 @@ export default function DataBrowser() {
     await run(async () => {
       const target = breadcrumbs[index];
       await loadListing(target.path);
+      setEntryFilter("");
       setBreadcrumbs((current) => current.slice(0, index + 1));
     });
   }
@@ -153,6 +415,9 @@ export default function DataBrowser() {
       }
       await loadDatasets();
       await selectDataset(result.data);
+      if (activeCollection) {
+        replaceDataUrl(activeCollection.id, result.data.id);
+      }
     });
   }
 
@@ -169,11 +434,29 @@ export default function DataBrowser() {
         current.filter((well) => well.datasetId !== dataset.id),
       );
       if (selected?.id === dataset.id) {
-        setSelected(null);
-        setSummary(null);
-        setMetadata(null);
-        if (linked.length > 0) await selectDataset(linked[0]);
+        clearDatasetDetails();
+        const next = activeCollection
+          ? linked.find((candidate) =>
+              pathIsInCollection(
+                candidate.path,
+                collectionRootPath ?? activeCollection.path,
+              ),
+            )
+          : linked[0];
+        if (next) {
+          await selectDataset(next);
+          if (activeCollection) replaceDataUrl(activeCollection.id, next.id);
+        } else if (activeCollection) {
+          replaceDataUrl(activeCollection.id);
+        }
       }
+    });
+  }
+
+  async function chooseDataset(dataset: Dataset) {
+    await run(async () => {
+      await selectDataset(dataset);
+      if (activeCollection) replaceDataUrl(activeCollection.id, dataset.id);
     });
   }
 
@@ -246,6 +529,7 @@ export default function DataBrowser() {
           {
             datasetId: selected.id,
             datasetName: selected.name,
+            collectionId: activeCollection?.id ?? null,
             path: wellPath,
             fields,
             fieldPath: fields[0]?.path ?? "",
@@ -343,13 +627,72 @@ export default function DataBrowser() {
     setWellKind("all");
   }
 
+  const collectionEntries = activeCollection
+    ? entries.filter((entry) => entry.kind !== "file" || Boolean(entry.ome_zarr))
+    : entries;
+  const showEntryFilter =
+    activeCollection !== null && collectionEntries.length > 30;
+  const normalizedEntryFilter = entryFilter.trim().toLowerCase();
+  const visibleEntries =
+    normalizedEntryFilter === ""
+      ? collectionEntries
+      : collectionEntries.filter((entry) => {
+          const detail = entry.detail ?? "";
+          return (
+            collectionEntryName(entry.name)
+              .toLowerCase()
+              .includes(normalizedEntryFilter) ||
+            detail.toLowerCase().includes(normalizedEntryFilter)
+          );
+        });
+  const visibleDatasets = activeCollection
+    ? datasets.filter((dataset) =>
+        pathIsInCollection(
+          dataset.path,
+          collectionRootPath ?? activeCollection.path,
+        ),
+      )
+    : datasets;
+
   return (
-    <div className="page-grid">
+    <>
+      {collections.length > 0 && (
+        <section
+          className="panel stack dataset-selector-panel"
+          aria-label="Dataset selection"
+        >
+          <label className="dataset-selector-control">
+            <span>Dataset</span>
+            <select
+              value={activeCollection?.id ?? FILES_SELECTION}
+              disabled={busy}
+              onChange={(event) => void changeDataSelection(event.target.value)}
+            >
+              {collections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.title}
+                </option>
+              ))}
+              <option value={FILES_SELECTION}>Files</option>
+            </select>
+          </label>
+          {activeCollection?.description && (
+            <p className="dataset-description">{activeCollection.description}</p>
+          )}
+        </section>
+      )}
+      <div className="page-grid">
       <section className="panel stack" aria-labelledby="browser-heading">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Filesystem</p>
-            <h2 id="browser-heading">Browse data roots</h2>
+            <p className="eyebrow">
+              {activeCollection ? "Collection" : "Filesystem"}
+            </p>
+            <h2 id="browser-heading">
+              {activeCollection
+                ? "Browse " + activeCollection.title
+                : "Browse data roots"}
+            </h2>
           </div>
           {busy && <span className="muted">Loading…</span>}
         </div>
@@ -380,13 +723,31 @@ export default function DataBrowser() {
         </nav>
         {currentPath && <code className="path">{currentPath}</code>}
 
+        {showEntryFilter && (
+          <label className="entry-filter">
+            <span>Filter this dataset</span>
+            <input
+              type="search"
+              value={entryFilter}
+              placeholder="Filter plates and images"
+              onChange={(event) => setEntryFilter(event.target.value)}
+            />
+          </label>
+        )}
+
         <ul className="file-list" aria-label="Folder contents">
-          {entries.map((entry) => (
+          {visibleEntries.map((entry) => (
             <li key={entry.path}>
               <div>
-                <strong>{entry.name}</strong>
+                <strong>
+                  {activeCollection
+                    ? collectionEntryName(entry.name)
+                    : entry.name}
+                </strong>
                 <span className="entry-kind">
-                  {entry.ome_zarr
+                  {activeCollection && entry.detail
+                    ? entry.detail
+                    : entry.ome_zarr
                     ? "OME-Zarr " +
                       entry.ome_zarr.kind +
                       " · " +
@@ -400,7 +761,7 @@ export default function DataBrowser() {
               (entry.ome_zarr.kind === "plate" ||
                 entry.ome_zarr.kind === "image") ? (
                 <button type="button" disabled={busy} onClick={() => link(entry)}>
-                  Link
+                  {activeCollection ? "Open" : "Link"}
                 </button>
               ) : entry.kind === "dir" ? (
                 <button
@@ -414,28 +775,42 @@ export default function DataBrowser() {
               ) : null}
             </li>
           ))}
-          {!busy && entries.length === 0 && <li className="muted">Folder is empty.</li>}
+          {!busy && visibleEntries.length === 0 && (
+            <li className="muted">
+              {showEntryFilter && normalizedEntryFilter
+                ? "No entries match this filter."
+                : "Folder is empty."}
+            </li>
+          )}
         </ul>
       </section>
 
       <section className="panel stack" aria-labelledby="datasets-heading">
         <div>
           <p className="eyebrow">Registry</p>
-          <h2 id="datasets-heading">Linked datasets</h2>
+          <h2 id="datasets-heading">
+            {activeCollection ? "Opened plates" : "Linked datasets"}
+          </h2>
         </div>
-        {datasets.length === 0 ? (
-          <p className="muted">Link an OME-Zarr plate or image from the browser.</p>
+        {visibleDatasets.length === 0 ? (
+          <p className="muted">
+            {activeCollection
+              ? "Open an OME-Zarr plate or image from the browser."
+              : "Link an OME-Zarr plate or image from the browser."}
+          </p>
         ) : (
           <ul className="dataset-list">
-            {datasets.map((dataset) => (
+            {visibleDatasets.map((dataset) => (
               <li key={dataset.id} className={selected?.id === dataset.id ? "selected" : ""}>
                 <button
                   type="button"
                   className="text-button dataset-name"
                   disabled={busy}
-                  onClick={() => run(() => selectDataset(dataset))}
+                  onClick={() => void chooseDataset(dataset)}
                 >
-                  {dataset.name}
+                  {activeCollection
+                    ? collectionEntryName(dataset.name)
+                    : dataset.name}
                 </button>
                 <span className="entry-kind">
                   {dataset.ome_zarr.kind} · OME-Zarr {dataset.ome_zarr.version}
@@ -446,7 +821,7 @@ export default function DataBrowser() {
                   disabled={busy}
                   onClick={() => unlink(dataset)}
                 >
-                  Unlink
+                  {activeCollection ? "Remove" : "Unlink"}
                 </button>
               </li>
             ))}
@@ -459,7 +834,11 @@ export default function DataBrowser() {
           <div className="section-heading">
             <div>
               <p className="eyebrow">{summary.kind}</p>
-              <h2 id="summary-heading">{selected.name}</h2>
+              <h2 id="summary-heading">
+                {activeCollection
+                  ? collectionEntryName(selected.name)
+                  : selected.name}
+              </h2>
             </div>
             {summary.kind === "image" && (
               <a
@@ -467,7 +846,7 @@ export default function DataBrowser() {
                 href={viewerHref({
                   datasetId: selected.id,
                   imagePath: summary.path,
-                })}
+                }, [], activeCollection?.id ?? null)}
               >
                 Open image
               </a>
@@ -742,133 +1121,32 @@ export default function DataBrowser() {
                 ])}
               </div>
 
-              {selectedWells.length > 0 && (
-                <div
-                  className="subpanel well-selection-panel"
-                  data-testid="well-selection"
-                >
-                  <div className="section-heading">
-                    <div>
-                      <p className="eyebrow">Comparison tray</p>
-                      <h3>
-                        {selectedWells.length === 1
-                          ? "Choose a site for side A"
-                          : "Choose a site for each well"}
-                      </h3>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-button"
-                      onClick={() => setSelectedWells([])}
-                    >
-                      Clear tray
-                    </button>
-                  </div>
-
-                  <div
-                    className={
-                      "comparison-field-grid" +
-                      (selectedWells.length === 1 ? " comparison-field-grid-single" : "")
-                    }
-                    data-count={selectedWells.length}
-                  >
-                    {selectedWells.map((well, index) => (
-                      <div
-                        className="comparison-source-card"
-                        key={well.datasetId + "\u0000" + well.path}
-                      >
-                        <div className="comparison-source-heading">
-                          <span className="comparison-index" aria-hidden="true">
-                            {"ABCD"[index]}
-                          </span>
-                          <span className="comparison-source-identity">
-                            <strong>{well.datasetName}</strong>
-                            <small>{well.path}</small>
-                          </span>
-                          <button
-                            type="button"
-                            className="text-button"
-                            aria-label={
-                              "Remove " + well.datasetName + " " + well.path + " from tray"
-                            }
-                            onClick={() => removeWell(well.datasetId, well.path)}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <label>
-                          <span>Site</span>
-                          <select
-                            aria-label={
-                              "Site for " + well.datasetName + " " + well.path
-                            }
-                            value={well.fieldPath}
-                            onChange={(event) =>
-                              selectField(
-                                well.datasetId,
-                                well.path,
-                                event.target.value,
-                              )
-                            }
-                          >
-                            {well.fields.map((field, fieldIndex) => (
-                              <option key={field.path} value={field.path}>
-                                Site {fieldIndex + 1}
-                                {field.acquisition != null
-                                  ? " · acquisition " + String(field.acquisition)
-                                  : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="comparison-action">
-                    <p className="muted">
-                      {selectedWells.length === 1
-                        ? "Inspect side A now, or open another well to add side B."
-                        : "Time, channels, pan, and zoom will stay synchronized."}
-                    </p>
-                    {selectedWells.length === 1 && selectedWells[0].fieldPath && (
-                      <a
-                        className="button-link"
-                        data-testid="open-selected"
-                        href={viewerHref({
-                          datasetId: selectedWells[0].datasetId,
-                          imagePath: selectedWells[0].fieldPath,
-                        })}
-                      >
-                        Open trajectory
-                      </a>
-                    )}
-                    {selectedWells.length >= 2 &&
-                      selectedWells.every((well) => well.fieldPath) && (
-                        <a
-                          className="button-link"
-                          data-testid="open-comparison"
-                          href={viewerHref(
-                            {
-                              datasetId: selectedWells[0].datasetId,
-                              imagePath: selectedWells[0].fieldPath,
-                            },
-                            selectedWells.slice(1).map((well) => ({
-                              datasetId: well.datasetId,
-                              imagePath: well.fieldPath,
-                            })),
-                          )}
-                        >
-                          Compare {selectedWells.length} trajectories
-                        </a>
-                      )}
-                  </div>
-                </div>
-              )}
+              <ComparisonTray
+                wells={selectedWells}
+                onClear={() => setSelectedWells([])}
+                onSelectField={selectField}
+                onRemoveWell={removeWell}
+              />
             </>
           )}
         </section>
       )}
-    </div>
+      {collections.length > 0 &&
+        selectedWells.length > 0 &&
+        (!selected || summary?.kind !== "plate") && (
+          <section
+            className="panel summary-panel stack"
+            aria-label="Comparison tray"
+          >
+            <ComparisonTray
+              wells={selectedWells}
+              onClear={() => setSelectedWells([])}
+              onSelectField={selectField}
+              onRemoveWell={removeWell}
+            />
+          </section>
+        )}
+      </div>
+    </>
   );
 }

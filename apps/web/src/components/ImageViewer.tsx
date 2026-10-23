@@ -13,6 +13,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { components } from "../lib/api/dataserver-schema";
 import { apiErrorMessage, dataServerClient } from "../lib/api/client";
+import { dataSelectionHref } from "../lib/collectionNavigation";
 import {
   cacheImageLoader,
   type CacheableImageSource,
@@ -1016,6 +1017,14 @@ export default function ImageViewer() {
   );
   const jumpOption = jumpOptions[jumpIndex];
   const nextJumpOption = jumpOptions[(jumpIndex + 1) % jumpOptions.length];
+  const backHref = useMemo(() => {
+    const query = new URLSearchParams(window.location.search);
+    const collectionId = query.get("collection");
+    return dataSelectionHref(
+      collectionId,
+      collectionId ? query.get("dataset") : null,
+    );
+  }, []);
   const cycleTimeJump = () => {
     const nextFrames = nextJumpOption?.frames ?? 1;
     viewerDebug("time:jump-change", {
@@ -1207,7 +1216,7 @@ export default function ImageViewer() {
             </fieldset>
           );
         })}
-        <a href="/data">← Back to data</a>
+        <a href={backHref}>← Back to data</a>
         </aside>
       )}
 

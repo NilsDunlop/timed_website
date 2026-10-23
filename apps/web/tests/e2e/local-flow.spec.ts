@@ -27,6 +27,9 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(page.getByText(/^127\.0\.0\.1:\d+$/)).toBeVisible();
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Dataset" }),
+  ).toHaveCount(0);
   const root = page.getByRole("listitem").filter({ hasText: "test-data" });
   await root.getByRole("button", { name: "Open folder" }).click();
   const plate = page.getByRole("listitem").filter({ hasText: "test_plate.zarr" });

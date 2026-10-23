@@ -7,7 +7,18 @@ profiles:
     username: nilsdu
     data_roots:
       - /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
+      - /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080
     metadata_root: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/metadata
+    collections:
+      - id: timed
+        title: TIMED
+        description: Live-cell time-lapse · 8 plates · 48 h, hourly · 3 channels
+        path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
+        default: true
+      - id: idr0080
+        title: idr0080 · Cell Health
+        description: CRISPR Cell Painting · A549, ES2, HCC44 · 9 plates · 5 channels
+        path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080/idr0080-raw.index.parquet
     slurm:
       account: naiss2026-3-679-cpu
       partition: cpu
@@ -39,3 +50,45 @@ profiles:
     kind: local
     data_roots: [./test-data]
     metadata_root: ./test-data/metadata
+
+  - id: test-cluster-datasets
+    name: Test cluster with datasets
+    kind: slurm
+    host: 127.0.0.1
+    port: 2222
+    username: dev
+    known_hosts: ./dev/test_cluster/.state/known_hosts
+    data_roots: [/absolute/path/to/repo/test-data]
+    metadata_root: /absolute/path/to/repo/test-data/metadata
+    collections:
+      - id: timed
+        title: TIMED
+        description: Live-cell time-lapse · test fixture · 3 channels
+        path: /absolute/path/to/repo/test-data
+        default: true
+      - id: idr0080
+        title: idr0080 · Cell Health
+        description: CRISPR Cell Painting · idr0080-like fixture
+        path: /absolute/path/to/repo/test-data/packed/idr0080-like/idr0080-raw.index.parquet
+    slurm:
+      account: dev
+      partition: cpu
+      time: "01:00:00"
+      cpus: 2
+      mem: 4G
+
+  - id: local-datasets
+    name: This computer with datasets
+    kind: local
+    data_roots: [./test-data]
+    metadata_root: ./test-data/metadata
+    collections:
+      - id: timed
+        title: TIMED
+        description: Live-cell time-lapse · test fixture · 3 channels
+        path: ./test-data
+        default: true
+      - id: idr0080
+        title: idr0080 · Cell Health
+        description: CRISPR Cell Painting · idr0080-like fixture
+        path: ./test-data/packed/idr0080-like/idr0080-raw.index.parquet

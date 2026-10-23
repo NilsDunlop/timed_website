@@ -308,6 +308,29 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     assert profile.metadata_root == (
         "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/metadata"
     )
+    assert profile.data_roots == [
+        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr",
+        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080",
+    ]
+    assert [collection.model_dump() for collection in profile.collections] == [
+        {
+            "id": "timed",
+            "title": "TIMED",
+            "description": "Live-cell time-lapse · 8 plates · 48 h, hourly · 3 channels",
+            "path": "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr",
+            "default": True,
+        },
+        {
+            "id": "idr0080",
+            "title": "idr0080 · Cell Health",
+            "description": "CRISPR Cell Painting · A549, ES2, HCC44 · 9 plates · 5 channels",
+            "path": (
+                "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/"
+                "idr0080/idr0080-raw.index.parquet"
+            ),
+            "default": False,
+        },
+    ]
 
     script = render_job_script(
         profile,
@@ -583,7 +606,7 @@ async def test_local_session_starts_proxies_and_stops_process(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_local_session_reports_missing_data_root(tmp_path: Path) -> None:
+async def test_local_session_rejects_missing_data_root_before_launch(tmp_path: Path) -> None:
     profile = local_profile(tmp_path / "missing")
     store = ProfileStore([profile], tmp_path / "profiles.yaml")
     session = ConnectorSession(
@@ -596,12 +619,10 @@ async def test_local_session_reports_missing_data_root(tmp_path: Path) -> None:
         poll_interval=0.01,
     )
 
-    await session.connect(profile.id)
-    await wait_for_state(session, "error")
-    snapshot = session.snapshot()
-    assert "Local data root does not exist" in str(snapshot.message)
-    assert "local data roots" in str(snapshot.hint)
-    await session.disconnect()
+    with pytest.raises(SessionError, match="Local profile path does not exist"):
+        await session.connect(profile.id)
+    assert session.snapshot().state == "disconnected"
+    assert not (tmp_path / "runtime").exists()
 
 
 @pytest.mark.asyncio

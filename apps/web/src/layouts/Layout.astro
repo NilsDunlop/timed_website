@@ -191,6 +191,27 @@ const { title } = Astro.props;
     flex: 1 1 22rem;
   }
 
+  .dataset-selector-panel {
+    grid-template-columns: minmax(14rem, 22rem) minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .dataset-selector-control,
+  .entry-filter {
+    display: grid;
+    gap: 0.35rem;
+    font-weight: 700;
+  }
+
+  .dataset-description {
+    margin: 0 0 0.55rem;
+    color: #4d5c50;
+  }
+
+  .entry-filter {
+    max-width: 28rem;
+  }
+
   .subpanel {
     padding: 1rem;
     border: 1px solid #d5ddd4;
@@ -1086,6 +1107,10 @@ const { title } = Astro.props;
     }
 
     .metadata-filters {
+      grid-template-columns: 1fr;
+    }
+
+    .dataset-selector-panel {
       grid-template-columns: 1fr;
     }
 

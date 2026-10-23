@@ -49,15 +49,31 @@ def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
     """Return one profile after checks which do not contact the remote host."""
     profile = store.get(profile_id)
     if profile.kind == "local":
-        for root in [
-            *profile.data_roots,
-            *([profile.metadata_root] if profile.metadata_root else []),
-        ]:
-            path = Path(root).expanduser()
-            if not path.is_absolute():
-                path = Path.cwd() / path
-            if not path.resolve().is_dir():
+        resolved_roots: list[Path] = []
+        for root in profile.data_roots:
+            path = _local_path(root)
+            resolved = path.resolve()
+            if not resolved.is_dir():
                 raise ProfileError(f"Local profile path does not exist: {path}")
+            resolved_roots.append(resolved)
+
+        if profile.metadata_root is not None:
+            metadata_root = _local_path(profile.metadata_root)
+            if not metadata_root.resolve().is_dir():
+                raise ProfileError(f"Local profile path does not exist: {metadata_root}")
+
+        for collection in profile.collections:
+            path = _local_path(collection.path)
+            try:
+                resolved = path.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise ProfileError(
+                    f"Local collection {collection.id!r} path does not exist: {path}"
+                ) from exc
+            if not any(resolved.is_relative_to(root) for root in resolved_roots):
+                raise ProfileError(
+                    f"Local collection {collection.id!r} path must be inside a data root: {path}"
+                )
     if profile.known_hosts is not None:
         known_hosts = Path(profile.known_hosts).expanduser()
         if not known_hosts.is_absolute():
@@ -65,3 +81,10 @@ def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
         if known_hosts.exists() and not known_hosts.is_file():
             raise ProfileError(f"known_hosts is not a file: {known_hosts}")
     return profile
+
+
+def _local_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path

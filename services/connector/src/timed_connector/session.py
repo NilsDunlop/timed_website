@@ -17,7 +17,7 @@ from .models import (
     RespondRequest,
     SessionSnapshot,
 )
-from .profiles import ProfileError, ProfileStore
+from .profiles import ProfileError, ProfileStore, validate_profile
 from .slurm import QueueStatus
 from .ssh_backend import HostKeyStatus
 
@@ -130,7 +130,7 @@ class ConnectorSession:
         if self._snapshot.state not in ("disconnected", "error"):
             raise SessionError("A connector session is already active")
         try:
-            profile = self.profiles.get(profile_id)
+            profile = validate_profile(self.profiles, profile_id)
         except ProfileError as exc:
             raise SessionError(str(exc)) from exc
         if profile.kind == "local" and self.local_backend is None:

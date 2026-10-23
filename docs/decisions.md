@@ -225,3 +225,26 @@ The Makefile defaults `PROFILES` to the same repository path while retaining an
 override for other environments. Because `main` has its own Git copy, adding
 the data root and collections on `feature/idr0080` does not change the main
 application before merge.
+
+## 2026-10-23: model datasets as optional profile collections
+
+Collections are optional, ordered entries on a connector profile. Their ids
+are unique slugs, no more than one is the default, and every path must remain
+inside a configured data root. Slurm paths use lexical POSIX containment;
+local paths are exposed canonically and are checked for existence and resolved
+containment when that profile connects. Deferring the strict local check keeps
+profiles for future generated fixtures loadable without weakening the
+data-server guard on requests.
+
+Profiles without collections retain the original filesystem browser exactly.
+Profiles with collections get a Dataset selector followed by Files, with the
+active collection and opened plate encoded in the URL. Collection browsing is
+scoped from the canonical path returned by the data server, while the
+comparison tray deliberately survives collection changes. This keeps shared
+registry records from appearing in the wrong collection and preserves useful
+viewer return links.
+
+The browser runner emits both legacy and collection-aware local and test-cluster
+profiles. Until D1 creates the packed idr0080-like fixture, its collection is a
+disposable directory under the run-specific E2E state; it does not alter the
+frozen TIMED fixture or the repository's operator data.
