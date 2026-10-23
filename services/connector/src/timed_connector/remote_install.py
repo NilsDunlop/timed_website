@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shlex
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
@@ -22,6 +23,11 @@ def _join(base: str, *parts: str) -> str:
     for part in parts:
         value /= part
     return str(value)
+
+
+def _wheel_digest(wheel: Path) -> str:
+    with wheel.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()[:12]
 
 
 async def _build_wheel(log: LogCallback) -> Path:
@@ -61,16 +67,23 @@ async def prepare_remote_server(
     paths: RemotePaths,
     log: LogCallback,
 ) -> str:
-    """Return the installed remote executable, installing it once per version."""
-    shell_version_dir = _join(paths.shell_state_dir, "server", dataserver_version)
-    sftp_version_dir = _join(paths.sftp_state_dir, "server", dataserver_version)
+    """Return the remote executable for this release or development wheel."""
+    wheel: Path | None = None
+    install_key = dataserver_version
+    if ".dev" in dataserver_version:
+        wheel = await _build_wheel(log)
+        install_key = f"{dataserver_version}-{_wheel_digest(wheel)}"
+
+    shell_version_dir = _join(paths.shell_state_dir, "server", install_key)
+    sftp_version_dir = _join(paths.sftp_state_dir, "server", install_key)
     marker = _join(sftp_version_dir, "installed.ok")
     executable = _join(shell_version_dir, "venv", "bin", "timed-dataserver")
     if await sftp_exists(sftp, marker):
-        log(f"Remote data-server {dataserver_version} is already installed")
+        log(f"Remote data-server {install_key} is already installed")
         return executable
 
-    wheel = await _build_wheel(log)
+    if wheel is None:
+        wheel = await _build_wheel(log)
     await sftp.makedirs(sftp_version_dir, exist_ok=True)
     remote_wheel_sftp = _join(sftp_version_dir, wheel.name)
     remote_wheel_shell = _join(shell_version_dir, wheel.name)
@@ -104,6 +117,6 @@ async def prepare_remote_server(
     log("Creating remote Python environment")
     await run_remote(connection, " && ".join(steps), timeout=600)
     async with sftp.open(marker, "w") as handle:
-        await handle.write(f"{dataserver_version}\n")
-    log(f"Installed remote data-server {dataserver_version}")
+        await handle.write(f"{install_key}\n")
+    log(f"Installed remote data-server {install_key}")
     return executable
