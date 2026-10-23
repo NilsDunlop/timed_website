@@ -362,3 +362,21 @@ derivation and reject differing lists before image loading. Plate rendering is
 now a presentation-only shared `PlateGrid` with colour, badge, marker and
 dimming inputs, so later QC views can reuse the geometry without coupling their
 data model to the Data page.
+
+## 2026-10-23: derive perturbation matches from guarded packed metadata
+
+Cross-plate matching is available only for linked packed plates. The data
+server reuses the cached metadata CSV, validates every candidate against the
+packed catalogue and plate identity, and returns guarded virtual plate paths
+rather than physical storage details. The three modes have deterministic
+semantics: same well excludes the source plate, same gene excludes only the
+source occurrence, and controls are EMPTY wells on the source plate. Results
+are sorted by cell line, numeric plate and well, then capped at 200.
+
+The Data page groups those results by cell line and treats each returned path
+as opaque. Adding a result links its plate idempotently, fetches the requested
+well and the target plate summary, and starts at site 1 without changing the
+focused source well. The target summary supplies channel labels and timepoint
+count, so the existing compatibility guard remains authoritative. Tray
+mutations are disabled while an add is in flight; the four-field limit and
+site picker continue to apply across linked plates.

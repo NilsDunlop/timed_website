@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import shutil
 import threading
 import time
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 import timed_dataserver.packed_metadata as packed_metadata
 from timed_dataserver.models import PlateMetadataResponse, WellMetadataSummary
+from timed_dataserver.packed import PackedCatalogueCache, PackedPlate
 from timed_dataserver.packed_metadata import (
     PackedMetadataCache,
     PackedMetadataCatalog,
@@ -106,6 +108,64 @@ def test_metadata_csv_is_loaded_once_and_responses_are_cached_per_plate(
     assert second.available is True
     assert second.plate is not None
     assert second.plate.plate_id == "SQ00014611"
+    packed = PackedCatalogueCache().get(packed_root / make_test_data.PACKED_INDEX_NAME)
+    matches = catalogue.matches(packed, "idr0080-A549", 14610, "C01", "well")
+    assert len(matches.matches) == 2
+
+
+def test_metadata_matches_are_sorted_before_the_200_result_limit(
+    packed_root: Path,
+) -> None:
+    metadata_path = packed_root / IDR0080_FIXTURE_PROFILE.metadata_path
+    with metadata_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = [dict(row) for row in reader]
+
+    added_plates = range(20000, 20205)
+    template = next(
+        row
+        for row in rows
+        if row["plate"] == "14610" and row["address"] == "C01"
+    )
+    for plate in added_plates:
+        row = dict(template)
+        row.update(
+            well_id=f"extra_{plate}_C01",
+            experiment_name="idr0080-ZZZ",
+            plate=str(plate),
+            cell_type="ZZZ",
+            idr_cell_line="ZZZ",
+            idr_plate_barcode=f"SQ000{plate}",
+        )
+        rows.append(row)
+    with metadata_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    packed = PackedCatalogueCache().get(packed_root / make_test_data.PACKED_INDEX_NAME)
+    expanded_plates = dict(packed.plates)
+    for plate in added_plates:
+        expanded_plates[("idr0080-ZZZ", plate)] = PackedPlate(
+            wells=("C01",),
+            sites=(1,),
+            channels=(1,),
+        )
+    expanded = replace(packed, plates=expanded_plates)
+
+    response = _catalogue(packed_root).matches(
+        expanded,
+        "idr0080-A549",
+        14610,
+        "C01",
+        "gene",
+    )
+
+    assert len(response.matches) == 200
+    keys = [(match.cell_line, match.plate_label, match.well) for match in response.matches]
+    assert keys == sorted(keys)
+    assert response.matches[-1].plate_label == "SQ00020194"
 
 
 def test_metadata_load_is_single_flight_across_worker_threads(

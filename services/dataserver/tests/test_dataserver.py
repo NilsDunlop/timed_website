@@ -251,6 +251,24 @@ def test_registry_link_list_unlink_persists_across_apps(data_root: Path, tmp_pat
         assert third_client.get("/api/datasets", headers=AUTH).json() == {"datasets": []}
 
 
+def test_matches_route_returns_not_found_for_non_packed_dataset(
+    client_factory: Callable[[Path | None], TestClient],
+    data_root: Path,
+) -> None:
+    with client_factory() as client:
+        record = _link(client, data_root / "test_image_v04.zarr")
+        response = client.get(
+            f"/api/datasets/{record['id']}/matches",
+            headers=AUTH,
+            params={"well": "A01", "by": "well"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Dataset matches are available only for packed plates"
+    }
+
+
 def test_collection_plate_well_summary_and_ome_facade(
     client_factory: Callable[[Path | None], TestClient], data_root: Path
 ) -> None:
@@ -801,6 +819,7 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "/api/handshake" in document["paths"]
     assert "/api/datasets/{dataset_id}/summary" in document["paths"]
     assert "/api/datasets/{dataset_id}/metadata" in document["paths"]
+    assert "/api/datasets/{dataset_id}/matches" in document["paths"]
     assert "/zarr/{dataset_id}/{resource_path}" in document["paths"]
     assert "openapi-placeholder" not in output
 

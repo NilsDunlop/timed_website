@@ -13,6 +13,9 @@ from typing import TextIO
 
 from .models import (
     AcquisitionChannelSummary,
+    DatasetMatchesResponse,
+    DatasetMatchSummary,
+    MatchMode,
     MetadataDetailSummary,
     PlateAcquisitionSummary,
     PlateExperimentSummary,
@@ -20,7 +23,10 @@ from .models import (
     PlateMetadataResponse,
     WellMetadataSummary,
 )
+from .packed import PackedCatalogue, PackedVirtualPath
 from .packed_profiles import PackedDatasetProfile
+
+MAX_DATASET_MATCHES = 200
 
 IDR0080_METADATA_COLUMNS = frozenset(
     {
@@ -64,6 +70,10 @@ _RowsByPlate = dict[_PlateKey, tuple[dict[str, str], ...]]
 
 class PackedMetadataError(RuntimeError):
     """Raised when a configured packed metadata CSV violates its contract."""
+
+
+class PackedMetadataNotFoundError(PackedMetadataError):
+    """Raised when metadata-backed matching is unavailable or has no source well."""
 
 
 def _text(value: object) -> str | None:
@@ -124,12 +134,12 @@ def _well(row: Mapping[str, str], *, context: str) -> WellMetadataSummary:
     )
 
 
-def _plate_response(
+def _plate_identity(
     profile: PackedDatasetProfile,
     experiment: str,
     plate: int,
     rows: tuple[dict[str, str], ...],
-) -> PlateMetadataResponse:
+) -> tuple[str, str]:
     context = f"for {experiment}/{plate}"
     barcode = _uniform(rows, "idr_plate_barcode", context=context)
     expected_barcode = profile.plate_name(plate)
@@ -137,7 +147,17 @@ def _plate_response(
         raise PackedMetadataError(
             f"Packed metadata {context} has barcode {barcode!r}, expected {expected_barcode!r}"
         )
-    cell_line = _uniform(rows, "cell_type", context=context)
+    return expected_barcode, _uniform(rows, "cell_type", context=context)
+
+
+def _plate_response(
+    profile: PackedDatasetProfile,
+    experiment: str,
+    plate: int,
+    rows: tuple[dict[str, str], ...],
+) -> PlateMetadataResponse:
+    context = f"for {experiment}/{plate}"
+    expected_barcode, cell_line = _plate_identity(profile, experiment, plate, rows)
     return PlateMetadataResponse(
         available=True,
         plate=PlateExperimentSummary(
@@ -290,6 +310,14 @@ class PackedMetadataCatalog:
             raise PackedMetadataError(f"Packed metadata CSV is empty: {path}")
         return {key: tuple(rows) for key, rows in mutable.items()}
 
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        groups = self._read_groups()
+        self._missing = groups is None
+        self._groups = groups or {}
+        self._loaded = True
+
     def for_plate(self, experiment: str, plate: int) -> PlateMetadataResponse:
         """Return one cached mapped plate response, loading the CSV at most once."""
         key = (experiment, plate)
@@ -297,11 +325,7 @@ class PackedMetadataCatalog:
             cached = self._responses.get(key)
             if cached is not None:
                 return cached
-            if not self._loaded:
-                groups = self._read_groups()
-                self._missing = groups is None
-                self._groups = groups or {}
-                self._loaded = True
+            self._ensure_loaded()
             if self._missing:
                 response = PlateMetadataResponse(available=False)
             else:
@@ -314,6 +338,114 @@ class PackedMetadataCatalog:
             self._responses[key] = response
             return response
 
+    def matches(
+        self,
+        catalogue: PackedCatalogue,
+        experiment: str,
+        plate: int,
+        well: str,
+        by: MatchMode,
+    ) -> DatasetMatchesResponse:
+        """Return deterministic metadata matches, capped for bounded API responses."""
+        if by not in {"well", "gene", "control"}:
+            raise PackedMetadataError(f"Unknown packed metadata match mode: {by}")
+        if catalogue.index_path != self.index_path:
+            raise PackedMetadataError("Packed metadata catalogue does not match its image index")
+
+        source_key = (experiment, plate)
+        plate_info = catalogue.plate(experiment, plate)
+        if plate_info is None or well not in plate_info.wells:
+            raise PackedMetadataNotFoundError(f"Unknown packed well: {well}")
+
+        with self._lock:
+            self._ensure_loaded()
+            if self._missing:
+                raise PackedMetadataNotFoundError("Packed metadata is unavailable")
+            source_rows = self._groups.get(source_key)
+            if source_rows is None:
+                raise PackedMetadataError(
+                    f"Packed metadata has no rows for {experiment}/{plate}"
+                )
+            source = next(
+                (row for row in source_rows if _text(row.get("address")) == well),
+                None,
+            )
+            if source is None:
+                raise PackedMetadataNotFoundError(f"Packed metadata has no well {well!r}")
+            source_gene = _required(
+                source,
+                "gene",
+                context=f"for {experiment}/{plate}/{well}",
+            )
+
+            ordered: list[tuple[tuple[str, int, str], DatasetMatchSummary]] = []
+            for (candidate_experiment, candidate_plate), rows in self._groups.items():
+                candidate_info = catalogue.plate(candidate_experiment, candidate_plate)
+                if candidate_info is None:
+                    raise PackedMetadataError(
+                        "Packed metadata has a plate absent from the image index: "
+                        f"{candidate_experiment}/{candidate_plate}"
+                    )
+                plate_label, cell_line = _plate_identity(
+                    self.profile,
+                    candidate_experiment,
+                    candidate_plate,
+                    rows,
+                )
+                for row in rows:
+                    context = f"for {candidate_experiment}/{candidate_plate}"
+                    candidate_well = _required(row, "address", context=context)
+                    if candidate_well not in candidate_info.wells:
+                        raise PackedMetadataError(
+                            "Packed metadata has a well absent from the image index: "
+                            f"{candidate_experiment}/{candidate_plate}/{candidate_well}"
+                        )
+                    candidate_gene = _required(row, "gene", context=context)
+                    treatment = _required(row, "treatment", context=context)
+                    same_source = (
+                        candidate_experiment == experiment
+                        and candidate_plate == plate
+                        and candidate_well == well
+                    )
+                    include = (
+                        by == "well"
+                        and candidate_well == well
+                        and (candidate_experiment, candidate_plate) != source_key
+                    ) or (
+                        by == "gene"
+                        and candidate_gene == source_gene
+                        and not same_source
+                    ) or (
+                        by == "control"
+                        and (candidate_experiment, candidate_plate) == source_key
+                        and treatment == "EMPTY_control"
+                    )
+                    if not include:
+                        continue
+                    virtual_plate = PackedVirtualPath(
+                        index_path=self.index_path,
+                        catalogue=catalogue,
+                        experiment=candidate_experiment,
+                        plate=candidate_plate,
+                    )
+                    match = DatasetMatchSummary(
+                        path=virtual_plate.registry_key,
+                        plate_label=plate_label,
+                        cell_line=cell_line,
+                        well=candidate_well,
+                        guide=_required(row, "idr_guide", context=context),
+                        is_control=treatment == "EMPTY_control",
+                        well_type=_text(row.get("well_type_label")),
+                    )
+                    ordered.append(
+                        ((cell_line.casefold(), candidate_plate, candidate_well), match)
+                    )
+
+            ordered.sort(key=lambda item: item[0])
+            return DatasetMatchesResponse(
+                matches=[match for _key, match in ordered[:MAX_DATASET_MATCHES]]
+            )
+
 
 class PackedMetadataCache:
     """Own one lazy metadata catalogue per packed index and code profile."""
@@ -325,17 +457,11 @@ class PackedMetadataCache:
             PackedMetadataCatalog,
         ] = {}
 
-    def for_plate(
+    def _catalogue(
         self,
         index_path: Path,
         profile: PackedDatasetProfile,
-        experiment: str,
-        plate: int,
-    ) -> PlateMetadataResponse:
-        """Map one plate without touching metadata storage for profile-less datasets."""
-        relative = profile.metadata_path
-        if relative is None:
-            return PlateMetadataResponse(available=False)
+    ) -> PackedMetadataCatalog:
         try:
             resolved = index_path.expanduser().resolve(strict=True)
             index_stat = resolved.stat()
@@ -356,7 +482,40 @@ class PackedMetadataCache:
                 if len(self._catalogues) >= 256:
                     self._catalogues.pop(next(iter(self._catalogues)))
                 self._catalogues[key] = catalogue
-        return catalogue.for_plate(experiment, plate)
+        return catalogue
+
+    def for_plate(
+        self,
+        index_path: Path,
+        profile: PackedDatasetProfile,
+        experiment: str,
+        plate: int,
+    ) -> PlateMetadataResponse:
+        """Map one plate without touching metadata storage for profile-less datasets."""
+        relative = profile.metadata_path
+        if relative is None:
+            return PlateMetadataResponse(available=False)
+        return self._catalogue(index_path, profile).for_plate(experiment, plate)
+
+    def matches(
+        self,
+        catalogue: PackedCatalogue,
+        profile: PackedDatasetProfile,
+        experiment: str,
+        plate: int,
+        well: str,
+        by: MatchMode,
+    ) -> DatasetMatchesResponse:
+        """Query the cached metadata rows for one packed source well."""
+        if profile.metadata_path is None:
+            raise PackedMetadataNotFoundError("Packed metadata is unavailable")
+        return self._catalogue(catalogue.index_path, profile).matches(
+            catalogue,
+            experiment,
+            plate,
+            well,
+            by,
+        )
 
     def clear(self) -> None:
         """Forget loaded metadata catalogues (primarily for isolated tests)."""

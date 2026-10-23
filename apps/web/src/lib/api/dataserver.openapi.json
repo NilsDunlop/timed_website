@@ -195,6 +195,74 @@
         "title": "DatasetListResponse",
         "type": "object"
       },
+      "DatasetMatchSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "cell_line": {
+            "title": "Cell Line",
+            "type": "string"
+          },
+          "guide": {
+            "title": "Guide",
+            "type": "string"
+          },
+          "is_control": {
+            "title": "Is Control",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "plate_label": {
+            "title": "Plate Label",
+            "type": "string"
+          },
+          "well": {
+            "title": "Well",
+            "type": "string"
+          },
+          "well_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Well Type"
+          }
+        },
+        "required": [
+          "path",
+          "plate_label",
+          "cell_line",
+          "well",
+          "guide",
+          "is_control",
+          "well_type"
+        ],
+        "title": "DatasetMatchSummary",
+        "type": "object"
+      },
+      "DatasetMatchesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetMatchSummary"
+            },
+            "title": "Matches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
+        ],
+        "title": "DatasetMatchesResponse",
+        "type": "object"
+      },
       "DatasetRecord": {
         "additionalProperties": false,
         "properties": {
@@ -1358,6 +1426,76 @@
           }
         ],
         "summary": "Unlink Dataset"
+      }
+    },
+    "/api/datasets/{dataset_id}/matches": {
+      "get": {
+        "operationId": "dataset_matches_api_datasets__dataset_id__matches_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "well",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 2,
+              "pattern": "^[A-Za-z]+[0-9]+$",
+              "title": "Well",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "by",
+            "required": true,
+            "schema": {
+              "enum": [
+                "well",
+                "gene",
+                "control"
+              ],
+              "title": "By",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetMatchesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dataset Matches"
       }
     },
     "/api/datasets/{dataset_id}/metadata": {

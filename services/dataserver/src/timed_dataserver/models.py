@@ -213,3 +213,20 @@ class PlateMetadataResponse(ApiModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+
+MatchMode = Literal["well", "gene", "control"]
+
+
+class DatasetMatchSummary(ApiModel):
+    path: str
+    plate_label: str
+    cell_line: str
+    well: str
+    guide: str
+    is_control: bool
+    well_type: str | None
+
+
+class DatasetMatchesResponse(ApiModel):
+    matches: list[DatasetMatchSummary]

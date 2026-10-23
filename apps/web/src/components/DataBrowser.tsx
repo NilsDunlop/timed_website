@@ -23,6 +23,10 @@ import PlateGrid, {
   plateGridKey,
   type PlateGridWell,
 } from "./PlateGrid";
+import PerturbationMatches, {
+  type MatchMode,
+  type PerturbationMatch,
+} from "./PerturbationMatches";
 
 type Dataset = components["schemas"]["DatasetRecord"];
 type DataCollection = connectorComponents["schemas"]["CollectionConfig"];
@@ -45,6 +49,11 @@ type WellSelection = {
 type ViewerSource = {
   datasetId: string;
   imagePath: string;
+};
+type FocusedGridWell = { datasetId: string; path: string };
+type MatchResults = FocusedGridWell & {
+  by: MatchMode;
+  matches: PerturbationMatch[];
 };
 
 const MAX_COMPARISON_SOURCES = 4;
@@ -90,11 +99,13 @@ function viewerHref(
 
 function ComparisonTray({
   wells,
+  busy,
   onClear,
   onSelectField,
   onRemoveWell,
 }: {
   wells: WellSelection[];
+  busy: boolean;
   onClear: () => void;
   onSelectField: (
     datasetId: string,
@@ -121,7 +132,12 @@ function ComparisonTray({
               : "Choose a site for each well"}
           </h3>
         </div>
-        <button type="button" className="text-button" onClick={onClear}>
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy}
+          onClick={onClear}
+        >
           Clear tray
         </button>
       </div>
@@ -152,6 +168,7 @@ function ComparisonTray({
                 aria-label={
                   "Remove " + well.datasetName + " " + well.path + " from tray"
                 }
+                disabled={busy}
                 onClick={() => onRemoveWell(well.datasetId, well.path)}
               >
                 Remove
@@ -162,6 +179,7 @@ function ComparisonTray({
               <select
                 aria-label={"Site for " + well.datasetName + " " + well.path}
                 value={well.fieldPath}
+                disabled={busy}
                 onChange={(event) =>
                   onSelectField(well.datasetId, well.path, event.target.value)
                 }
@@ -262,6 +280,9 @@ export default function DataBrowser() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [metadata, setMetadata] = useState<PlateMetadata | null>(null);
   const [selectedWells, setSelectedWells] = useState<WellSelection[]>([]);
+  const [focusedGridWell, setFocusedGridWell] =
+    useState<FocusedGridWell | null>(null);
+  const [matchResults, setMatchResults] = useState<MatchResults | null>(null);
   const [compoundFilter, setCompoundFilter] = useState("");
   const [moaFilter, setMoaFilter] = useState("");
   const [wellKind, setWellKind] = useState<"all" | "treatment" | "control">("all");
@@ -480,6 +501,10 @@ export default function DataBrowser() {
       setSelectedWells((current) =>
         current.filter((well) => well.datasetId !== dataset.id),
       );
+      if (focusedGridWell?.datasetId === dataset.id) {
+        setFocusedGridWell(null);
+        setMatchResults(null);
+      }
       if (selected?.id === dataset.id) {
         clearDatasetDetails();
         const next = activeCollection
@@ -541,11 +566,22 @@ export default function DataBrowser() {
         (well) => well.datasetId === selected.id && well.path === wellPath,
       )
     ) {
-      setSelectedWells((current) =>
-        current.filter(
-          (well) => well.datasetId !== selected.id || well.path !== wellPath,
-        ),
+      const remaining = selectedWells.filter(
+        (well) => well.datasetId !== selected.id || well.path !== wellPath,
       );
+      setSelectedWells(remaining);
+      if (
+        focusedGridWell?.datasetId === selected.id &&
+        focusedGridWell.path === wellPath
+      ) {
+        const fallback = [...remaining]
+          .reverse()
+          .find((well) => well.datasetId === selected.id);
+        setFocusedGridWell(
+          fallback ? { datasetId: fallback.datasetId, path: fallback.path } : null,
+        );
+        setMatchResults(null);
+      }
       return;
     }
     if (selectedWells.length >= MAX_COMPARISON_SOURCES) return;
@@ -590,6 +626,128 @@ export default function DataBrowser() {
           },
         ];
       });
+      setFocusedGridWell({ datasetId: selected.id, path: wellPath });
+      setMatchResults(null);
+    });
+  }
+
+  async function loadMatches(by: MatchMode, wellPath: string) {
+    if (!selected) return;
+    const context = { datasetId: selected.id, path: wellPath, by, matches: [] };
+    setMatchResults(context);
+    await run(async () => {
+      try {
+        const result = await dataServerClient.GET(
+          "/api/datasets/{dataset_id}/matches",
+          {
+            params: {
+              path: { dataset_id: selected.id },
+              query: { well: wellPath, by },
+            },
+          },
+        );
+        if (!result.data) {
+          throw new Error(
+            apiErrorMessage(result.error, "Could not load perturbation matches"),
+          );
+        }
+        setMatchResults((current) =>
+          current?.datasetId === context.datasetId &&
+          current.path === context.path &&
+          current.by === context.by
+            ? { ...context, matches: result.data.matches }
+            : current,
+        );
+      } catch (reason) {
+        setMatchResults((current) =>
+          current?.datasetId === context.datasetId &&
+          current.path === context.path &&
+          current.by === context.by
+            ? null
+            : current,
+        );
+        throw reason;
+      }
+    });
+  }
+
+  async function addMatch(match: PerturbationMatch) {
+    if (!selected || selectedWells.length >= MAX_COMPARISON_SOURCES) return;
+    await run(async () => {
+      const linked = await dataServerClient.POST("/api/datasets", {
+        body: { path: match.path },
+      });
+      if (!linked.data) {
+        throw new Error(
+          apiErrorMessage(linked.error, "Could not open matching plate"),
+        );
+      }
+      const linkedDataset = linked.data;
+      setDatasets((current) =>
+        current.some((dataset) => dataset.id === linkedDataset.id)
+          ? current
+          : [...current, linkedDataset],
+      );
+      const [fieldsResult, summaryResult] = await Promise.all([
+        dataServerClient.GET("/api/datasets/{dataset_id}/wells/{well_path}", {
+          params: {
+            path: {
+              dataset_id: linkedDataset.id,
+              well_path: match.well,
+            },
+          },
+        }),
+        dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
+          params: { path: { dataset_id: linkedDataset.id } },
+        }),
+      ]);
+      if (!fieldsResult.data) {
+        throw new Error(
+          apiErrorMessage(fieldsResult.error, "Could not load matching well fields"),
+        );
+      }
+      if (!summaryResult.data) {
+        throw new Error(
+          apiErrorMessage(
+            summaryResult.error,
+            "Could not load matching plate summary",
+          ),
+        );
+      }
+      const fields = fieldsResult.data.fields;
+      if (fields.length === 0) {
+        throw new Error("The matching well has no image fields.");
+      }
+      const targetImage = imageFromSummary(summaryResult.data);
+      if (!targetImage) {
+        throw new Error("The matching plate has no image fields.");
+      }
+      const channelLabels = imageChannelLabels(targetImage);
+      const timepointCount = imageAxisSize(targetImage, "t");
+      setSelectedWells((current) => {
+        if (
+          current.length >= MAX_COMPARISON_SOURCES ||
+          current.some(
+            (well) =>
+              well.datasetId === linkedDataset.id && well.path === match.well,
+          )
+        ) {
+          return current;
+        }
+        return [
+          ...current,
+          {
+            datasetId: linkedDataset.id,
+            datasetName: linkedDataset.name,
+            collectionId: activeCollection?.id ?? null,
+            path: match.well,
+            fields,
+            fieldPath: fields[0].path,
+            channelLabels,
+            timepointCount,
+          },
+        ];
+      });
     });
   }
 
@@ -604,11 +762,28 @@ export default function DataBrowser() {
   }
 
   function removeWell(datasetId: string, wellPath: string) {
-    setSelectedWells((current) =>
-      current.filter(
-        (well) => well.datasetId !== datasetId || well.path !== wellPath,
-      ),
+    const remaining = selectedWells.filter(
+      (well) => well.datasetId !== datasetId || well.path !== wellPath,
     );
+    setSelectedWells(remaining);
+    if (
+      focusedGridWell?.datasetId === datasetId &&
+      focusedGridWell.path === wellPath
+    ) {
+      const fallback = [...remaining]
+        .reverse()
+        .find((well) => well.datasetId === datasetId);
+      setFocusedGridWell(
+        fallback ? { datasetId: fallback.datasetId, path: fallback.path } : null,
+      );
+      setMatchResults(null);
+    }
+  }
+
+  function clearSelectedWells() {
+    setSelectedWells([]);
+    setFocusedGridWell(null);
+    setMatchResults(null);
   }
 
   const metadataByWell = useMemo(
@@ -619,6 +794,32 @@ export default function DataBrowser() {
     [metadata],
   );
   const labels = metadataLabels(metadata);
+  const focusedWellPath =
+    selected &&
+    focusedGridWell?.datasetId === selected.id &&
+    selectedWells.some(
+      (well) =>
+        well.datasetId === focusedGridWell.datasetId &&
+        well.path === focusedGridWell.path,
+    )
+      ? focusedGridWell.path
+      : selectedWells.find((well) => well.datasetId === selected?.id)?.path;
+  const visibleMatchResults =
+    selected &&
+    focusedWellPath &&
+    matchResults?.datasetId === selected.id &&
+    matchResults.path === focusedWellPath
+      ? matchResults
+      : null;
+  const datasetPathsById = new Map(
+    datasets.map((dataset) => [dataset.id, dataset.path]),
+  );
+  const addedMatchKeys = new Set(
+    selectedWells.flatMap((well) => {
+      const path = datasetPathsById.get(well.datasetId);
+      return path ? [path + "\u0000" + well.path] : [];
+    }),
+  );
 
   const compoundOptions = useMemo(() => {
     const compounds = new Map<string, Set<number>>();
@@ -1084,10 +1285,21 @@ export default function DataBrowser() {
 
               <PlateMetadataPanel
                 metadata={metadata}
-                selectedWell={
-                  selectedWells.find((well) => well.datasetId === selected.id)?.path
-                }
+                selectedWell={focusedWellPath}
               />
+
+              {metadata?.labels && focusedWellPath && (
+                <PerturbationMatches
+                  sourceWell={focusedWellPath}
+                  activeMode={visibleMatchResults?.by ?? null}
+                  matches={visibleMatchResults?.matches ?? []}
+                  busy={busy}
+                  limitReached={selectedWells.length >= MAX_COMPARISON_SOURCES}
+                  addedKeys={addedMatchKeys}
+                  onChoose={(by) => void loadMatches(by, focusedWellPath)}
+                  onAdd={(match) => void addMatch(match)}
+                />
+              )}
 
               <div className="selection-hint">
                 <strong>
@@ -1157,7 +1369,8 @@ export default function DataBrowser() {
 
               <ComparisonTray
                 wells={selectedWells}
-                onClear={() => setSelectedWells([])}
+                busy={busy}
+                onClear={clearSelectedWells}
                 onSelectField={selectField}
                 onRemoveWell={removeWell}
               />
@@ -1174,7 +1387,8 @@ export default function DataBrowser() {
           >
             <ComparisonTray
               wells={selectedWells}
-              onClear={() => setSelectedWells([])}
+              busy={busy}
+              onClear={clearSelectedWells}
               onSelectField={selectField}
               onRemoveWell={removeWell}
             />

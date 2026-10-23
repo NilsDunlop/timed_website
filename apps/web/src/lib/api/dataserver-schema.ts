@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dataset Matches */
+        get: operations["dataset_matches_api_datasets__dataset_id__matches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/{dataset_id}/metadata": {
         parameters: {
             query?: never;
@@ -205,6 +222,28 @@ export interface components {
         DatasetListResponse: {
             /** Datasets */
             datasets: components["schemas"]["DatasetRecord"][];
+        };
+        /** DatasetMatchSummary */
+        DatasetMatchSummary: {
+            /** Cell Line */
+            cell_line: string;
+            /** Guide */
+            guide: string;
+            /** Is Control */
+            is_control: boolean;
+            /** Path */
+            path: string;
+            /** Plate Label */
+            plate_label: string;
+            /** Well */
+            well: string;
+            /** Well Type */
+            well_type: string | null;
+        };
+        /** DatasetMatchesResponse */
+        DatasetMatchesResponse: {
+            /** Matches */
+            matches: components["schemas"]["DatasetMatchSummary"][];
         };
         /** DatasetRecord */
         DatasetRecord: {
@@ -583,6 +622,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dataset_matches_api_datasets__dataset_id__matches_get: {
+        parameters: {
+            query: {
+                well: string;
+                by: "well" | "gene" | "control";
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetMatchesResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import os
 import threading
 import time
@@ -222,6 +223,211 @@ def test_packed_metadata_route_maps_idr0080_fixture(
     ]
 
 
+def test_packed_matches_route_supports_well_gene_and_control_modes(
+    packed_root: Path,
+    tmp_path: Path,
+) -> None:
+    index = (packed_root / make_test_data.PACKED_INDEX_NAME).resolve()
+    plate = index / "idr0080-A549" / "14610"
+    with TestClient(create_app(_settings(packed_root, tmp_path / "state"), TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        dataset_id = linked.json()["id"]
+        same_well = client.get(
+            f"/api/datasets/{dataset_id}/matches",
+            headers=AUTH,
+            params={"well": "c01", "by": "well"},
+        )
+        same_gene = client.get(
+            f"/api/datasets/{dataset_id}/matches",
+            headers=AUTH,
+            params={"well": "C01", "by": "gene"},
+        )
+        controls = client.get(
+            f"/api/datasets/{dataset_id}/matches",
+            headers=AUTH,
+            params={"well": "C01", "by": "control"},
+        )
+
+    assert same_well.status_code == 200, same_well.text
+    assert same_well.json() == {
+        "matches": [
+            {
+                "path": str(index / "idr0080-A549" / "14611"),
+                "plate_label": "SQ00014611",
+                "cell_line": "A549",
+                "well": "C01",
+                "guide": "KRAS-1",
+                "is_control": False,
+                "well_type": "Query guides",
+            },
+            {
+                "path": str(index / "idr0080-ES2" / "14613"),
+                "plate_label": "SQ00014613",
+                "cell_line": "ES2",
+                "well": "C01",
+                "guide": "KRAS-1",
+                "is_control": False,
+                "well_type": "Query guides",
+            },
+        ]
+    }
+
+    assert same_gene.status_code == 200, same_gene.text
+    assert [
+        (match["cell_line"], match["plate_label"], match["well"], match["guide"])
+        for match in same_gene.json()["matches"]
+    ] == [
+        ("A549", "SQ00014610", "P24", "KRAS-2"),
+        ("A549", "SQ00014611", "C01", "KRAS-1"),
+        ("A549", "SQ00014611", "P24", "KRAS-2"),
+        ("ES2", "SQ00014613", "C01", "KRAS-1"),
+        ("ES2", "SQ00014613", "P24", "KRAS-2"),
+    ]
+    assert all(match["well_type"] == "Query guides" for match in same_gene.json()["matches"])
+
+    assert controls.status_code == 200, controls.text
+    assert controls.json() == {
+        "matches": [
+            {
+                "path": str(plate),
+                "plate_label": "SQ00014610",
+                "cell_line": "A549",
+                "well": "A01",
+                "guide": "EMPTY",
+                "is_control": True,
+                "well_type": None,
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"well": "C01"},
+        {"well": "C01", "by": "plate"},
+        {"well": "../C01", "by": "well"},
+        {"well": "A" * 17 + "1", "by": "well"},
+    ],
+)
+def test_packed_matches_route_rejects_invalid_queries(
+    packed_root: Path,
+    tmp_path: Path,
+    params: dict[str, str],
+) -> None:
+    plate = (
+        packed_root
+        / make_test_data.PACKED_INDEX_NAME
+        / "idr0080-A549"
+        / "14610"
+    )
+    with TestClient(create_app(_settings(packed_root, tmp_path / "state"), TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        response = client.get(
+            f"/api/datasets/{linked.json()['id']}/matches",
+            headers=AUTH,
+            params=params,
+        )
+
+    assert response.status_code == 422
+
+
+def test_packed_matches_route_returns_not_found_for_unknown_well(
+    packed_root: Path,
+    tmp_path: Path,
+) -> None:
+    plate = (
+        packed_root
+        / make_test_data.PACKED_INDEX_NAME
+        / "idr0080-A549"
+        / "14610"
+    )
+    with TestClient(create_app(_settings(packed_root, tmp_path / "state"), TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        response = client.get(
+            f"/api/datasets/{linked.json()['id']}/matches",
+            headers=AUTH,
+            params={"well": "Z99", "by": "well"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unknown packed well: Z99"}
+
+
+@pytest.mark.parametrize(
+    ("corruption", "message"),
+    [
+        ("unknown_plate", "plate absent from the image index"),
+        ("unknown_well", "well absent from the image index"),
+        ("mixed_cell_line", "inconsistent 'cell_type'"),
+        ("wrong_barcode", "expected 'SQ00014611'"),
+        ("missing_guide", "empty 'idr_guide'"),
+    ],
+)
+def test_packed_matches_route_rejects_invalid_metadata_targets(
+    tmp_path: Path,
+    corruption: str,
+    message: str,
+) -> None:
+    root = make_test_data._write_packed_fixture(tmp_path / "generated")
+    metadata_path = root / "metadata" / "metadata_idr0080.csv"
+    with metadata_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = [dict(row) for row in reader]
+
+    if corruption == "unknown_plate":
+        extra = dict(rows[0])
+        extra.update(
+            well_id="unknown_plate_A01",
+            experiment_name="idr0080-A549",
+            plate="99999",
+            idr_plate_barcode="SQ00099999",
+        )
+        rows.append(extra)
+    elif corruption == "unknown_well":
+        extra = dict(rows[0])
+        extra.update(well_id="unknown_well_Z99", address="Z99")
+        rows.append(extra)
+    elif corruption == "mixed_cell_line":
+        next(
+            row
+            for row in rows
+            if row["plate"] == "14611" and row["address"] == "C01"
+        )["cell_type"] = "unexpected"
+    elif corruption == "wrong_barcode":
+        for row in rows:
+            if row["plate"] == "14611":
+                row["idr_plate_barcode"] = "WRONG"
+    else:
+        next(
+            row
+            for row in rows
+            if row["plate"] == "14610" and row["address"] == "P24"
+        )["idr_guide"] = ""
+
+    with metadata_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    plate = root / make_test_data.PACKED_INDEX_NAME / "idr0080-A549" / "14610"
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        response = client.get(
+            f"/api/datasets/{linked.json()['id']}/matches",
+            headers=AUTH,
+            params={"well": "C01", "by": "gene"},
+        )
+
+    assert response.status_code == 422
+    assert message in response.json()["detail"]
+
+
 def test_missing_packed_metadata_does_not_block_images(tmp_path: Path) -> None:
     root = make_test_data._write_packed_fixture(tmp_path / "generated")
     (root / "metadata" / "metadata_idr0080.csv").unlink()
@@ -231,6 +437,11 @@ def test_missing_packed_metadata_does_not_block_images(tmp_path: Path) -> None:
         assert linked.status_code == 201, linked.text
         dataset_id = linked.json()["id"]
         metadata = client.get(f"/api/datasets/{dataset_id}/metadata", headers=AUTH)
+        matches = client.get(
+            f"/api/datasets/{dataset_id}/matches",
+            headers=AUTH,
+            params={"well": "A01", "by": "control"},
+        )
         summary = client.get(f"/api/datasets/{dataset_id}/summary", headers=AUTH)
         chunk = client.get(
             f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0",
@@ -239,6 +450,8 @@ def test_missing_packed_metadata_does_not_block_images(tmp_path: Path) -> None:
 
     assert metadata.status_code == 200
     assert metadata.json() == {"available": False, "plate": None, "wells": []}
+    assert matches.status_code == 404
+    assert matches.json() == {"detail": "Packed metadata is unavailable"}
     assert summary.status_code == 200, summary.text
     assert chunk.status_code == 200, chunk.text
 

@@ -739,6 +739,82 @@ const { title } = Astro.props;
     border-top: 0;
   }
 
+  .perturbation-matches h3,
+  .perturbation-match-group h4,
+  .perturbation-match-results p {
+    margin: 0;
+  }
+
+  .perturbation-match-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+
+  .perturbation-match-results {
+    gap: 0.8rem;
+  }
+
+  .perturbation-match-group {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .perturbation-match-group h4 {
+    color: #536058;
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .perturbation-match-list {
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid #dbe2da;
+    list-style: none;
+  }
+
+  .perturbation-match-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid #dbe2da;
+  }
+
+  .perturbation-match-identity {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.65rem;
+  }
+
+  .perturbation-match-identity strong {
+    min-width: 5rem;
+  }
+
+  .perturbation-match-identity span:not(.perturbation-control-badge) {
+    color: #5e6960;
+    font-size: 0.88rem;
+  }
+
+  .perturbation-control-badge {
+    padding: 0.15rem 0.4rem;
+    border: 1px dashed #7b8490;
+    border-radius: 999px;
+    color: #505861;
+    background: #edf0f2;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .perturbation-match-limit {
+    color: #6b3f20;
+    font-size: 0.88rem;
+  }
+
   .well-metadata-grid {
     grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   }
@@ -1170,6 +1246,11 @@ const { title } = Astro.props;
 
     .viewer-source-facts:not(.viewer-source-facts-compact) > div {
       flex: 1 1 6rem;
+    }
+
+    .perturbation-match-row {
+      align-items: start;
+      flex-direction: column;
     }
 
     .canvas-frame {

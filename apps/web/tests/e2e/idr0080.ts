@@ -2,8 +2,6 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 import { pixelSignature } from "./viewer";
 
-const COLLECTION_TITLE = "idr0080 \u00b7 Cell Health";
-
 function browserEntry(page: Page, name: string): Locator {
   return page.locator(".file-list li").filter({
     has: page.getByText(name, { exact: true }),
@@ -23,19 +21,6 @@ async function openPlate(page: Page, plate: string) {
   await expect(
     page.getByRole("heading", { level: 2, name: plate, exact: true }),
   ).toBeVisible();
-}
-
-async function goToCollectionRoot(page: Page) {
-  const entry = browserEntry(page, "idr0080-A549");
-  const root = page
-    .getByRole("navigation", { name: "Data path" })
-    .getByRole("button", { name: COLLECTION_TITLE, exact: true });
-  await expect(root).toBeVisible();
-  if (!(await entry.isVisible())) {
-    await expect(root).toBeEnabled();
-    await root.click();
-  }
-  await expect(entry).toBeVisible();
 }
 
 async function expectCustomProperty(
@@ -215,29 +200,94 @@ export async function exerciseIdr0080Flow(page: Page) {
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Well C1" }).click();
-  await goToCollectionRoot(page);
-  await openExperiment(page, "idr0080-A549");
-  await openPlate(page, "SQ00014611");
-  await page.getByRole("button", { name: "Well C1" }).click();
+  const matchPanel = page.getByTestId("perturbation-matches");
+  await expect(matchPanel).toBeVisible();
 
-  await goToCollectionRoot(page);
-  await openExperiment(page, "idr0080-ES2");
-  await openPlate(page, "SQ00014613");
-  await page.getByRole("button", { name: "Well C1" }).click();
-  await page.getByRole("button", { name: "Well A1" }).click();
-  const controlType = page
-    .getByTestId("plate-metadata")
-    .locator(".well-metadata-grid > div")
-    .filter({ has: page.getByText("Type", { exact: true }) })
-    .locator("dd");
-  await expect(controlType).toHaveText("CRISPR");
+  await matchPanel
+    .getByRole("button", { name: "Same gene", exact: true })
+    .click();
+  const matchResults = matchPanel.getByTestId("perturbation-match-results");
+  await expect(matchResults.getByTestId("perturbation-match-row")).toHaveCount(5);
+  await expect(matchResults.locator('[data-cell-line="A549"]')).toBeVisible();
+  await expect(matchResults.locator('[data-cell-line="ES2"]')).toBeVisible();
+  await expect(matchResults).toContainText("KRAS-2");
+  await expect(
+    matchResults
+      .getByTestId("perturbation-match-row")
+      .filter({ hasText: "SQ00014610" })
+      .filter({ hasText: "Well C01" }),
+  ).toHaveCount(0);
+
+  await matchPanel
+    .getByRole("button", { name: "Controls on this plate", exact: true })
+    .click();
+  await expect(matchResults.getByTestId("perturbation-match-row")).toHaveCount(1);
+  await expect(matchResults).toContainText("SQ00014610");
+  await expect(matchResults).toContainText("Well A01");
+  await expect(matchResults).toContainText("Guide EMPTY");
+  await expect(matchResults).toContainText("EMPTY control");
+
+  await matchPanel
+    .getByRole("button", { name: "Same well on other plates", exact: true })
+    .click();
+  await expect(matchResults.getByTestId("perturbation-match-row")).toHaveCount(2);
+  for (const plate of ["SQ00014611", "SQ00014613"]) {
+    await matchPanel
+      .getByRole("button", {
+        name: `Add ${plate} C01 to comparison`,
+        exact: true,
+      })
+      .click();
+    await expect(
+      matchPanel.getByRole("button", {
+        name: `${plate} C01 added`,
+        exact: true,
+      }),
+    ).toBeDisabled();
+  }
 
   const comparisonTray = page.getByTestId("well-selection");
+  await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(3);
+  const secondPlateSite = page.getByLabel("Site for SQ00014611 C01");
+  await expect(secondPlateSite).toHaveValue("C01_s1.zarr");
+  await secondPlateSite.selectOption("C01_s2.zarr");
+  await expect(secondPlateSite).toHaveValue("C01_s2.zarr");
+
+  await matchPanel
+    .getByRole("button", { name: "Controls on this plate", exact: true })
+    .click();
+  await matchPanel
+    .getByRole("button", {
+      name: "Add SQ00014610 A01 to comparison",
+      exact: true,
+    })
+    .click();
   await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(4);
+  await expect(page.locator(".dataset-list li")).toHaveCount(3);
+
+  await matchPanel
+    .getByRole("button", { name: "Same gene", exact: true })
+    .click();
+  await expect(matchPanel.getByTestId("perturbation-match-limit")).toBeVisible();
+  const unaddedGene = matchResults
+    .getByTestId("perturbation-match-row")
+    .filter({ hasText: "SQ00014610" })
+    .filter({ hasText: "Well P24" });
+  await expect(
+    unaddedGene.getByRole("button", { name: /Add .* to comparison/ }),
+  ).toBeDisabled();
+
   const compareFields = page.getByTestId("open-comparison");
   await expect(compareFields).toHaveText("Compare 4 fields");
   await expect(compareFields).toBeEnabled();
   await compareFields.click();
+  await expect(page).toHaveURL(/\/view\?/);
+  const viewerUrl = new URL(page.url());
+  const comparisonDatasets = viewerUrl.searchParams.getAll("compareDataset");
+  const comparisonFields = viewerUrl.searchParams.getAll("compare");
+  expect(comparisonDatasets).toHaveLength(3);
+  expect(comparisonFields).toHaveLength(3);
+  expect(comparisonFields[0]).toBe("C01_s2.zarr");
 
   await expect(page.getByTestId("viewer-status")).toHaveText("Images ready", {
     timeout: 60_000,
@@ -256,5 +306,12 @@ export async function exerciseIdr0080Flow(page: Page) {
   await expect(
     page.getByRole("heading", { level: 2, name: "SQ00014610", exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Well A1" }).click();
+  const controlType = page
+    .getByTestId("plate-metadata")
+    .locator(".well-metadata-grid > div")
+    .filter({ has: page.getByText("Type", { exact: true }) })
+    .locator("dd");
+  await expect(controlType).toHaveText("CRISPR");
   await removeOpenedPlates(page);
 }

@@ -27,11 +27,13 @@ from .models import (
     Capabilities,
     DatasetLinkRequest,
     DatasetListResponse,
+    DatasetMatchesResponse,
     DatasetRecord,
     DatasetSummary,
     FilesystemEntry,
     FilesystemListResponse,
     HandshakeResponse,
+    MatchMode,
     OmeZarrInfo,
     PlateMetadataResponse,
     WellFieldsResponse,
@@ -62,7 +64,11 @@ from .packed_facade import (
     parse_packed_resource,
 )
 from .packed_io import PackedReader, PackedReadError
-from .packed_metadata import PackedMetadataCache, PackedMetadataError
+from .packed_metadata import (
+    PackedMetadataCache,
+    PackedMetadataError,
+    PackedMetadataNotFoundError,
+)
 from .packed_profiles import (
     PackedDatasetProfile,
     PackedProbeSignature,
@@ -667,6 +673,39 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         try:
             return metadata_catalog.for_dataset(path.name)
         except PlateMetadataError as exc:
+            raise _unprocessable(exc) from exc
+
+    @app.get(
+        "/api/datasets/{dataset_id}/matches",
+        response_model=DatasetMatchesResponse,
+    )
+    async def dataset_matches(
+        dataset_id: str,
+        well: Annotated[
+            str,
+            Query(min_length=2, max_length=16, pattern=r"^[A-Za-z]+[0-9]+$"),
+        ],
+        by: Annotated[MatchMode, Query()],
+    ) -> DatasetMatchesResponse:
+        _record, _path, _descriptor, packed = await linked(dataset_id)
+        if packed is None:
+            raise _not_found("Dataset matches are available only for packed plates")
+        profile = await packed_profile(packed)
+        try:
+            assert packed.experiment is not None
+            assert packed.plate is not None
+            return await anyio.to_thread.run_sync(
+                packed_metadata.matches,
+                packed.catalogue,
+                profile,
+                packed.experiment,
+                packed.plate,
+                well.upper(),
+                by,
+            )
+        except PackedMetadataNotFoundError as exc:
+            raise _not_found(str(exc)) from exc
+        except PackedMetadataError as exc:
             raise _unprocessable(exc) from exc
 
     @app.head(
