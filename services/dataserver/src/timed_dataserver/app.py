@@ -7,7 +7,9 @@ import mimetypes
 import platform
 import re
 import socket
+import threading
 from collections.abc import Iterator
+from concurrent.futures import Future
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC
@@ -60,7 +62,15 @@ from .packed_facade import (
     parse_packed_resource,
 )
 from .packed_io import PackedReader, PackedReadError
-from .packed_profiles import PackedDatasetProfile, profile_for_index
+from .packed_metadata import PackedMetadataCache, PackedMetadataError
+from .packed_profiles import (
+    PackedDatasetProfile,
+    PackedProbeSignature,
+    PackedProfileError,
+    packed_probe_signature,
+    profile_for_catalogue,
+    profile_for_index,
+)
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
 from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
 from .registry import DatasetRegistry
@@ -296,6 +306,15 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     registry = DatasetRegistry(settings.state_dir)
     packed_catalogues = PackedCatalogueCache()
     packed_reader = PackedReader(cache_bytes=settings.packed_cache_mb * 1024 * 1024)
+    packed_metadata = PackedMetadataCache()
+    generic_profiles: dict[
+        tuple[str, int, int, PackedProbeSignature], PackedDatasetProfile
+    ] = {}
+    generic_profile_loads: dict[
+        tuple[str, int, int, PackedProbeSignature],
+        Future[PackedDatasetProfile | None],
+    ] = {}
+    generic_profiles_lock = threading.Lock()
     metadata_catalog = (
         PlateMetadataCatalog(settings.metadata_root) if settings.metadata_root is not None else None
     )
@@ -323,17 +342,61 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     app.state.metadata_catalog = metadata_catalog
     app.state.packed_catalogues = packed_catalogues
     app.state.packed_reader = packed_reader
+    app.state.packed_metadata = packed_metadata
 
-    def packed_profile(packed: PackedVirtualPath) -> PackedDatasetProfile:
-        profile = profile_for_index(packed.index_path.name, packed.catalogue.row_count)
-        if profile is None:
-            raise _unprocessable(
-                PackedIndexError(
-                    "Packed index has no matching code profile: "
-                    f"{packed.index_path.name} ({packed.catalogue.row_count} rows)"
-                )
+    def infer_packed_profile(packed: PackedVirtualPath) -> PackedDatasetProfile:
+        index_signature = packed.catalogue.signature
+        for _attempt in range(3):
+            probe_signature = packed_probe_signature(packed.catalogue)
+            key = (
+                str(packed.index_path),
+                index_signature.mtime_ns,
+                index_signature.size,
+                probe_signature,
             )
-        return profile
+            with generic_profiles_lock:
+                cached = generic_profiles.get(key)
+                if cached is not None:
+                    return cached
+                load = generic_profile_loads.get(key)
+                is_loader = load is None
+                if load is None:
+                    load = Future()
+                    generic_profile_loads[key] = load
+            if not is_loader:
+                profile = load.result()
+                if profile is None:
+                    continue
+                return profile
+
+            try:
+                profile = profile_for_catalogue(packed.catalogue)
+                if packed_probe_signature(packed.catalogue) != probe_signature:
+                    load.set_result(None)
+                    continue
+                with generic_profiles_lock:
+                    if len(generic_profiles) >= 256:
+                        generic_profiles.pop(next(iter(generic_profiles)))
+                    generic_profiles[key] = profile
+                load.set_result(profile)
+                return profile
+            except BaseException as exc:
+                load.set_exception(exc)
+                raise
+            finally:
+                with generic_profiles_lock:
+                    if generic_profile_loads.get(key) is load:
+                        del generic_profile_loads[key]
+        raise PackedProfileError("Generic packed shard changed repeatedly while probing")
+
+    async def packed_profile(packed: PackedVirtualPath) -> PackedDatasetProfile:
+        known = profile_for_index(packed.index_path.name, packed.catalogue.row_count)
+        if known is not None:
+            return known
+        try:
+            return await anyio.to_thread.run_sync(infer_packed_profile, packed)
+        except PackedProfileError as exc:
+            raise _unprocessable(exc) from exc
 
     async def packed_path(raw: str) -> PackedVirtualPath | None:
         try:
@@ -419,11 +482,12 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                     ],
                 )
 
+            profile = await packed_profile(packed)
             return FilesystemListResponse(
                 path=packed.registry_key,
                 entries=[
                     FilesystemEntry(
-                        name=f"SQ000{plate}",
+                        name=profile.plate_name(plate),
                         path=str(Path(packed.registry_key) / str(plate)),
                         kind="dir",
                         ome_zarr=PACKED_PLATE_DESCRIPTOR.info,
@@ -512,9 +576,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                     status_code=422,
                     detail="Link a packed plate, not an index or experiment",
                 )
+            profile = await packed_profile(packed)
             return registry.link_key(
                 packed.registry_key,
-                request.name or f"SQ000{packed.plate}",
+                request.name or profile.plate_name(packed.plate),
                 PACKED_PLATE_DESCRIPTOR.info,
             )
         try:
@@ -543,7 +608,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         _record, path, descriptor, packed = await linked(dataset_id)
         if packed is not None:
             try:
-                return packed_plate_summary(packed, packed_profile(packed))
+                return packed_plate_summary(packed, await packed_profile(packed))
             except PackedFacadeNotFoundError as exc:
                 raise _not_found(str(exc)) from exc
         try:
@@ -580,7 +645,21 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     async def dataset_metadata(dataset_id: str) -> PlateMetadataResponse:
         _record, path, descriptor, packed = await linked(dataset_id)
         if packed is not None:
-            return PlateMetadataResponse(available=False)
+            profile = await packed_profile(packed)
+            if profile.metadata_path is None:
+                return PlateMetadataResponse(available=False)
+            try:
+                assert packed.experiment is not None
+                assert packed.plate is not None
+                return await anyio.to_thread.run_sync(
+                    packed_metadata.for_plate,
+                    packed.index_path,
+                    profile,
+                    packed.experiment,
+                    packed.plate,
+                )
+            except PackedMetadataError as exc:
+                raise _unprocessable(exc) from exc
         if descriptor.info.kind != "plate":
             return PlateMetadataResponse(available=False)
         if metadata_catalog is None:
@@ -604,7 +683,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     ) -> Response:
         _record, dataset_path, descriptor, packed = await linked(dataset_id)
         if packed is not None:
-            profile = packed_profile(packed)
+            profile = await packed_profile(packed)
             try:
                 resource = parse_packed_resource(packed, profile, resource_path)
             except PackedFacadeNotFoundError as exc:

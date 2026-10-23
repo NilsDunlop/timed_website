@@ -6,7 +6,12 @@ from types import MappingProxyType
 
 import pytest
 from ome_zarr_models.v05.image import Image
-from timed_dataserver.packed import PackedCatalogue, PackedCatalogueCache, PackedVirtualPath
+from timed_dataserver.packed import (
+    PackedCatalogue,
+    PackedCatalogueCache,
+    PackedPlate,
+    PackedVirtualPath,
+)
 from timed_dataserver.packed_facade import (
     PackedChunkRequest,
     PackedFacadeNotFoundError,
@@ -345,6 +350,80 @@ def test_parser_returns_typed_metadata_and_chunk_requests(
     members = catalogue.field("idr0080-A549", 14610, "A01", 1)
     assert members is not None
     assert chunk.member == members[5]
+
+
+def test_generic_auto_contrast_omits_windows_and_maps_stored_channel_ids(
+    catalogue: PackedCatalogue,
+) -> None:
+    stored_channels = (2, 5, 8, 11, 20)
+    remapped_fields = {
+        key: MappingProxyType(
+            {
+                stored: members[original]
+                for stored, original in zip(stored_channels, sorted(members), strict=True)
+            }
+        )
+        for key, members in catalogue.fields.items()
+    }
+    remapped_plates = {
+        key: PackedPlate(
+            wells=plate.wells,
+            sites=plate.sites,
+            channels=stored_channels,
+        )
+        for key, plate in catalogue.plates.items()
+    }
+    generic_catalogue = replace(
+        catalogue,
+        plates=MappingProxyType(remapped_plates),
+        fields=MappingProxyType(remapped_fields),
+    )
+    generic_channels = tuple(
+        replace(
+            channel,
+            index=stored,
+            label=str(stored),
+            color=None,
+            active=True,
+            windows=(),
+        )
+        for channel, stored in zip(
+            IDR0080_FIXTURE_PROFILE.channels,
+            stored_channels,
+            strict=True,
+        )
+    )
+    profile = replace(
+        IDR0080_FIXTURE_PROFILE,
+        channels=generic_channels,
+        experiment_cell_lines=(("idr0080-A549", "idr0080-A549"),),
+        metadata_path=None,
+        plate_prefix="",
+        auto_contrast=True,
+    )
+    plate = _plate(generic_catalogue)
+
+    summary = packed_plate_summary(plate, profile)
+    actual_channels = [
+        (channel.name, channel.color, channel.window, channel.active)
+        for channel in summary.first_image.channels
+    ]
+    assert actual_channels == [
+        (str(index), None, None, True) for index in stored_channels
+    ]
+    group = json.loads(packed_group_metadata_bytes(profile, "idr0080-A549", "A01_s1"))
+    assert group["attributes"]["ome"]["omero"]["channels"] == [
+        {"label": str(index), "active": True} for index in stored_channels
+    ]
+
+    chunk = parse_packed_resource(
+        plate,
+        profile,
+        "A01_s1.zarr/s0/c/1/0/0",
+    )
+    assert isinstance(chunk, PackedChunkRequest)
+    assert (chunk.channel_index, chunk.channel) == (1, 5)
+    assert chunk.member == remapped_fields[("idr0080-A549", 14610, "A01", 1)][5]
 
 
 @pytest.mark.parametrize(

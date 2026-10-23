@@ -172,6 +172,61 @@ def test_contiguous_field_uses_one_read_then_hits_cache(
     reader.close()
 
 
+def test_profile_dtype_controls_generic_plane_and_chunk_validation(tmp_path: Path) -> None:
+    arrays = {
+        (1, channel): np.full((64, 64), channel * 10, dtype=np.uint8)
+        for channel in range(1, 6)
+    }
+    fixture = _make_fixture(tmp_path, arrays=arrays)
+    profile = replace(
+        IDR0080_FIXTURE_PROFILE,
+        dtype="uint8",
+        codec=replace(IDR0080_FIXTURE_PROFILE.codec, typesize=1),
+    )
+
+    with PackedReader() as reader:
+        field, _status = reader.get_field(
+            fixture.catalogue,
+            profile,
+            EXPERIMENT,
+            PLATE,
+            WELL,
+            1,
+        )
+        chunk = reader.get_chunk(
+            fixture.catalogue,
+            profile,
+            EXPERIMENT,
+            PLATE,
+            WELL,
+            1,
+            1,
+            0,
+            0,
+        )
+
+    assert all(plane.dtype == np.dtype("uint8") for plane in field.planes)
+    decoded = Blosc().decode(chunk.content)
+    values = np.frombuffer(decoded, dtype=np.uint8).reshape((1, 32, 32))
+    assert np.all(values == 10)
+
+
+def test_reader_rejects_an_oversized_decoded_field_before_io(tmp_path: Path) -> None:
+    fixture = _make_fixture(tmp_path)
+    profile = replace(
+        IDR0080_FIXTURE_PROFILE,
+        geometry=replace(
+            IDR0080_FIXTURE_PROFILE.geometry,
+            image_shape=(packed_io.MAX_PACKED_MEMBER_BYTES, 1),
+        ),
+        dtype="uint8",
+        codec=replace(IDR0080_FIXTURE_PROFILE.codec, typesize=1),
+    )
+
+    with PackedReader() as reader, pytest.raises(PackedReadError, match="field exceeds"):
+        reader.get_field(fixture.catalogue, profile, EXPERIMENT, PLATE, WELL, 1)
+
+
 def test_field_source_resolution_retries_a_mixed_tar_revision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -343,7 +398,7 @@ def test_exact_positional_reads_loop_and_report_eof(
     reader.close()
 
 
-@pytest.mark.parametrize("failure", ["offset", "size", "end"])
+@pytest.mark.parametrize("failure", ["offset", "size", "oversized", "end"])
 def test_member_bounds_are_validated_before_io(tmp_path: Path, failure: str) -> None:
     fixture = _make_fixture(tmp_path)
     member = fixture.catalogue.field(EXPERIMENT, PLATE, WELL, 1)[1]  # type: ignore[index]
@@ -353,6 +408,13 @@ def test_member_bounds_are_validated_before_io(tmp_path: Path, failure: str) -> 
     elif failure == "size":
         catalogue = _replace_field_member(fixture, 1, size=0)
         message = "size"
+    elif failure == "oversized":
+        catalogue = _replace_field_member(
+            fixture,
+            1,
+            size=packed_io.MAX_PACKED_MEMBER_BYTES + 1,
+        )
+        message = "limit"
     else:
         catalogue = _replace_field_member(
             fixture,
@@ -364,6 +426,37 @@ def test_member_bounds_are_validated_before_io(tmp_path: Path, failure: str) -> 
 
     with PackedReader() as reader, pytest.raises(PackedReadError, match=message):
         reader.get_field(catalogue, IDR0080_FIXTURE_PROFILE, EXPERIMENT, PLATE, WELL, 1)
+
+
+def test_aggregate_encoded_field_size_is_rejected_before_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _make_fixture(tmp_path)
+    key = (EXPERIMENT, PLATE, WELL, 1)
+    members = {
+        channel: replace(member, size=packed_io.MAX_PACKED_MEMBER_BYTES)
+        for channel, member in fixture.catalogue.fields[key].items()
+    }
+    fields = dict(fixture.catalogue.fields)
+    fields[key] = MappingProxyType(members)
+    catalogue = replace(fixture.catalogue, fields=MappingProxyType(fields))
+
+    with PackedReader() as reader:
+        monkeypatch.setattr(
+            reader,
+            "_field_sources",
+            lambda *_args: pytest.fail("aggregate limit must be checked before source I/O"),
+        )
+        with pytest.raises(PackedReadError, match="encoded limit"):
+            reader.get_field(
+                catalogue,
+                IDR0080_FIXTURE_PROFILE,
+                EXPERIMENT,
+                PLATE,
+                WELL,
+                1,
+            )
 
 
 @pytest.mark.parametrize("failure", ["name", "size", "magic", "checksum"])

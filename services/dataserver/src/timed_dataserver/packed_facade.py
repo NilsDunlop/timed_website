@@ -109,9 +109,19 @@ def _summary_channels(
     profile: PackedDatasetProfile,
     experiment: str,
 ) -> list[ChannelSummary]:
-    cell_line = _cell_line(profile, experiment)
+    cell_line = None if profile.auto_contrast else _cell_line(profile, experiment)
     result: list[ChannelSummary] = []
     for channel in profile.channels:
+        if profile.auto_contrast:
+            result.append(
+                ChannelSummary(
+                    name=channel.label,
+                    color=channel.color,
+                    active=channel.active,
+                )
+            )
+            continue
+        assert cell_line is not None
         window = channel.window_for(cell_line)
         if window is None:
             raise _not_found(
@@ -137,7 +147,7 @@ def _well_parts(well: str, profile: PackedDatasetProfile) -> tuple[str, int]:
     match = _WELL_PATTERN.fullmatch(well)
     if match is None:
         raise _not_found(f"Packed catalogue has an invalid well: {well}")
-    row = match.group("row")
+    row = match.group("row").upper()
     try:
         column = int(match.group("column"))
     except ValueError as exc:
@@ -257,9 +267,19 @@ def packed_group_metadata_bytes(
     field_name: str,
 ) -> bytes:
     """Return exact OME-Zarr 0.5 group metadata for one facade field."""
-    cell_line = _cell_line(profile, experiment)
+    cell_line = None if profile.auto_contrast else _cell_line(profile, experiment)
     channels: list[dict[str, object]] = []
     for channel in profile.channels:
+        if profile.auto_contrast:
+            generic_channel: dict[str, object] = {
+                "label": channel.label,
+                "active": channel.active,
+            }
+            if channel.color is not None:
+                generic_channel["color"] = channel.color
+            channels.append(generic_channel)
+            continue
+        assert cell_line is not None
         window = channel.window_for(cell_line)
         if window is None:
             raise _not_found(
@@ -411,9 +431,9 @@ def parse_packed_resource(
     channel_index = _parse_index(parts[3], "channel index")
     chunk_y = _parse_index(parts[4], "chunk row")
     chunk_x = _parse_index(parts[5], "chunk column")
-    channel = channel_index + 1
-    if channel_index >= len(profile.channels) or profile.channel(channel) is None:
+    if channel_index >= len(profile.channels):
         raise _not_found(f"Packed channel index is out of range: {channel_index}")
+    channel = profile.channels[channel_index].index
     member = members.get(channel)
     if member is None:
         raise _not_found(f"Packed field has no channel {channel}")

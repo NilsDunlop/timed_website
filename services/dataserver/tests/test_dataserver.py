@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.cli import main, serve
+from timed_dataserver.omezarr import _channels
 
 from scripts.make_test_data import generate_test_data
 
@@ -536,6 +537,7 @@ def test_collection_plate_metadata_joins_wells_and_acquisition(
 
     assert response.status_code == 200, response.text
     metadata = response.json()
+    assert set(metadata) == {"available", "plate", "wells"}
     assert metadata["available"] is True
     assert metadata["plate"] == {
         "plate_id": "S1.1",
@@ -636,6 +638,20 @@ def test_native_image_summaries(
     assert (summary["levels"][0]["shard_shape"] is not None) is sharded
     assert summary["channels"][0]["color"] == "0000FF"
     assert summary["channels"][0]["window"]["end"] == 8000
+
+
+def test_native_omero_channel_active_flags_are_preserved() -> None:
+    channels = _channels(
+        {
+            "channels": [
+                {"label": "DNA", "active": True},
+                {"label": "RNA", "active": False},
+                {"label": "Invalid", "active": "false"},
+            ]
+        }
+    )
+
+    assert [channel.active for channel in channels] == [True, False, None]
 
 
 def test_native_plate_and_well_metadata_are_read_lazily(

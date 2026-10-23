@@ -174,6 +174,17 @@ class PlateExperimentSummary(ApiModel):
     acquisition: PlateAcquisitionSummary | None = None
 
 
+class MetadataDetailSummary(ApiModel):
+    label: str
+    value: str
+
+
+class PlateMetadataLabels(ApiModel):
+    compound: str
+    moa: str
+    control: str
+
+
 class WellMetadataSummary(ApiModel):
     well: str
     well_type: str | None = None
@@ -184,9 +195,21 @@ class WellMetadataSummary(ApiModel):
     target: str | None = None
     pathway: str | None = None
     mechanism_of_action: str | None = None
+    details: list[MetadataDetailSummary] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class PlateMetadataResponse(ApiModel):
     available: bool
     plate: PlateExperimentSummary | None = None
     wells: list[WellMetadataSummary] = Field(default_factory=list)
+    labels: PlateMetadataLabels | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    category_colors: dict[str, str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )

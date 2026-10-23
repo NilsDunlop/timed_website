@@ -24,7 +24,13 @@ import tifffile
 from numcodecs import Blosc
 
 from .packed import IndexSignature, PackedCatalogue, PackedMember
-from .packed_profiles import PackedCodec, PackedDatasetProfile
+from .packed_profiles import (
+    MAX_PACKED_CHANNELS,
+    MAX_PACKED_FIELD_BYTES,
+    MAX_PACKED_MEMBER_BYTES,
+    PackedCodec,
+    PackedDatasetProfile,
+)
 
 DEFAULT_PACKED_CACHE_BYTES = 1024 * 1024 * 1024
 DEFAULT_MAX_TAR_IO = 4
@@ -296,10 +302,34 @@ class PackedReader:
                 f"Packed field does not exist: {experiment}/{plate}/{well}/s{site}"
             )
         expected_channels = tuple(channel.index for channel in profile.channels)
+        if len(expected_channels) > MAX_PACKED_CHANNELS:
+            raise PackedReadError(
+                f"Packed field exceeds the {MAX_PACKED_CHANNELS}-channel limit"
+            )
+        height, width = profile.geometry.image_shape
+        field_bytes = height * width * np.dtype(profile.dtype).itemsize * len(expected_channels)
+        if field_bytes > MAX_PACKED_FIELD_BYTES:
+            raise PackedReadError(
+                f"Packed field exceeds the {MAX_PACKED_FIELD_BYTES}-byte decoded limit"
+            )
         if set(field) != set(expected_channels) or len(field) != len(expected_channels):
             raise PackedReadError(
                 f"Packed field has channels {sorted(field)}, expected {list(expected_channels)}"
             )
+        encoded_bytes = 0
+        for member in field.values():
+            if member.size <= 0:
+                raise PackedReadError(f"Packed member size must be positive: {member.size}")
+            if member.size > MAX_PACKED_MEMBER_BYTES:
+                raise PackedReadError(
+                    f"Packed member exceeds the {MAX_PACKED_MEMBER_BYTES}-byte limit: "
+                    f"{member.size}"
+                )
+            encoded_bytes += member.size
+            if encoded_bytes > MAX_PACKED_FIELD_BYTES:
+                raise PackedReadError(
+                    f"Packed field exceeds the {MAX_PACKED_FIELD_BYTES}-byte encoded limit"
+                )
 
         sources = self._field_sources(expected_channels, field)
         for source in sources:
@@ -398,8 +428,11 @@ class PackedReader:
                 x_start : min(x_start + chunk_width, width),
             ][np.newaxis, ...]
         )
-        if chunk.dtype != np.dtype("uint16"):
-            raise PackedReadError(f"Packed chunk has unexpected dtype: {chunk.dtype}")
+        expected_dtype = np.dtype(profile.dtype)
+        if chunk.dtype != expected_dtype:
+            raise PackedReadError(
+                f"Packed chunk dtype {chunk.dtype} does not match {expected_dtype}"
+            )
         if chunk.dtype.byteorder == ">" or (chunk.dtype.byteorder == "=" and not np.little_endian):
             chunk = chunk.byteswap().view(chunk.dtype.newbyteorder("<"))
         codec = _chunk_codec(profile.codec)
@@ -480,6 +513,11 @@ class PackedReader:
             )
         if member.size <= 0:
             raise PackedReadError(f"Packed member size must be positive: {member.size}")
+        if member.size > MAX_PACKED_MEMBER_BYTES:
+            raise PackedReadError(
+                f"Packed member exceeds the {MAX_PACKED_MEMBER_BYTES}-byte limit: "
+                f"{member.size}"
+            )
         if member.offset + member.size > file_stat.st_size:
             raise PackedReadError(
                 f"Packed member exceeds tar bounds: {member.offset} + {member.size} "
@@ -566,7 +604,15 @@ class PackedReader:
             first = ordered[0]
             start = first.member.offset - _TAR_BLOCK_SIZE
             end = ordered[-1].member.offset + ordered[-1].member.size
-            combined = self._read_exact_at(first.descriptor, start, end - start)
+            read_size = end - start
+            maximum_read_size = (
+                MAX_PACKED_FIELD_BYTES + len(ordered) * 2 * _TAR_BLOCK_SIZE
+            )
+            if read_size > maximum_read_size:
+                raise PackedReadError(
+                    f"Packed contiguous field exceeds the {maximum_read_size}-byte read limit"
+                )
+            combined = self._read_exact_at(first.descriptor, start, read_size)
             self._verify_header_bytes(
                 first,
                 profile,
@@ -599,6 +645,13 @@ class PackedReader:
         source: _MemberSource,
         profile: PackedDatasetProfile,
     ) -> np.ndarray:
+        expected_shape = profile.geometry.image_shape
+        expected_dtype = np.dtype(profile.dtype)
+        expected_bytes = expected_shape[0] * expected_shape[1] * expected_dtype.itemsize
+        if expected_bytes > MAX_PACKED_MEMBER_BYTES:
+            raise PackedReadError(
+                f"Packed profile plane exceeds the {MAX_PACKED_MEMBER_BYTES}-byte limit"
+            )
         try:
             with tifffile.TiffFile(io.BytesIO(payload)) as image:
                 if len(image.pages) != 1:
@@ -609,6 +662,32 @@ class PackedReader:
                 if int(page.compression) != 1:
                     raise PackedReadError(
                         f"Packed TIFF must be uncompressed: {source.member.relpath}"
+                    )
+                page_shape = tuple(int(value) for value in page.shape)
+                if page_shape != expected_shape:
+                    raise PackedReadError(
+                        f"Packed TIFF shape {page_shape} does not match "
+                        f"{expected_shape}: {source.member.relpath}"
+                    )
+                page_dtype = np.dtype(page.dtype)
+                if page_dtype != expected_dtype:
+                    raise PackedReadError(
+                        f"Packed TIFF dtype {page_dtype} does not match {expected_dtype}: "
+                        f"{source.member.relpath}"
+                    )
+                byte_counts = tuple(int(value) for value in page.databytecounts)
+                data_offsets = tuple(int(value) for value in page.dataoffsets)
+                if len(byte_counts) != len(data_offsets) or sum(byte_counts) != expected_bytes:
+                    raise PackedReadError(
+                        "Packed TIFF byte counts do not match its decoded plane size: "
+                        f"{source.member.relpath}"
+                    )
+                if any(
+                    offset < 0 or count < 0 or offset + count > len(payload)
+                    for offset, count in zip(data_offsets, byte_counts, strict=True)
+                ):
+                    raise PackedReadError(
+                        f"Packed TIFF data lies outside its member payload: {source.member.relpath}"
                     )
                 plane = page.asarray()
         except PackedReadError:
@@ -623,14 +702,15 @@ class PackedReader:
             raise PackedReadError(
                 f"Packed TIFF must be 2-D, got shape {shape}: {source.member.relpath}"
             )
-        if tuple(plane.shape) != profile.geometry.image_shape:
+        if tuple(plane.shape) != expected_shape:
             raise PackedReadError(
                 f"Packed TIFF shape {tuple(plane.shape)} does not match "
-                f"{profile.geometry.image_shape}: {source.member.relpath}"
+                f"{expected_shape}: {source.member.relpath}"
             )
-        if plane.dtype != np.dtype("uint16"):
+        if plane.dtype != expected_dtype:
             raise PackedReadError(
-                f"Packed TIFF dtype {plane.dtype} is not uint16: {source.member.relpath}"
+                f"Packed TIFF dtype {plane.dtype} does not match {expected_dtype}: "
+                f"{source.member.relpath}"
             )
         plane = np.ascontiguousarray(plane)
         plane.setflags(write=False)

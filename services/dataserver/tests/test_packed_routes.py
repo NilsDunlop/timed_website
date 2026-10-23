@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import timed_dataserver.app as dataserver_app
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
 
@@ -171,6 +175,176 @@ def test_plate_link_is_idempotent_and_persists_across_apps(
         )
         assert reopened.status_code == 201, reopened.text
         assert reopened.json() == record
+
+
+def test_packed_metadata_route_maps_idr0080_fixture(
+    packed_root: Path,
+    tmp_path: Path,
+) -> None:
+    plate = (
+        packed_root
+        / make_test_data.PACKED_INDEX_NAME
+        / "idr0080-A549"
+        / "14610"
+    )
+    with TestClient(create_app(_settings(packed_root, tmp_path / "state"), TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        response = client.get(
+            f"/api/datasets/{linked.json()['id']}/metadata",
+            headers=AUTH,
+        )
+
+    assert response.status_code == 200, response.text
+    metadata = response.json()
+    assert metadata["labels"] == {
+        "compound": "Gene",
+        "moa": "Well type",
+        "control": "EMPTY control",
+    }
+    assert metadata["category_colors"] == {
+        "Query guides": "#3b82a0",
+        "Cutting controls": "#b86b35",
+        "Non-cutting controls": "#9367a8",
+    }
+    assert metadata["plate"]["plate_id"] == "SQ00014610"
+    assert metadata["plate"]["project"] == "idr0080 \u00b7 Cell Health"
+    assert metadata["plate"]["acquisition"]["sites_per_well"] == 2
+    wells = {well["well"]: well for well in metadata["wells"]}
+    assert wells["A01"]["compound"] == "EMPTY control"
+    assert wells["A01"]["is_control"] is True
+    assert wells["A02"]["moa"] == "Cutting controls"
+    assert wells["B01"]["moa"] == "Non-cutting controls"
+    assert wells["C01"]["details"] == [
+        {"label": "Guide", "value": "KRAS-1"},
+        {"label": "Ensembl ID", "value": "ENSG00000133703"},
+        {"label": "Control category", "value": "targeting"},
+    ]
+
+
+def test_missing_packed_metadata_does_not_block_images(tmp_path: Path) -> None:
+    root = make_test_data._write_packed_fixture(tmp_path / "generated")
+    (root / "metadata" / "metadata_idr0080.csv").unlink()
+    plate = root / make_test_data.PACKED_INDEX_NAME / "idr0080-A549" / "14610"
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        dataset_id = linked.json()["id"]
+        metadata = client.get(f"/api/datasets/{dataset_id}/metadata", headers=AUTH)
+        summary = client.get(f"/api/datasets/{dataset_id}/summary", headers=AUTH)
+        chunk = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0",
+            headers=AUTH,
+        )
+
+    assert metadata.status_code == 200
+    assert metadata.json() == {"available": False, "plate": None, "wells": []}
+    assert summary.status_code == 200, summary.text
+    assert chunk.status_code == 200, chunk.text
+
+
+def test_unknown_packed_index_uses_cached_generic_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = make_test_data._write_packed_fixture(tmp_path / "generated")
+    source = root / make_test_data.PACKED_INDEX_NAME
+    index = source.with_name("generic.index.parquet")
+    source.rename(index)
+    experiment = index / "idr0080-A549"
+    plate = experiment / "14610"
+    calls: list[int] = []
+    original = dataserver_app.profile_for_catalogue
+
+    def counted_profile(catalogue):
+        calls.append(threading.get_ident())
+        return original(catalogue)
+
+    monkeypatch.setattr(dataserver_app, "profile_for_catalogue", counted_profile)
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+        listing = client.get("/api/fs/list", headers=AUTH, params={"path": str(experiment)})
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
+        assert linked.status_code == 201, linked.text
+        dataset_id = linked.json()["id"]
+        summary = client.get(f"/api/datasets/{dataset_id}/summary", headers=AUTH)
+        metadata = client.get(f"/api/datasets/{dataset_id}/metadata", headers=AUTH)
+        group = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json",
+            headers=AUTH,
+        )
+        probe_tar = root / "idr0080-raw-SQ00014610.tar"
+        probe_stat = probe_tar.stat()
+        os.utime(
+            probe_tar,
+            ns=(probe_stat.st_atime_ns, probe_stat.st_mtime_ns + 2_000_000_000),
+        )
+        refreshed_summary = client.get(
+            f"/api/datasets/{dataset_id}/summary",
+            headers=AUTH,
+        )
+        chunk = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0",
+            headers=AUTH,
+        )
+
+    assert listing.status_code == 200, listing.text
+    assert [entry["name"] for entry in listing.json()["entries"]] == ["14610", "14611"]
+    assert linked.json()["name"] == "14610"
+    assert summary.status_code == 200, summary.text
+    channels = summary.json()["first_image"]["channels"]
+    assert [(channel["name"], channel["color"], channel["window"]) for channel in channels] == [
+        (str(index), None, None) for index in range(1, 6)
+    ]
+    assert all(channel["active"] is True for channel in channels)
+    assert metadata.json() == {"available": False, "plate": None, "wells": []}
+    assert group.status_code == 200, group.text
+    assert group.json()["attributes"]["ome"]["omero"]["channels"] == [
+        {"label": str(index), "active": True} for index in range(1, 6)
+    ]
+    assert refreshed_summary.status_code == 200, refreshed_summary.text
+    assert chunk.status_code == 200, chunk.text
+    assert len(calls) == 2
+    assert all(call != threading.get_ident() for call in calls)
+
+
+def test_concurrent_unknown_profile_resolution_is_single_flight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = make_test_data._write_packed_fixture(tmp_path / "generated")
+    source = root / make_test_data.PACKED_INDEX_NAME
+    index = source.with_name("generic.index.parquet")
+    source.rename(index)
+    experiment = index / "idr0080-A549"
+    original = dataserver_app.profile_for_catalogue
+    calls = 0
+    calls_lock = threading.Lock()
+
+    def counted_profile(catalogue):
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        time.sleep(0.1)
+        return original(catalogue)
+
+    monkeypatch.setattr(dataserver_app, "profile_for_catalogue", counted_profile)
+    barrier = threading.Barrier(8)
+
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+
+        def list_experiment() -> int:
+            barrier.wait()
+            return client.get(
+                "/api/fs/list",
+                headers=AUTH,
+                params={"path": str(experiment)},
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            statuses = tuple(executor.map(lambda _index: list_experiment(), range(8)))
+
+    assert statuses == (200,) * 8
+    assert calls == 1
 
 
 @pytest.mark.parametrize("suffix", [(), ("idr0080-A549",)])

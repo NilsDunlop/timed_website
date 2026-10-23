@@ -460,6 +460,25 @@
         "title": "ImageSummary",
         "type": "object"
       },
+      "MetadataDetailSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "MetadataDetailSummary",
+        "type": "object"
+      },
       "OmeZarrInfo": {
         "additionalProperties": false,
         "properties": {
@@ -762,12 +781,60 @@
         "title": "PlateExperimentSummary",
         "type": "object"
       },
+      "PlateMetadataLabels": {
+        "additionalProperties": false,
+        "properties": {
+          "compound": {
+            "title": "Compound",
+            "type": "string"
+          },
+          "control": {
+            "title": "Control",
+            "type": "string"
+          },
+          "moa": {
+            "title": "Moa",
+            "type": "string"
+          }
+        },
+        "required": [
+          "compound",
+          "moa",
+          "control"
+        ],
+        "title": "PlateMetadataLabels",
+        "type": "object"
+      },
       "PlateMetadataResponse": {
         "additionalProperties": false,
         "properties": {
           "available": {
             "title": "Available",
             "type": "boolean"
+          },
+          "category_colors": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Colors"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlateMetadataLabels"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "plate": {
             "anyOf": [
@@ -1006,6 +1073,20 @@
               }
             ],
             "title": "Compound"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MetadataDetailSummary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
           },
           "dose_um": {
             "anyOf": [

@@ -296,6 +296,13 @@ export interface components {
              */
             zarr_format: 2 | 3;
         };
+        /** MetadataDetailSummary */
+        MetadataDetailSummary: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
         /** OmeZarrInfo */
         OmeZarrInfo: {
             /**
@@ -364,10 +371,24 @@ export interface components {
             /** Seeding Density Cells Per Well */
             seeding_density_cells_per_well?: number | null;
         };
+        /** PlateMetadataLabels */
+        PlateMetadataLabels: {
+            /** Compound */
+            compound: string;
+            /** Control */
+            control: string;
+            /** Moa */
+            moa: string;
+        };
         /** PlateMetadataResponse */
         PlateMetadataResponse: {
             /** Available */
             available: boolean;
+            /** Category Colors */
+            category_colors?: {
+                [key: string]: string;
+            } | null;
+            labels?: components["schemas"]["PlateMetadataLabels"] | null;
             plate?: components["schemas"]["PlateExperimentSummary"] | null;
             /** Wells */
             wells?: components["schemas"]["WellMetadataSummary"][];
@@ -441,6 +462,8 @@ export interface components {
         WellMetadataSummary: {
             /** Compound */
             compound?: string | null;
+            /** Details */
+            details?: components["schemas"]["MetadataDetailSummary"][] | null;
             /** Dose Um */
             dose_um?: number | null;
             /**

@@ -310,3 +310,33 @@ D2 activates the facade only for the exact generated-fixture profile. Other
 detected packed indexes remain listable but return a clear 422 when opened.
 D3 replaces that temporary milestone boundary with the pinned real idr0080
 profile and the generic inferred-profile fallback required for Phase 1.
+
+## 2026-10-23: pin IDR0080 display semantics and infer conservative packed fallbacks
+
+The real IDR0080 profile is selected only by the exact index filename and its
+155,520-row count. Its image and chunk geometry, nine sites, 384-well plate
+layout, five channel names, colours, visibility defaults, and cell-line-specific
+contrast windows live in one immutable code profile with an exact transcription
+test. The reduced generated fixture keeps a separate 150-row pin, so test
+geometry cannot be mistaken for production geometry.
+
+Other valid packed indexes use a deliberately conservative generic profile.
+The server reads one bounded, deterministic member in a worker thread, verifies
+its USTAR name and size, and accepts only a single-page uncompressed 2-D TIFF.
+It infers the dtype, image size, tar prefix, rows, columns, sites, experiments,
+and stored channel ids; channel labels remain numeric, display windows and
+dataset metadata remain absent, and the viewer uses automatic contrast. The
+result is cached by both index and probed-tar revision. Facade channel positions
+map through the stored channel ids, and the reader validates data against the
+selected profile dtype, so a generic uint8 index does not inherit IDR0080's
+uint16 assumptions.
+
+IDR0080 well metadata remains beside the index at
+`metadata/metadata_idr0080.csv`. A separate packed-metadata catalogue confines
+that relative path to the index directory, reads and groups the CSV once, and
+caches mapped responses per experiment and plate. Missing metadata returns
+`available: false` without affecting image browsing; malformed or unmatched
+metadata fails only the metadata request. The response exposes gene and well
+type labels, fixed category colours, control semantics, guide details, plate
+identity, cell line, and acquisition facts. New response fields are optional
+and omitted when absent, preserving byte-for-byte legacy TIMED JSON bodies.
