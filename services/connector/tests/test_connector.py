@@ -382,6 +382,150 @@ async def test_full_session_flow_never_exposes_answers_or_token(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_disconnect_closes_pooled_forward_connection_before_cleanup(
+    tmp_path: Path,
+) -> None:
+    forwarded_writers: set[asyncio.StreamWriter] = set()
+
+    async def upstream(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        forwarded_writers.add(writer)
+        try:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: keep-alive\r\n\r\nx")
+            await writer.drain()
+            await reader.read()
+        except (asyncio.IncompleteReadError, ConnectionError):
+            pass
+        finally:
+            forwarded_writers.discard(writer)
+            writer.close()
+
+    forward_server = await asyncio.start_server(upstream, "127.0.0.1", 0)
+    forward_port = forward_server.sockets[0].getsockname()[1]
+
+    class PooledForwardBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__(
+                tmp_path,
+                proxy_base=f"http://127.0.0.1:{forward_port}",
+            )
+            self.disconnect_started = asyncio.Event()
+            self.continue_disconnect = asyncio.Event()
+
+        async def cancel_job(self, context: object, job_id: str) -> None:
+            await super().cancel_job(context, job_id)
+            self.disconnect_started.set()
+            await self.continue_disconnect.wait()
+
+        async def forward(
+            self,
+            context: object,
+            connection: DataServerConnection,
+        ) -> asyncio.Server:
+            del context, connection
+            return forward_server
+
+        async def close_forward(self, forward: object | None) -> None:
+            if forward is not None:
+                assert forward is forward_server
+                assert not forwarded_writers
+                forward_server.close()
+                await forward_server.wait_closed()
+                self.forward_closed += 1
+
+    profile = slurm_profile()
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    backend = PooledForwardBackend()
+    session = ConnectorSession(store, backend, poll_interval=0.001)
+    app = create_app(store, session, port=8700)
+    disconnect_task: asyncio.Task[httpx.Response] | None = None
+
+    async with app.router.lifespan_context(app):
+        pooled_client: httpx.AsyncClient = app.state.proxy_client
+        try:
+            await session.connect(profile.id)
+            await wait_for_state(session, "host_key_confirm")
+            await authenticate_session(session)
+            await wait_for_state(session, "connected")
+
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://127.0.0.1:8700",
+            ) as browser:
+                proxied = await browser.get("/backend/chunk")
+                assert proxied.text == "x"
+                assert forwarded_writers
+
+                disconnect_task = asyncio.create_task(
+                    browser.post(
+                        "/connector/disconnect",
+                        headers=CLIENT_HEADER,
+                        json={"cancel_job": True},
+                    )
+                )
+                await asyncio.wait_for(backend.disconnect_started.wait(), timeout=1)
+                assert session.snapshot().state == "disconnecting"
+                assert not forwarded_writers
+                backend.continue_disconnect.set()
+
+                disconnected = await asyncio.wait_for(disconnect_task, timeout=1)
+                assert disconnected.status_code == 200
+                assert disconnected.json()["state"] == "disconnected"
+                assert pooled_client.is_closed
+        finally:
+            backend.continue_disconnect.set()
+            if session.snapshot().state != "disconnected":
+                await pooled_client.aclose()
+            if disconnect_task is not None and not disconnect_task.done():
+                await asyncio.gather(disconnect_task, return_exceptions=True)
+            if session.snapshot().state != "disconnected":
+                await session.disconnect()
+
+    forward_server.close()
+    await forward_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_timeout_reaches_error_and_continues_cleanup(
+    tmp_path: Path,
+) -> None:
+    class HangingSSHBackend(FakeBackend):
+        async def close(self, context: object | None) -> None:
+            if context is not None:
+                self.closed += 1
+                await asyncio.Event().wait()
+
+    profile = slurm_profile()
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    backend = HangingSSHBackend(tmp_path)
+    session = ConnectorSession(
+        store,
+        backend,
+        poll_interval=0.001,
+        cleanup_timeout=0.01,
+    )
+
+    await session.connect(profile.id)
+    await wait_for_state(session, "host_key_confirm")
+    await authenticate_session(session)
+    await wait_for_state(session, "connected")
+
+    disconnected = await asyncio.wait_for(session.disconnect(), timeout=1)
+
+    assert disconnected.state == "error"
+    assert disconnected.message is not None
+    assert "Timed out while closing the SSH connection" in disconnected.message
+    assert backend.closed == 1
+    assert backend.forward_closed == 1
+    with pytest.raises(SessionError, match="No data server is connected"):
+        session.proxy_target()
+
+
+@pytest.mark.asyncio
 async def test_local_session_starts_proxies_and_stops_process(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     data_root.mkdir()

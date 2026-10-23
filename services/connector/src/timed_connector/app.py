@@ -25,6 +25,18 @@ from .proxy import proxy_request
 from .session import ConnectorSession, SessionError
 
 
+def _proxy_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=None,
+        limits=httpx.Limits(
+            max_connections=32,
+            max_keepalive_connections=16,
+            keepalive_expiry=30.0,
+        ),
+        trust_env=False,
+    )
+
+
 def _client_header(
     x_timed_client: Annotated[str | None, Header(alias="X-Timed-Client")] = None,
 ) -> None:
@@ -46,21 +58,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        limits = httpx.Limits(
-            max_connections=32,
-            max_keepalive_connections=16,
-            keepalive_expiry=30.0,
-        )
-        async with httpx.AsyncClient(
-            timeout=None,
-            limits=limits,
-            trust_env=False,
-        ) as proxy_client:
-            app.state.proxy_client = proxy_client
-            try:
-                yield
-            finally:
-                await session.disconnect(cancel_job=True)
+        app.state.proxy_client = _proxy_client()
+        try:
+            yield
+        finally:
+            await session.disconnect(
+                cancel_job=True,
+                close_proxy=app.state.proxy_client.aclose,
+            )
 
     app = FastAPI(
         title="TIMED connector",
@@ -117,7 +122,17 @@ def create_app(
         dependencies=[Depends(_client_header)],
     )
     async def disconnect(request: DisconnectRequest) -> SessionSnapshot:
-        return await session.disconnect(cancel_job=request.cancel_job)
+        async def reset_proxy_client() -> None:
+            current = app.state.proxy_client
+            try:
+                await current.aclose()
+            finally:
+                app.state.proxy_client = _proxy_client()
+
+        return await session.disconnect(
+            cancel_job=request.cancel_job,
+            close_proxy=reset_proxy_client,
+        )
 
     @app.api_route(
         "/backend/{path:path}",

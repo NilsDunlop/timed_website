@@ -196,3 +196,19 @@ without allocating that memory up front. All sources share one three-request
 prefetch budget rather than starting an independent queue per canvas. Four is a
 deliberate UI and resource cap; larger cohorts should use a different overview
 or pagination design.
+
+## 2026-10-23: keep connector shutdown ordered and bounded
+
+The idr0080 baseline exposed a pre-existing disconnect deadlock after proxied
+image requests. The connector began transport cleanup while its shared HTTP
+pool still retained keep-alive connections through the SSH forward. Waiting for
+that forward to close could therefore wait on sockets owned by a pool which the
+application would only close after session cleanup returned.
+
+Explicit disconnect and application shutdown now close the shared HTTP pool
+before the SSH transport, and explicit disconnect creates a fresh pool for a
+later reconnect. Connection-task cancellation, Slurm cancellation,
+connection-file removal, local-process shutdown, SSH shutdown, and port-forward
+shutdown each have a bounded cleanup budget. Cleanup always clears the private
+transport references and publishes a terminal state: `disconnected` when every
+step succeeds, or `error` with the failed or timed-out steps when it does not.

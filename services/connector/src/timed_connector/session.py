@@ -26,6 +26,12 @@ class SessionError(RuntimeError):
     """Raised for invalid session actions."""
 
 
+async def _cancel_task(task: asyncio.Task[None]) -> None:
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
 class SessionBackend(Protocol):
     async def inspect_host_key(self, profile: Profile) -> HostKeyStatus: ...
 
@@ -88,12 +94,14 @@ class ConnectorSession:
         local_backend: LocalBackend | None = None,
         poll_interval: float = 2.0,
         startup_timeout: float = 180.0,
+        cleanup_timeout: float = 10.0,
     ) -> None:
         self.profiles = profiles
         self.backend = backend
         self.local_backend = local_backend
         self.poll_interval = poll_interval
         self.startup_timeout = startup_timeout
+        self.cleanup_timeout = cleanup_timeout
         self._snapshot = SessionSnapshot()
         self._task: asyncio.Task[None] | None = None
         self._monitor_task: asyncio.Task[None] | None = None
@@ -407,43 +415,135 @@ class ConnectorSession:
         )
         self._log(f"Error: {message}")
 
-    async def _cleanup(self, *, remove_connection: bool) -> None:
+    async def _cleanup_step(
+        self,
+        description: str,
+        operation: Callable[[], Awaitable[None]],
+    ) -> str | None:
+        try:
+            task = asyncio.ensure_future(operation())
+        except Exception as exc:
+            message = f"Could not {description}: {exc}"
+            self._log(message)
+            return message
+        done, _pending = await asyncio.wait({task}, timeout=self.cleanup_timeout)
+        if task not in done:
+            task.cancel()
+            task.add_done_callback(
+                lambda finished: finished.exception() if not finished.cancelled() else None
+            )
+            message = (
+                f"Timed out while {description} after {self.cleanup_timeout:g} seconds"
+            )
+            self._log(message)
+            return message
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            message = f"Cancelled while {description}"
+            self._log(message)
+            return message
+        except Exception as exc:
+            message = f"Could not {description}: {exc}"
+            self._log(message)
+            return message
+        return None
+
+    async def _cleanup(self, *, remove_connection: bool) -> list[str]:
+        failures: list[str] = []
         if self._profile is not None and self._profile.kind == "local":
             self._connection = None
-            if self.local_backend is not None:
-                await self.local_backend.close(self._context)
-            self._context = None
-            return
+            context, self._context = self._context, None
+            if self.local_backend is not None and context is not None:
+                failure = await self._cleanup_step(
+                    "closing the local data server",
+                    lambda: self.local_backend.close(context),
+                )
+                if failure is not None:
+                    failures.append(failure)
+            return failures
+        context, self._context = self._context, None
+        forward, self._forward = self._forward, None
+        self._connection = None
         job_id = self._snapshot.job_id
-        if remove_connection and job_id and self._context is not None:
-            try:
-                await self.backend.remove_connection_file(self._context, job_id)
-            except Exception:
-                self._log("Could not remove the remote connection file")
-        try:
-            await self.backend.close_forward(self._forward)
-        finally:
-            self._forward = None
-            self._connection = None
-            await self.backend.close(self._context)
-            self._context = None
+        if remove_connection and job_id and context is not None:
+            failure = await self._cleanup_step(
+                "removing the remote connection file",
+                lambda: self.backend.remove_connection_file(context, job_id),
+            )
+            if failure is not None:
+                failures.append(failure)
+        if context is not None:
+            failure = await self._cleanup_step(
+                "closing the SSH connection",
+                lambda: self.backend.close(context),
+            )
+            if failure is not None:
+                failures.append(failure)
+        if forward is not None:
+            failure = await self._cleanup_step(
+                "closing the SSH port forward",
+                lambda: self.backend.close_forward(forward),
+            )
+            if failure is not None:
+                failures.append(failure)
+        return failures
 
-    async def disconnect(self, *, cancel_job: bool = True) -> SessionSnapshot:
-        if self._snapshot.state == "disconnected":
+    def _finish_disconnect(self, failures: list[str]) -> SessionSnapshot:
+        self._task = None
+        self._monitor_task = None
+        self._profile = None
+        self._disconnecting = False
+        if not failures:
+            self._snapshot = SessionSnapshot()
             return self.snapshot()
-        self._disconnecting = True
-        self._state("disconnecting")
+        self._state(
+            "error",
+            message="Disconnect cleanup failed: " + "; ".join(failures),
+            hint="Reconnect after checking the connector session log.",
+            local_forward_port=None,
+            handshake=None,
+        )
+        return self.snapshot()
+
+    async def disconnect(
+        self,
+        *,
+        cancel_job: bool = True,
+        close_proxy: Callable[[], Awaitable[None]] | None = None,
+    ) -> SessionSnapshot:
+        failures: list[str] = []
+        was_disconnected = self._snapshot.state == "disconnected"
+        if not was_disconnected:
+            self._disconnecting = True
+            self._state("disconnecting")
+        if close_proxy is not None:
+            failure = await self._cleanup_step(
+                "closing pooled HTTP connections",
+                close_proxy,
+            )
+            if failure is not None:
+                failures.append(failure)
+        if was_disconnected:
+            return self._finish_disconnect(failures)
         if self._pending is not None and not self._pending.done():
             self._pending.cancel()
         if self._task is not None and not self._task.done():
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
+            task = self._task
+            failure = await self._cleanup_step(
+                "stopping the connection task",
+                lambda: _cancel_task(task),
+            )
+            if failure is not None:
+                failures.append(failure)
         if self._monitor_task is not None:
-            self._monitor_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._monitor_task
-            self._monitor_task = None
+            monitor_task = self._monitor_task
+            failure = await self._cleanup_step(
+                "stopping the session monitor",
+                lambda: _cancel_task(monitor_task),
+            )
+            if failure is not None:
+                failures.append(failure)
         job_id = self._snapshot.job_id
         if (
             self._profile is not None
@@ -452,16 +552,17 @@ class ConnectorSession:
             and job_id
             and self._context is not None
         ):
-            try:
-                await self.backend.cancel_job(self._context, job_id)
+            context = self._context
+            failure = await self._cleanup_step(
+                f"cancelling Slurm job {job_id}",
+                lambda: self.backend.cancel_job(context, job_id),
+            )
+            if failure is None:
                 self._log(f"Cancelled Slurm job {job_id}")
-            except Exception as exc:
-                self._log(f"Could not cancel Slurm job {job_id}: {exc}")
-        await self._cleanup(remove_connection=cancel_job)
-        self._snapshot = SessionSnapshot()
-        self._profile = None
-        self._disconnecting = False
-        return self.snapshot()
+            else:
+                failures.append(failure)
+        failures.extend(await self._cleanup(remove_connection=cancel_job))
+        return self._finish_disconnect(failures)
 
     def proxy_target(self) -> tuple[str, str]:
         if self._snapshot.state != "connected" or self._connection is None:
