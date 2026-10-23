@@ -21,6 +21,11 @@ dev/test_cluster/.state/
 .timed/
 *.sif
 docs/data/timed-metadata-inspection.json
+docs/data/inspection-2026-10-22/
+docs/data/previews/
+docs/data/packed-display-survey.json
+docs/data/idr0080-extras.json
+docs/data/idr0080-mask-contract.json
 
 # Local environment and editor files
 .env
