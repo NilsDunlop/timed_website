@@ -78,13 +78,26 @@ class DatasetRegistry:
             return next((record for record in self._records if record.id == dataset_id), None)
 
     def link(self, path: Path, name: str, ome_zarr: OmeZarrInfo) -> DatasetRecord:
-        canonical = os.path.normcase(str(path.resolve(strict=True)))
+        resolved = str(path.resolve(strict=True))
+        return self._link_record(resolved, name, ome_zarr)
+
+    def link_key(self, key: str, name: str, ome_zarr: OmeZarrInfo) -> DatasetRecord:
+        """Link a caller-validated virtual key without resolving it as a real path."""
+        return self._link_record(os.path.normpath(key), name, ome_zarr)
+
+    def _link_record(
+        self,
+        path: str,
+        name: str,
+        ome_zarr: OmeZarrInfo,
+    ) -> DatasetRecord:
+        canonical = os.path.normcase(os.path.normpath(path))
         with self._lock:
             existing = next(
                 (
                     record
                     for record in self._records
-                    if os.path.normcase(str(Path(record.path))) == canonical
+                    if os.path.normcase(os.path.normpath(record.path)) == canonical
                 ),
                 None,
             )
@@ -92,7 +105,7 @@ class DatasetRegistry:
                 return existing
             record = DatasetRecord(
                 id=uuid.uuid4().hex,
-                path=str(path),
+                path=path,
                 name=name,
                 linked_at=datetime.now(UTC).isoformat(),
                 ome_zarr=ome_zarr,

@@ -174,6 +174,11 @@ export interface components {
              */
             gpu: boolean;
             /**
+             * Packed Datasets
+             * @default false
+             */
+            packed_datasets: boolean;
+            /**
              * Plate Metadata
              * @default false
              */
@@ -220,6 +225,8 @@ export interface components {
         };
         /** FilesystemEntry */
         FilesystemEntry: {
+            /** Detail */
+            detail?: string | null;
             /**
              * Kind
              * @enum {string}
@@ -713,6 +720,8 @@ export interface operations {
             query?: never;
             header?: {
                 Range?: string | null;
+                "If-None-Match"?: string | null;
+                "If-Range"?: string | null;
             };
             path: {
                 dataset_id: string;

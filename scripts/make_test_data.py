@@ -3,14 +3,19 @@
 
 import argparse
 import csv
+import io
 import json
 import shutil
+import tarfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+import tifffile
 import zarr
 from ome_zarr.format import FormatV04, FormatV05
 from ome_zarr.writer import write_image
@@ -44,7 +49,41 @@ GENERATED_STORES = (
     "test_image_v05.zarr",
 )
 GENERATED_METADATA_DIRECTORY = "metadata"
+GENERATED_PACKED_DIRECTORY = "packed"
 DEFAULT_INVENTORY = Path(__file__).parents[1] / "docs" / "data" / "arrhenius-inventory.json"
+
+PACKED_FIXTURE_DIRECTORY = "idr0080-like"
+PACKED_INDEX_NAME = "idr0080-raw.index.parquet"
+PACKED_HEIGHT = 64
+PACKED_WIDTH = 64
+PACKED_CHANNELS = tuple(range(1, 6))
+PACKED_SITES = (1, 2)
+PACKED_PLATES = (
+    ("idr0080-A549", 14610, "A549"),
+    ("idr0080-A549", 14611, "A549"),
+    ("idr0080-ES2", 14613, "ES2"),
+)
+IDR0080_METADATA_COLUMNS = (
+    "well_id",
+    "experiment_name",
+    "plate",
+    "address",
+    "gene",
+    "treatment",
+    "SMILES",
+    "concentration",
+    "perturbation_type",
+    "cell_type",
+    "well_type_label",
+    "idr_plate_barcode",
+    "idr_cell_line",
+    "idr_guide",
+    "idr_gene_original",
+    "idr_gene_identifier",
+    "idr_profile_id",
+    "idr_control_category",
+    "idr_reagent_id",
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +111,52 @@ class DataProfile:
         if y_ratio < 1 or x_ratio < 1 or HEIGHT % y_ratio or WIDTH % x_ratio:
             raise ValueError("Inventory chunk proportions do not divide synthetic dimensions")
         return (1, 1, HEIGHT // y_ratio, WIDTH // x_ratio)
+
+
+@dataclass(frozen=True)
+class PackedWell:
+    """One representative well from the idr0080 plate map."""
+
+    address: str
+    gene: str
+    treatment: str
+    well_type_label: str
+    guide: str
+    gene_identifier: str
+    control_category: str
+
+
+PACKED_WELLS = (
+    PackedWell("A01", "EMPTY_control", "EMPTY_control", "", "EMPTY", "", "EMPTY"),
+    PackedWell("A02", "Chr2", "Chr2_guide_1", "Cutting controls", "Chr2-1", "", "Chr2"),
+    PackedWell(
+        "B01",
+        "LacZ",
+        "LacZ_guide_1",
+        "Non-cutting controls",
+        "LacZ-1",
+        "",
+        "LacZ",
+    ),
+    PackedWell(
+        "C01",
+        "KRAS",
+        "KRAS_guide_1",
+        "Query guides",
+        "KRAS-1",
+        "ENSG00000133703",
+        "targeting",
+    ),
+    PackedWell(
+        "P24",
+        "KRAS",
+        "KRAS_guide_2",
+        "Query guides",
+        "KRAS-2",
+        "ENSG00000133703",
+        "targeting",
+    ),
+)
 
 
 def _default_profile() -> DataProfile:
@@ -196,6 +281,234 @@ def _replace_metadata_directory(output: Path) -> Path:
     (target / "acquisition").mkdir(parents=True)
     (target / "csv").mkdir()
     return target
+
+
+def _replace_packed_fixture_directory(output: Path) -> Path:
+    packed = output / GENERATED_PACKED_DIRECTORY
+    target = packed / PACKED_FIXTURE_DIRECTORY
+    resolved_output = output.resolve()
+    resolved_packed = packed.resolve()
+    resolved_target = target.resolve()
+    if (
+        resolved_packed.parent != resolved_output
+        or resolved_target.parent != resolved_packed
+        or target.name != PACKED_FIXTURE_DIRECTORY
+    ):
+        raise ValueError(f"Refusing to replace unexpected path: {target}")
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    return target
+
+
+def make_packed_plane(
+    plate: int,
+    well_index: int,
+    site: int,
+    channel: int,
+) -> np.ndarray:
+    """Make one deterministic, nonuniform idr0080-like image plane."""
+    y_coordinates, x_coordinates = np.indices((PACKED_HEIGHT, PACKED_WIDTH), dtype=np.uint32)
+    center_x = 12 + (well_index * 9 + site * 5 + channel * 3) % 40
+    center_y = 12 + (well_index * 7 + site * 3 + channel * 5) % 40
+    radius = 6 + channel
+    x_distance = x_coordinates.astype(np.int32) - center_x
+    y_distance = y_coordinates.astype(np.int32) - center_y
+    signal = x_distance**2 + y_distance**2 <= radius**2
+    values = (
+        150
+        + (plate - 14600) * 31
+        + well_index * 313
+        + site * 79
+        + channel * 701
+        + x_coordinates * (channel + 3)
+        + y_coordinates * (well_index + 5)
+        + signal * (1_500 + channel * 250)
+    )
+    return np.asarray(np.clip(values, 0, np.iinfo(np.uint16).max), dtype=np.uint16)
+
+
+def _packed_relpath(plate: int, well: str, site: int, channel: int) -> str:
+    row = ord(well[0]) - ord("A") + 1
+    column = int(well[1:])
+    filename = f"r{row:02d}c{column:02d}f{site:02d}p01-ch{channel}sk1fk1fl1.tiff"
+    return f"source/SQ000{plate}/Images/{filename}"
+
+
+def _tiff_bytes(plane: np.ndarray) -> bytes:
+    output = io.BytesIO()
+    tifffile.imwrite(
+        output,
+        plane,
+        photometric="minisblack",
+        compression=None,
+        metadata=None,
+    )
+    return output.getvalue()
+
+
+def _write_packed_shard(
+    root: Path,
+    *,
+    experiment: str,
+    plate: int,
+) -> list[dict[str, object]]:
+    shard = f"idr0080-raw-SQ000{plate}.tar"
+    shard_path = root / shard
+    pending: list[dict[str, object]] = []
+    with tarfile.open(shard_path, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for well_index, well in enumerate(PACKED_WELLS):
+            for site in PACKED_SITES:
+                for channel in PACKED_CHANNELS:
+                    relpath = _packed_relpath(plate, well.address, site, channel)
+                    member_name = f"idr0080/raw/{relpath}"
+                    payload = _tiff_bytes(make_packed_plane(plate, well_index, site, channel))
+                    member = tarfile.TarInfo(member_name)
+                    member.size = len(payload)
+                    member.mode = 0o444
+                    member.mtime = 0
+                    member.uid = 0
+                    member.gid = 0
+                    member.uname = ""
+                    member.gname = ""
+                    archive.addfile(member, io.BytesIO(payload))
+                    pending.append(
+                        {
+                            "relpath": relpath,
+                            "experiment": experiment,
+                            "plate": plate,
+                            "well": well.address,
+                            "site": site,
+                            "channel": channel,
+                            "shard": shard,
+                            "member_name": member_name,
+                        }
+                    )
+
+    # TarInfo.offset_data is populated only while reading an existing archive.
+    with tarfile.open(shard_path, mode="r:") as archive:
+        members = {member.name: member for member in archive.getmembers()}
+
+    rows: list[dict[str, object]] = []
+    for pending_row in pending:
+        member_name = str(pending_row.pop("member_name"))
+        member = members[member_name]
+        rows.append(
+            {
+                **pending_row,
+                "offset": member.offset_data,
+                "size": member.size,
+            }
+        )
+    return rows
+
+
+def _packed_index_schema() -> pa.Schema:
+    return pa.schema(
+        [
+            ("relpath", pa.string()),
+            ("experiment", pa.string()),
+            ("plate", pa.int64()),
+            ("well", pa.string()),
+            ("site", pa.int64()),
+            ("channel", pa.int64()),
+            ("offset", pa.int64()),
+            ("size", pa.int64()),
+            ("shard", pa.string()),
+        ]
+    )
+
+
+def _write_parquet(table: pa.Table, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        table,
+        path,
+        compression="zstd",
+        use_dictionary=[
+            name for name in ("experiment", "well", "shard", "kind") if name in table.column_names
+        ],
+    )
+
+
+def _write_packed_metadata(root: Path) -> None:
+    metadata = root / "metadata"
+    metadata.mkdir()
+    path = metadata / "metadata_idr0080.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=IDR0080_METADATA_COLUMNS)
+        writer.writeheader()
+        for experiment, plate, cell_line in PACKED_PLATES:
+            barcode = f"SQ000{plate}"
+            for well_index, well in enumerate(PACKED_WELLS, start=1):
+                writer.writerow(
+                    {
+                        "well_id": f"{experiment}_{plate}_{well.address}",
+                        "experiment_name": experiment,
+                        "plate": str(plate),
+                        "address": well.address,
+                        "gene": well.gene,
+                        "treatment": well.treatment,
+                        "SMILES": "",
+                        "concentration": "",
+                        "perturbation_type": "CRISPR",
+                        "cell_type": cell_line,
+                        "well_type_label": well.well_type_label,
+                        "idr_plate_barcode": barcode,
+                        "idr_cell_line": cell_line,
+                        "idr_guide": well.guide,
+                        "idr_gene_original": well.gene.replace("_control", ""),
+                        "idr_gene_identifier": well.gene_identifier,
+                        "idr_profile_id": f"fixture_profile_{well_index:03d}",
+                        "idr_control_category": well.control_category,
+                        "idr_reagent_id": well.guide,
+                    }
+                )
+
+
+def _write_packed_decoys(root: Path, index: pa.Table) -> None:
+    fragment_row_count = len(PACKED_WELLS) * len(PACKED_SITES) * len(PACKED_CHANNELS)
+    fragment = index.slice(0, fragment_row_count)
+    _write_parquet(fragment, root / "index_fragments" / "SQ00014610.index.parquet")
+
+    mask_schema = pa.schema(
+        [
+            ("experiment", pa.string()),
+            ("plate", pa.int64()),
+            ("well", pa.string()),
+            ("site", pa.int64()),
+            ("kind", pa.string()),
+            ("offset", pa.int64()),
+            ("size", pa.int64()),
+        ]
+    )
+    mask_index = pa.Table.from_pylist(
+        [
+            {
+                "experiment": "idr0080-A549",
+                "plate": 14610,
+                "well": "A01",
+                "site": 1,
+                "kind": "nuclei",
+                "offset": 512,
+                "size": 128,
+            }
+        ],
+        schema=mask_schema,
+    )
+    _write_parquet(mask_index, root / "masks" / "fixture" / "Plate14610.index.parquet")
+
+
+def _write_packed_fixture(output: Path) -> Path:
+    root = _replace_packed_fixture_directory(output)
+    rows: list[dict[str, object]] = []
+    for experiment, plate, _cell_line in PACKED_PLATES:
+        rows.extend(_write_packed_shard(root, experiment=experiment, plate=plate))
+    index = pa.Table.from_pylist(rows, schema=_packed_index_schema())
+    _write_parquet(index, root / PACKED_INDEX_NAME)
+    _write_packed_metadata(root)
+    _write_packed_decoys(root, index)
+    return root
 
 
 def _write_bare_field(
@@ -372,8 +685,13 @@ def _write_collection_acquisition(
     )
 
 
-def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -> None:
-    """Generate four collections and two native OME-Zarr compatibility fixtures."""
+def generate_test_data(
+    output: Path,
+    inventory_path: Path = DEFAULT_INVENTORY,
+    *,
+    include_packed: bool = True,
+) -> None:
+    """Generate the TIMED/native fixtures and, by default, the packed fixture."""
     profile = load_profile(inventory_path)
     if profile.zarr_format != 3 or profile.axes != ("t", "c", "y", "x"):
         raise ValueError("M2 currently expects the verified Zarr v3 (t,c,y,x) TIMED signature")
@@ -491,6 +809,8 @@ def generate_test_data(output: Path, inventory_path: Path = DEFAULT_INVENTORY) -
         raise RuntimeError("No synthetic fields were generated")
     _write_ome_image(image_v04, first_field, profile, "0.4")
     _write_ome_image(image_v05, first_field, profile, "0.5")
+    if include_packed:
+        _write_packed_fixture(output)
 
 
 def _parser() -> argparse.ArgumentParser:

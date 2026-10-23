@@ -18,7 +18,6 @@ import PlateMetadataPanel, {
 type Dataset = components["schemas"]["DatasetRecord"];
 type DataCollection = connectorComponents["schemas"]["CollectionConfig"];
 type Entry = components["schemas"]["FilesystemEntry"];
-type EntryWithDetail = Entry & { detail?: string | null };
 type Summary =
   | components["schemas"]["ImageSummary"]
   | components["schemas"]["PlateSummary"];
@@ -199,7 +198,7 @@ function ComparisonTray({
 }
 
 export default function DataBrowser() {
-  const [entries, setEntries] = useState<EntryWithDetail[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [collections, setCollections] = useState<DataCollection[]>([]);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(

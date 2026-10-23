@@ -91,6 +91,11 @@
             "title": "Gpu",
             "type": "boolean"
           },
+          "packed_datasets": {
+            "default": false,
+            "title": "Packed Datasets",
+            "type": "boolean"
+          },
           "plate_metadata": {
             "default": false,
             "title": "Plate Metadata",
@@ -243,6 +248,17 @@
       "FilesystemEntry": {
         "additionalProperties": false,
         "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
           "kind": {
             "enum": [
               "dir",
@@ -1147,7 +1163,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.2.0"
+    "version": "0.4.0.dev0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1518,6 +1534,38 @@
                 }
               ],
               "title": "Range"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Range"
             }
           }
         ],

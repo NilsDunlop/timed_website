@@ -245,6 +245,31 @@ registry records from appearing in the wrong collection and preserves useful
 viewer return links.
 
 The browser runner emits both legacy and collection-aware local and test-cluster
-profiles. Until D1 creates the packed idr0080-like fixture, its collection is a
-disposable directory under the run-specific E2E state; it does not alter the
-frozen TIMED fixture or the repository's operator data.
+profiles. D1 creates the packed idr0080-like fixture, but the C1-only browser
+flow keeps its disposable navigation directory until D2 can open a packed
+plate. Neither fixture alters the frozen TIMED server snapshot or the
+repository's operator data.
+
+## 2026-10-23: represent packed datasets as guarded virtual paths
+
+A packed image index remains one real Parquet file beside its tar shards. The
+data server presents `<index>/<experiment>/<plate>` as a virtual hierarchy so
+the existing filesystem browser and registry need no dataset-specific API.
+Only the real index is resolved through `RootGuard`; catalogue membership then
+validates the two virtual components. Parent segments, unsafe catalogue names,
+unknown experiments and plates, and symlink escapes fail before a registry key
+is accepted.
+
+Detection reads the Parquet footer and distinct shard values, and is cached by
+canonical path, modification time, and size. A per-server catalogue cache loads
+the required columns lazily in a worker thread, validates null and duplicate
+field/channel keys, and publishes immutable plate and field lookups only after
+the file has remained stable across the load. Index changes therefore reload
+atomically without blocking the event loop.
+
+Registry records keep the existing JSON format. Packed plates store the
+validated virtual key, while physical datasets retain strict filesystem
+canonicalization. This makes repeated links idempotent and allows a new server
+process to reopen the same packed plate without pretending the virtual suffix
+exists on disk. D1 exposes traversal and linking; summaries, wells and Zarr
+resources remain unavailable until the D2 facade is installed.

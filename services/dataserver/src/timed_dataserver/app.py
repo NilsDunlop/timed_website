@@ -14,6 +14,7 @@ from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
+import anyio
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 
@@ -28,6 +29,7 @@ from .models import (
     FilesystemEntry,
     FilesystemListResponse,
     HandshakeResponse,
+    OmeZarrInfo,
     PlateMetadataResponse,
     WellFieldsResponse,
 )
@@ -39,6 +41,15 @@ from .omezarr import (
     inspect_store,
     well_fields,
 )
+from .packed import (
+    PackedCatalogue,
+    PackedCatalogueCache,
+    PackedIndexError,
+    PackedVirtualPath,
+    get_catalogue_in_thread,
+    is_packed_index,
+    resolve_packed_virtual_path_in_thread,
+)
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
 from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
 from .registry import DatasetRegistry
@@ -47,6 +58,10 @@ RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 STREAM_BLOCK_SIZE = 1024 * 1024
 PRIVATE_CACHE_CONTROL = "private, max-age=3600"
 PRIVATE_RANGE_CACHE_CONTROL = "private, no-store"
+PACKED_PLATE_DESCRIPTOR = StoreDescriptor(
+    info=OmeZarrInfo(kind="plate", version="0.5", zarr_format=3),
+    layout="packed",
+)
 
 
 @dataclass(frozen=True)
@@ -68,7 +83,18 @@ def _not_found(detail: str) -> HTTPException:
 
 
 def _unprocessable(exc: Exception) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+
+
+def _quantity(count: int, singular: str) -> str:
+    return f"{count} {singular if count == 1 else singular + 's'}"
+
+
+def _packed_index_detail(catalogue: PackedCatalogue) -> str:
+    return (
+        f"{_quantity(len(catalogue.experiments), 'cell line')} · "
+        f"{_quantity(len(catalogue.plates), 'plate')}"
+    )
 
 
 def _descriptor_or_404(path: Path) -> StoreDescriptor:
@@ -248,6 +274,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     """Create one isolated data-server application."""
     guard = RootGuard(settings.data_roots)
     registry = DatasetRegistry(settings.state_dir)
+    packed_catalogues = PackedCatalogueCache()
     metadata_catalog = (
         PlateMetadataCatalog(settings.metadata_root) if settings.metadata_root is not None else None
     )
@@ -264,18 +291,40 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     app.state.guard = guard
     app.state.registry = registry
     app.state.metadata_catalog = metadata_catalog
+    app.state.packed_catalogues = packed_catalogues
 
-    def linked(dataset_id: str) -> tuple[DatasetRecord, Path, StoreDescriptor]:
+    async def packed_path(raw: str) -> PackedVirtualPath | None:
+        try:
+            return await resolve_packed_virtual_path_in_thread(
+                raw,
+                guard,
+                cache=packed_catalogues,
+            )
+        except PathForbiddenError as exc:
+            raise _forbidden(exc) from exc
+        except PathNotFoundError as exc:
+            raise _not_found(str(exc)) from exc
+        except PackedIndexError as exc:
+            raise _unprocessable(exc) from exc
+
+    async def linked(
+        dataset_id: str,
+    ) -> tuple[DatasetRecord, Path, StoreDescriptor, PackedVirtualPath | None]:
         record = registry.get(dataset_id)
         if record is None:
             raise _not_found("Dataset is not linked")
+        packed = await packed_path(record.path)
+        if packed is not None:
+            if packed.plate is None:
+                raise _not_found("Packed plate is no longer available")
+            return record, packed.index_path, PACKED_PLATE_DESCRIPTOR, packed
         try:
             path = guard.resolve(record.path)
         except PathForbiddenError as exc:
             raise _forbidden(exc) from exc
         except PathNotFoundError as exc:
             raise _not_found(str(exc)) from exc
-        return record, path, _descriptor_or_404(path)
+        return record, path, _descriptor_or_404(path), None
 
     @app.get("/api/handshake", response_model=HandshakeResponse)
     async def handshake() -> HandshakeResponse:
@@ -286,7 +335,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             hostname=socket.gethostname(),
             data_roots=[str(root) for root in guard.roots],
             python_version=platform.python_version(),
-            capabilities=Capabilities(plate_metadata=metadata_catalog is not None),
+            capabilities=Capabilities(
+                plate_metadata=metadata_catalog is not None,
+                packed_datasets=True,
+            ),
         )
 
     @app.get("/api/fs/list", response_model=FilesystemListResponse)
@@ -302,6 +354,45 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                         ome_zarr=(descriptor.info if (descriptor := inspect_store(root)) else None),
                     )
                     for root in guard.roots
+                ],
+            )
+        packed = await packed_path(path)
+        if packed is not None:
+            if packed.plate is not None:
+                raise HTTPException(status_code=400, detail="Packed plates are not listable")
+            if packed.experiment is None:
+                return FilesystemListResponse(
+                    path=packed.registry_key,
+                    entries=[
+                        FilesystemEntry(
+                            name=experiment,
+                            path=str(Path(packed.registry_key) / experiment),
+                            kind="dir",
+                            detail=_quantity(
+                                len(packed.catalogue.plates_for(experiment)),
+                                "plate",
+                            ),
+                        )
+                        for experiment in packed.catalogue.experiments
+                    ],
+                )
+
+            return FilesystemListResponse(
+                path=packed.registry_key,
+                entries=[
+                    FilesystemEntry(
+                        name=f"SQ000{plate}",
+                        path=str(Path(packed.registry_key) / str(plate)),
+                        kind="dir",
+                        ome_zarr=PACKED_PLATE_DESCRIPTOR.info,
+                        detail=(
+                            f"{_quantity(len(plate_info.wells), 'well')} · "
+                            f"{_quantity(len(plate_info.sites), 'site')} · "
+                            f"{_quantity(len(plate_info.channels), 'channel')}"
+                        ),
+                    )
+                    for plate in packed.catalogue.plates_for(packed.experiment)
+                    if (plate_info := packed.catalogue.plate(packed.experiment, plate)) is not None
                 ],
             )
         try:
@@ -335,6 +426,26 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             except (PathForbiddenError, PathNotFoundError):
                 continue
             is_directory = safe_child.is_dir()
+            packed_index = not is_directory and await anyio.to_thread.run_sync(
+                is_packed_index, safe_child
+            )
+            if packed_index:
+                try:
+                    catalogue = await get_catalogue_in_thread(
+                        safe_child,
+                        cache=packed_catalogues,
+                    )
+                except PackedIndexError as exc:
+                    raise _unprocessable(exc) from exc
+                entries.append(
+                    FilesystemEntry(
+                        name=child.name,
+                        path=str(safe_child),
+                        kind="dir",
+                        detail=_packed_index_detail(catalogue),
+                    )
+                )
+                continue
             descriptor = inspect_store(safe_child) if is_directory else None
             entries.append(
                 FilesystemEntry(
@@ -352,6 +463,18 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
 
     @app.post("/api/datasets", response_model=DatasetRecord, status_code=201)
     async def link_dataset(request: DatasetLinkRequest) -> DatasetRecord:
+        packed = await packed_path(request.path)
+        if packed is not None:
+            if packed.plate is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Link a packed plate, not an index or experiment",
+                )
+            return registry.link_key(
+                packed.registry_key,
+                request.name or f"SQ000{packed.plate}",
+                PACKED_PLATE_DESCRIPTOR.info,
+            )
         try:
             path = guard.resolve(request.path)
         except PathForbiddenError as exc:
@@ -375,7 +498,12 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
 
     @app.get("/api/datasets/{dataset_id}/summary", response_model=DatasetSummary)
     async def summarize_dataset(dataset_id: str) -> DatasetSummary:
-        _record, path, descriptor = linked(dataset_id)
+        _record, path, descriptor, packed = await linked(dataset_id)
+        if packed is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Packed dataset summaries are not available yet",
+            )
         try:
             return dataset_summary(path, descriptor)
         except PathForbiddenError as exc:
@@ -388,7 +516,12 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         response_model=WellFieldsResponse,
     )
     async def summarize_well(dataset_id: str, well_path: str) -> WellFieldsResponse:
-        _record, path, descriptor = linked(dataset_id)
+        _record, path, descriptor, packed = await linked(dataset_id)
+        if packed is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Packed dataset wells are not available yet",
+            )
         if descriptor.info.kind != "plate":
             raise HTTPException(status_code=422, detail="Dataset is not a plate")
         try:
@@ -403,7 +536,9 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         response_model=PlateMetadataResponse,
     )
     async def dataset_metadata(dataset_id: str) -> PlateMetadataResponse:
-        _record, path, descriptor = linked(dataset_id)
+        _record, path, descriptor, packed = await linked(dataset_id)
+        if packed is not None:
+            return PlateMetadataResponse(available=False)
         if descriptor.info.kind != "plate":
             return PlateMetadataResponse(available=False)
         if metadata_catalog is None:
@@ -425,7 +560,9 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
         if_range: Annotated[str | None, Header(alias="If-Range")] = None,
     ) -> Response:
-        _record, dataset_path, descriptor = linked(dataset_id)
+        _record, dataset_path, descriptor, packed = await linked(dataset_id)
+        if packed is not None:
+            raise _not_found("Packed Zarr resources are not available yet")
         try:
             guard.child(dataset_path, resource_path, must_exist=False)
             virtual = (

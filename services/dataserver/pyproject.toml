@@ -5,7 +5,9 @@ description = "Token-protected OME-Zarr data service for TIMED"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.142.2",
+  "pyarrow==26.0.0",
   "pydantic==2.12.5",
+  "tifffile==2026.10.15",
   "uvicorn==0.54.0",
   "zarr==3.4.0",
 ]

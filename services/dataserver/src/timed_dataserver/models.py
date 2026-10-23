@@ -14,6 +14,7 @@ class ApiModel(BaseModel):
 class Capabilities(ApiModel):
     gpu: bool = False
     plate_metadata: bool = False
+    packed_datasets: bool = False
 
 
 class HandshakeResponse(ApiModel):
@@ -37,6 +38,7 @@ class FilesystemEntry(ApiModel):
     path: str
     kind: Literal["dir", "file"]
     ome_zarr: OmeZarrInfo | None = None
+    detail: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class FilesystemListResponse(ApiModel):

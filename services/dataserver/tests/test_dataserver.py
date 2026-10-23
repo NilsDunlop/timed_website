@@ -22,7 +22,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 @pytest.fixture(scope="module")
 def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("dataserver-data")
-    generate_test_data(root)
+    generate_test_data(root, include_packed=False)
     (root / "ordinary").mkdir()
     (root / "notes.txt").write_text("not a dataset\n", encoding="utf-8")
     return root
@@ -96,7 +96,11 @@ def test_handshake_and_listing_detect_every_fixture(
         assert payload["api_version"] == "1.0"
         assert payload["environment"] == "local"
         assert payload["data_roots"] == [str(data_root.resolve())]
-        assert payload["capabilities"] == {"gpu": False, "plate_metadata": True}
+        assert payload["capabilities"] == {
+            "gpu": False,
+            "plate_metadata": True,
+            "packed_datasets": True,
+        }
 
         roots = client.get("/api/fs/list", headers=AUTH)
         assert roots.status_code == 200
