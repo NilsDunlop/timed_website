@@ -347,7 +347,7 @@ def _bare_image_summary(store: Path, field: Path) -> ImageSummary:
             ChannelSummary(
                 name=f"{wavelength} nm",
                 color=colors[index % len(colors)],
-                window=WindowSummary(min=0, max=65535, start=100, end=8000),
+                window=WindowSummary(min=0, max=65535, start=100, end=65535),
             )
             for index, wavelength in enumerate(wavelengths)
         ]

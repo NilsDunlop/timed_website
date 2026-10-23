@@ -297,7 +297,7 @@ test("starts a local server, renders time data, and stops it", async ({
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Browse TIMED" }),
+    page.getByRole("heading", { name: "Browse datasets", exact: true }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Well B1" }).click();

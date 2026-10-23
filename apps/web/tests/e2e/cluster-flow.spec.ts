@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { exerciseIdr0080Flow } from "./idr0080";
 import { pixelSignature } from "./viewer";
 
 test("connects through Slurm and renders plate plus native OME-Zarr data", async ({
@@ -97,28 +98,21 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
     const imageCanvas = page.locator(".canvas-frame canvas").first();
     const imageFrame = await pixelSignature(page, imageCanvas);
     expect(imageFrame.range).toBeGreaterThan(5);
+    for (const channel of ["405 nm", "505 nm", "625 nm"]) {
+      const checkbox = page.getByRole("checkbox", {
+        name: channel,
+        exact: true,
+      });
+      const channelControl = page.locator(".channel-control").filter({
+        has: checkbox,
+      });
+      await expect(checkbox).toBeChecked();
+      await expect(channelControl).toContainText("Contrast minimum: 100");
+      await expect(channelControl).toContainText("Contrast maximum: 8000");
+    }
   }
 
-  await page.getByRole("link", { name: "Data", exact: true }).click();
-  await datasetSelector.selectOption("idr0080");
-  await page
-    .locator(".file-list li")
-    .filter({ hasText: "idr0080-A549" })
-    .getByRole("button", { name: "Open folder" })
-    .click();
-  const packedPlate = page.locator(".file-list li").filter({
-    hasText: "SQ00014610",
-  });
-  await packedPlate.getByRole("button", { name: "Open" }).click();
-  await expect(page.getByRole("heading", { name: "SQ00014610" })).toBeVisible();
-  await page.getByRole("button", { name: "Well A1" }).click();
-  await page.getByTestId("open-selected").click();
-  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
-    timeout: 60_000,
-  });
-  const packedCanvas = page.locator(".canvas-frame canvas").first();
-  const packedFrame = await pixelSignature(page, packedCanvas);
-  expect(packedFrame.range).toBeGreaterThan(5);
+  await exerciseIdr0080Flow(page);
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await page

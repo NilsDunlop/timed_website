@@ -27,11 +27,13 @@ import {
   timeJumpOptions,
 } from "../lib/timeNavigation";
 import { FrameReadinessTracker } from "../lib/frameReadiness";
+import { channelLabelsMatch, imageChannelLabels } from "../lib/imageSummary";
 import { V3FetchStore } from "../lib/v3FetchStore";
 import { viewerDebug } from "../lib/viewerDebug";
 import PlateMetadataPanel, {
   doseLabel,
   findWellMetadata,
+  metadataLabels,
   type PlateMetadata,
   wellIdFromPath,
 } from "./PlateMetadataPanel";
@@ -74,8 +76,9 @@ type ViewerSourceState = {
 };
 
 type ViewerSourceIdentity = {
+  compoundLabel: string;
   compound: string;
-  concentration: string;
+  concentration: string | null;
   well: string;
   site: string;
   plate: string;
@@ -118,10 +121,16 @@ function siteIdFromPath(path: string): string | undefined {
 function viewerSourceIdentity(source: ViewerSourceState): ViewerSourceIdentity {
   const wellId = wellIdFromPath(source.path);
   const well = findWellMetadata(source.metadata, wellId);
+  const labels = metadataLabels(source.metadata);
   return {
+    compoundLabel: labels.compound,
     compound:
-      well?.compound?.trim() || (well?.is_control ? "Control" : "Not specified"),
-    concentration: doseLabel(well?.dose_um),
+      well?.compound?.trim() ||
+      (well?.is_control ? labels.control : "Not specified"),
+    concentration:
+      source.metadata?.labels && well?.dose_um == null
+        ? null
+        : doseLabel(well?.dose_um),
     well: wellId ?? "Not specified",
     site: siteIdFromPath(source.path) ?? "Not specified",
     plate: source.metadata?.plate?.plate_id?.trim() || "Not specified",
@@ -144,13 +153,15 @@ function ViewerSourceFacts({
       data-testid="viewer-source-facts"
     >
       <div className="viewer-source-compound">
-        <dt>Compound</dt>
+        <dt>{identity.compoundLabel}</dt>
         <dd>{identity.compound}</dd>
       </div>
-      <div>
-        <dt>Concentration</dt>
-        <dd>{identity.concentration}</dd>
-      </div>
+      {identity.concentration != null && (
+        <div>
+          <dt>Concentration</dt>
+          <dd>{identity.concentration}</dd>
+        </div>
+      )}
       <div>
         <dt>Well</dt>
         <dd>{identity.well}</dd>
@@ -220,8 +231,10 @@ async function channelStates(
     let start = metadata?.window?.start;
     let end = metadata?.window?.end;
     let domain: [number, number] = [minimum, maximum];
+    const declaredContrast: [number, number] | null =
+      start != null && end != null ? [start, end] : null;
 
-    if (start == null || end == null) {
+    if (declaredContrast == null) {
       try {
         const raster = await source.getRaster({
           selection: selectionFor(source, index, 0, 0),
@@ -238,9 +251,9 @@ async function channelStates(
     states.push({
       name: metadata?.name ?? "Channel " + String(index + 1),
       color: parseColor(metadata?.color, index),
-      visible: true,
+      visible: metadata?.active ?? true,
       domain,
-      contrast: [start ?? domain[0], domain[1]],
+      contrast: declaredContrast ?? [start ?? domain[0], domain[1]],
     });
   }
   return states;
@@ -472,6 +485,24 @@ export default function ImageViewer() {
             metadata: details.metadata,
           };
         });
+        const expectedChannelLabels = configuredSources[0]
+          ? imageChannelLabels(configuredSources[0].image)
+          : undefined;
+        if (
+          expectedChannelLabels &&
+          configuredSources
+            .slice(1)
+            .some((source) =>
+              !channelLabelsMatch(
+                expectedChannelLabels,
+                imageChannelLabels(source.image),
+              ),
+            )
+        ) {
+          throw new Error(
+            "The selected fields have different channels and cannot be compared.",
+          );
+        }
 
         async function loadSource(source: {
           datasetId: string;
@@ -1045,7 +1076,7 @@ export default function ImageViewer() {
         <aside id="image-controls" className="panel viewer-controls stack">
         <div>
           <p className="eyebrow">Image controls</p>
-          <h2>Time and channels</h2>
+          <h2>{timeCount <= 1 ? "Channels" : "Time and channels"}</h2>
         </div>
 
         {timeCount > 1 && (
@@ -1151,7 +1182,7 @@ export default function ImageViewer() {
           </label>
         )}
 
-        <h3 className="viewer-channel-heading">Channels</h3>
+        {timeCount > 1 && <h3 className="viewer-channel-heading">Channels</h3>}
 
         {channels.map((channel, index) => {
           const step = Math.max(
@@ -1370,9 +1401,11 @@ export default function ImageViewer() {
             shape {firstLevel?.shape.join(" × ") ?? source?.shape.join(" × ") ?? "—"}
           </span>
           <span>dtype {firstLevel?.dtype ?? source?.dtype ?? "—"}</span>
-          <span data-testid="displayed-time">
+          {timeCount > 1 && (
+            <span data-testid="displayed-time">
             t {displayedTime == null ? "—" : displayedTime + 1} / {timeCount}
-          </span>
+            </span>
+          )}
         </p>
 
         {comparing ? (

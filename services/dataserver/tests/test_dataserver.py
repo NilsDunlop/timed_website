@@ -519,6 +519,28 @@ def test_collection_plate_well_summary_and_ome_facade(
         assert missing.status_code == 404
 
 
+def test_timed_facade_declares_the_legacy_window_end(
+    client_factory: Callable[[Path | None], TestClient],
+    data_root: Path,
+) -> None:
+    with client_factory() as client:
+        record = _link(client, data_root / "test_plate.zarr")
+        dataset_id = record["id"]
+        summary = client.get(f"/api/datasets/{dataset_id}/summary", headers=AUTH).json()
+        group = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json",
+            headers=AUTH,
+        ).json()
+
+    assert [
+        channel["window"]["end"] for channel in summary["first_image"]["channels"]
+    ] == [65_535.0] * 3
+    assert [
+        channel["window"]["end"]
+        for channel in group["attributes"]["ome"]["omero"]["channels"]
+    ] == [65_535.0] * 3
+
+
 def test_collection_plate_metadata_joins_wells_and_acquisition(
     client_factory: Callable[[Path | None], TestClient],
     data_root: Path,

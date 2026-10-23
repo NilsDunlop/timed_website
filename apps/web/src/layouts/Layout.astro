@@ -420,11 +420,43 @@ const { title } = Astro.props;
   }
 
   .well {
+    position: relative;
     min-width: 3rem;
     padding: 0.45rem;
     border-color: color-mix(in srgb, var(--well-color, #284b31) 65%, #284b31);
     color: #172019;
     background: color-mix(in srgb, var(--well-color, #dce8dd) 28%, white);
+  }
+
+  .well-badge {
+    position: absolute;
+    top: -0.35rem;
+    right: -0.35rem;
+    display: grid;
+    min-width: 1.15rem;
+    min-height: 1.15rem;
+    padding: 0.1rem 0.25rem;
+    place-items: center;
+    border-radius: 999px;
+    color: white;
+    background: #284b31;
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  .well-markers {
+    position: absolute;
+    right: 0.2rem;
+    bottom: 0.2rem;
+    display: flex;
+    gap: 0.12rem;
+  }
+
+  .well-markers i {
+    width: 0.35rem;
+    height: 0.35rem;
+    border-radius: 50%;
+    background: var(--well-marker-color, #284b31);
   }
 
   .well.selected {

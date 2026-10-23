@@ -9,11 +9,20 @@ import {
   initialCollection,
   pathIsInCollection,
 } from "../lib/collectionNavigation";
+import {
+  channelLabelsMatch,
+  imageAxisSize,
+  imageChannelLabels,
+} from "../lib/imageSummary";
 import PlateMetadataPanel, {
   doseLabel,
+  metadataLabels,
   type PlateMetadata,
-  type WellMetadata,
 } from "./PlateMetadataPanel";
+import PlateGrid, {
+  plateGridKey,
+  type PlateGridWell,
+} from "./PlateGrid";
 
 type Dataset = components["schemas"]["DatasetRecord"];
 type DataCollection = connectorComponents["schemas"]["CollectionConfig"];
@@ -30,6 +39,8 @@ type WellSelection = {
   path: string;
   fields: Field[];
   fieldPath: string;
+  channelLabels: string[];
+  timepointCount: number;
 };
 type ViewerSource = {
   datasetId: string;
@@ -47,6 +58,18 @@ const metadataColors = [
   "#c24f65",
   "#9a812f",
 ];
+
+function imageFromSummary(summary: Summary | null) {
+  if (!summary) return null;
+  return summary.kind === "image" ? summary : (summary.first_image ?? null);
+}
+
+function pluralizeFilterLabel(label: string): string {
+  const lower = label.toLocaleLowerCase();
+  if (lower.endsWith("y")) return lower.slice(0, -1) + "ies";
+  if (lower.endsWith("s")) return lower;
+  return lower + "s";
+}
 
 function viewerHref(
   primary: ViewerSource,
@@ -81,6 +104,12 @@ function ComparisonTray({
   onRemoveWell: (datasetId: string, wellPath: string) => void;
 }) {
   if (wells.length === 0) return null;
+  const singleTimepoint = wells.every((well) => well.timepointCount <= 1);
+  const channelMismatch = wells
+    .slice(1)
+    .some((well) =>
+      !channelLabelsMatch(wells[0].channelLabels, well.channelLabels),
+    );
   return (
     <div className="subpanel well-selection-panel" data-testid="well-selection">
       <div className="section-heading">
@@ -152,10 +181,17 @@ function ComparisonTray({
       </div>
 
       <div className="comparison-action">
-        <p className="muted">
-          {wells.length === 1
-            ? "Inspect side A now, or open another well to add side B."
-            : "Time, channels, pan, and zoom will stay synchronized."}
+        <p
+          className="muted"
+          data-testid={channelMismatch ? "comparison-guard" : undefined}
+        >
+          {channelMismatch
+            ? "Comparison is unavailable because the selected fields have different channel labels."
+            : wells.length === 1
+              ? "Inspect side A now, or open another well to add side B."
+              : singleTimepoint
+                ? "Channels, pan, and zoom will stay synchronized."
+                : "Time, channels, pan, and zoom will stay synchronized."}
         </p>
         {wells.length === 1 && wells[0].fieldPath && (
           <a
@@ -170,28 +206,40 @@ function ComparisonTray({
               wells[0].collectionId,
             )}
           >
-            Open trajectory
+            {wells[0].timepointCount <= 1 ? "Open field" : "Open trajectory"}
           </a>
         )}
-        {wells.length >= 2 && wells.every((well) => well.fieldPath) && (
-          <a
-            className="button-link"
-            data-testid="open-comparison"
-            href={viewerHref(
-              {
-                datasetId: wells[0].datasetId,
-                imagePath: wells[0].fieldPath,
-              },
-              wells.slice(1).map((well) => ({
-                datasetId: well.datasetId,
-                imagePath: well.fieldPath,
-              })),
-              wells[0].collectionId,
-            )}
-          >
-            Compare {wells.length} trajectories
-          </a>
-        )}
+        {wells.length >= 2 &&
+          wells.every((well) => well.fieldPath) &&
+          (channelMismatch ? (
+            <button
+              type="button"
+              className="button-link"
+              data-testid="open-comparison"
+              disabled
+            >
+              Compare {wells.length} {singleTimepoint ? "fields" : "trajectories"}
+            </button>
+          ) : (
+            <a
+              className="button-link"
+              data-testid="open-comparison"
+              href={viewerHref(
+                {
+                  datasetId: wells[0].datasetId,
+                  imagePath: wells[0].fieldPath,
+                },
+                wells.slice(1).map((well) => ({
+                  datasetId: well.datasetId,
+                  imagePath: well.fieldPath,
+                })),
+                wells[0].collectionId,
+              )}
+            >
+              Compare {wells.length}{" "}
+              {singleTimepoint ? "fields" : "trajectories"}
+            </a>
+          ))}
       </div>
     </div>
   );
@@ -501,6 +549,11 @@ export default function DataBrowser() {
       return;
     }
     if (selectedWells.length >= MAX_COMPARISON_SOURCES) return;
+    const selectedImage = imageFromSummary(summary);
+    const channelLabels = selectedImage ? imageChannelLabels(selectedImage) : [];
+    const timepointCount = selectedImage
+      ? imageAxisSize(selectedImage, "t")
+      : 1;
     await run(async () => {
       const result = await dataServerClient.GET(
         "/api/datasets/{dataset_id}/wells/{well_path}",
@@ -532,6 +585,8 @@ export default function DataBrowser() {
             path: wellPath,
             fields,
             fieldPath: fields[0]?.path ?? "",
+            channelLabels,
+            timepointCount,
           },
         ];
       });
@@ -556,13 +611,6 @@ export default function DataBrowser() {
     );
   }
 
-  const wells = useMemo(() => {
-    if (!summary || summary.kind !== "plate") return new Map<string, string>();
-    return new Map(
-      summary.wells.map((well) => [well.row + "\u0000" + well.column, well.path]),
-    );
-  }, [summary]);
-
   const metadataByWell = useMemo(
     () =>
       new Map(
@@ -570,6 +618,7 @@ export default function DataBrowser() {
       ),
     [metadata],
   );
+  const labels = metadataLabels(metadata);
 
   const compoundOptions = useMemo(() => {
     const compounds = new Map<string, Set<number>>();
@@ -602,29 +651,83 @@ export default function DataBrowser() {
       new Map(
         moaOptions.map((moa, index) => [
           moa,
-          metadataColors[index % metadataColors.length],
+          metadata?.category_colors?.[moa] ??
+            metadataColors[index % metadataColors.length],
         ]),
       ),
-    [moaOptions],
+    [metadata?.category_colors, moaOptions],
   );
 
   const filtersActive =
     compoundFilter !== "" || moaFilter !== "" || wellKind !== "all";
-
-  function wellMatches(well: WellMetadata | undefined): boolean {
-    if (!well) return false;
-    if (compoundFilter && well.compound !== compoundFilter) return false;
-    if (moaFilter && well.moa !== moaFilter) return false;
-    if (wellKind === "control" && !well.is_control) return false;
-    if (wellKind === "treatment" && well.is_control) return false;
-    return true;
-  }
 
   function clearMetadataFilters() {
     setCompoundFilter("");
     setMoaFilter("");
     setWellKind("all");
   }
+
+  const plateGridWells = useMemo(() => {
+    const result = new Map<string, PlateGridWell>();
+    if (!summary || summary.kind !== "plate" || !selected) return result;
+    for (const well of summary.wells) {
+      const wellMetadata = metadataByWell.get(
+        well.row.toUpperCase() + String(well.column).padStart(2, "0"),
+      );
+      const matches = Boolean(
+        wellMetadata &&
+          (!compoundFilter || wellMetadata.compound === compoundFilter) &&
+          (!moaFilter || wellMetadata.moa === moaFilter) &&
+          (wellKind !== "control" || wellMetadata.is_control) &&
+          (wellKind !== "treatment" || !wellMetadata.is_control),
+      );
+      const selectedIndex = selectedWells.findIndex(
+        (selection) =>
+          selection.datasetId === selected.id && selection.path === well.path,
+      );
+      const color = wellMetadata?.is_control
+        ? "#7b8490"
+        : wellMetadata?.moa
+          ? moaColors.get(wellMetadata.moa)
+          : undefined;
+      const description = wellMetadata
+        ? [
+            wellMetadata.compound,
+            wellMetadata.dose_um == null ? null : doseLabel(wellMetadata.dose_um),
+            wellMetadata.is_control ? labels.control : wellMetadata.moa,
+          ]
+            .filter(Boolean)
+            .join(" \u00b7 ")
+        : undefined;
+      result.set(plateGridKey(well.row, well.column), {
+        id: well.path,
+        row: well.row,
+        column: well.column,
+        color,
+        selected: selectedIndex >= 0,
+        control: wellMetadata?.is_control,
+        highlighted: filtersActive && matches,
+        dimmed: filtersActive && !matches,
+        disabled:
+          busy ||
+          (selectedWells.length >= MAX_COMPARISON_SOURCES && selectedIndex < 0),
+        title: description,
+      });
+    }
+    return result;
+  }, [
+    busy,
+    compoundFilter,
+    filtersActive,
+    labels.control,
+    metadataByWell,
+    moaColors,
+    moaFilter,
+    selected,
+    selectedWells,
+    summary,
+    wellKind,
+  ]);
 
   const collectionEntries = activeCollection
     ? entries.filter((entry) => entry.kind !== "file" || Boolean(entry.ome_zarr))
@@ -892,7 +995,11 @@ export default function DataBrowser() {
                   <div className="section-heading">
                     <div>
                       <p className="eyebrow">Well highlighting</p>
-                      <h3>Find treatments</h3>
+                      <h3>
+                        {metadata.labels
+                          ? "Find " + pluralizeFilterLabel(labels.compound)
+                          : "Find treatments"}
+                      </h3>
                     </div>
                     {filtersActive && (
                       <button
@@ -906,13 +1013,19 @@ export default function DataBrowser() {
                   </div>
                   <div className="metadata-filters">
                     <label>
-                      <span>Compound and dose</span>
+                      <span>
+                        {metadata.labels ? labels.compound : "Compound and dose"}
+                      </span>
                       <select
                         data-testid="compound-filter"
                         value={compoundFilter}
                         onChange={(event) => setCompoundFilter(event.target.value)}
                       >
-                        <option value="">All compounds</option>
+                        <option value="">
+                          {metadata.labels
+                            ? "All " + pluralizeFilterLabel(labels.compound)
+                            : "All compounds"}
+                        </option>
                         {compoundOptions.map(({ compound, doses }) => (
                           <option key={compound} value={compound}>
                             {compound}
@@ -924,13 +1037,19 @@ export default function DataBrowser() {
                       </select>
                     </label>
                     <label>
-                      <span>Mechanism class</span>
+                      <span>
+                        {metadata.labels ? labels.moa : "Mechanism class"}
+                      </span>
                       <select
                         data-testid="moa-filter"
                         value={moaFilter}
                         onChange={(event) => setMoaFilter(event.target.value)}
                       >
-                        <option value="">All MOA classes</option>
+                        <option value="">
+                          {metadata.labels
+                            ? "All " + pluralizeFilterLabel(labels.moa)
+                            : "All MOA classes"}
+                        </option>
                         {moaOptions.map((moa) => (
                           <option key={moa} value={moa}>
                             {moa}
@@ -939,7 +1058,7 @@ export default function DataBrowser() {
                       </select>
                     </label>
                     <label>
-                      <span>Well type</span>
+                      <span>{metadata.labels ? labels.control : "Well type"}</span>
                       <select
                         data-testid="well-kind-filter"
                         value={wellKind}
@@ -954,7 +1073,9 @@ export default function DataBrowser() {
                       >
                         <option value="all">All wells</option>
                         <option value="treatment">Treatments</option>
-                        <option value="control">Controls</option>
+                        <option value="control">
+                          {metadata.labels ? labels.control : "Controls"}
+                        </option>
                       </select>
                     </label>
                   </div>
@@ -1021,104 +1142,18 @@ export default function DataBrowser() {
                   {(metadata.wells ?? []).some((well) => well.is_control) && (
                     <span>
                       <i className="control" aria-hidden="true" />
-                      Control
+                      {labels.control}
                     </span>
                   )}
                 </div>
               )}
 
-              <div
-                className="well-grid"
-                role="grid"
-                aria-label="Plate wells"
-                style={{
-                  gridTemplateColumns:
-                    "minmax(2.5rem, auto) repeat(" +
-                    String(summary.columns.length) +
-                    ", minmax(3rem, 1fr))",
-                }}
-              >
-                <span aria-hidden="true" />
-                {summary.columns.map((column) => (
-                  <strong key={column} className="well-label">
-                    {column}
-                  </strong>
-                ))}
-                {summary.rows.flatMap((row) => [
-                  <strong key={"row-" + row} className="well-label">
-                    {row}
-                  </strong>,
-                  ...summary.columns.map((column) => {
-                    const path = wells.get(row + "\u0000" + column);
-                    const wellMetadata = metadataByWell.get(
-                      row.toUpperCase() + String(column).padStart(2, "0"),
-                    );
-                    const matches = wellMatches(wellMetadata);
-                    const color = wellMetadata?.is_control
-                      ? "#7b8490"
-                      : wellMetadata?.moa
-                        ? moaColors.get(wellMetadata.moa)
-                        : undefined;
-                    const selectedIndex = path
-                      ? selectedWells.findIndex(
-                          (well) =>
-                            well.datasetId === selected.id && well.path === path,
-                        )
-                      : -1;
-                    const classes = [
-                      "well",
-                      selectedIndex >= 0 ? "selected" : "",
-                      wellMetadata?.is_control ? "well-control" : "",
-                      filtersActive && matches ? "well-highlighted" : "",
-                      filtersActive && !matches ? "well-dimmed" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ");
-                    const description = wellMetadata
-                      ? [
-                          wellMetadata.compound,
-                          wellMetadata.dose_um == null
-                            ? null
-                            : doseLabel(wellMetadata.dose_um),
-                          wellMetadata.is_control ? "Control" : wellMetadata.moa,
-                        ]
-                          .filter(Boolean)
-                          .join(" \u00b7 ")
-                      : undefined;
-                    return path ? (
-                      <button
-                        type="button"
-                        key={row + column}
-                        className={classes}
-                        style={
-                          color
-                            ? ({ "--well-color": color } as CSSProperties)
-                            : undefined
-                        }
-                        disabled={
-                          busy ||
-                          (selectedWells.length >= MAX_COMPARISON_SOURCES &&
-                            selectedIndex < 0)
-                        }
-                        aria-label={"Well " + row + column}
-                        aria-pressed={selectedIndex >= 0}
-                        title={description}
-                        onClick={() => toggleWell(path)}
-                      >
-                        {row + column}
-                      </button>
-                    ) : (
-                      <span
-                        key={row + column}
-                        className="well missing"
-                        aria-label={"Well " + row + column + " absent"}
-                      >
-                        —
-                      </span>
-                    );
-                  }),
-                ])}
-              </div>
+              <PlateGrid
+                rows={summary.rows}
+                columns={summary.columns}
+                wells={plateGridWells}
+                onSelect={(well) => void toggleWell(well.id)}
+              />
 
               <ComparisonTray
                 wells={selectedWells}

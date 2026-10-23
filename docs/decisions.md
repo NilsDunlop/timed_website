@@ -340,3 +340,25 @@ metadata fails only the metadata request. The response exposes gene and well
 type labels, fixed category colours, control semantics, guide details, plate
 identity, cell line, and acquisition facts. New response fields are optional
 and omitted when absent, preserving byte-for-byte legacy TIMED JSON bodies.
+
+## 2026-10-23: honor declared display metadata and compare compatible fields
+
+Complete channel windows are authoritative: when both bounds are declared, the
+viewer uses them verbatim. Channels without a complete window keep the existing
+automatic-statistics path. The TIMED facade now declares 65,535 as its window
+end, which preserves TIMED's established display while allowing native and
+packed datasets to use their intended contrast. OMERO `active` values determine
+initial visibility, defaulting to visible only when the value is absent.
+
+Metadata labels and category colours are presentation data rather than
+IDR0080-specific UI rules. They drive filter, legend, source-fact and metadata
+slots, while legacy responses retain their existing names and missing-value
+text. Single-timepoint images omit time navigation and use field-oriented
+actions; time-resolved TIMED images retain trajectory wording and controls.
+
+Comparison entries store the effective ordered channel labels, including
+axis-derived `Channel N` fallbacks. The tray and viewer share the same label
+derivation and reject differing lists before image loading. Plate rendering is
+now a presentation-only shared `PlateGrid` with colour, badge, marker and
+dimming inputs, so later QC views can reuse the geometry without coupling their
+data model to the Data page.

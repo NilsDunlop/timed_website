@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { exerciseIdr0080Flow } from "./idr0080";
+
 test("scopes collection browsing and restores an opened plate", async ({ page }) => {
   await page.goto("/");
   await page
@@ -64,7 +66,21 @@ test("scopes collection browsing and restores an opened plate", async ({ page })
   await expect(packedPlate).toContainText("5 wells · 2 sites · 5 channels");
   await packedPlate.getByRole("button", { name: "Open" }).click();
   await expect(page.getByRole("heading", { name: "SQ00014610" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Well A1" })).toBeVisible();
+  const packedWell = page.getByRole("button", { name: "Well A1" });
+  await expect(packedWell).toBeVisible();
+  await packedWell.click();
+  await expect(tray.locator(".comparison-source-card")).toHaveCount(2);
+  await expect(page.getByTestId("open-comparison")).toBeDisabled();
+  await expect(page.getByTestId("comparison-guard")).toContainText(
+    "different channel labels",
+  );
+  await tray
+    .getByRole("button", {
+      name: "Remove SQ00014610 A01 from tray",
+      exact: true,
+    })
+    .click();
+  await expect(tray.locator(".comparison-source-card")).toHaveCount(1);
 
   await datasetSelector.selectOption("__files__");
   await expect(page).toHaveURL(/\/data$/);
@@ -106,6 +122,8 @@ test("scopes collection browsing and restores an opened plate", async ({ page })
   await expect(
     page.getByRole("button", { name: "test_plate", exact: true }),
   ).toHaveCount(0);
+
+  await exerciseIdr0080Flow(page);
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await page
