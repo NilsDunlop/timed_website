@@ -75,6 +75,23 @@ passwords, verification codes, key passphrases, or data-server tokens here.
   cache. Completed prefetches become foreground cache hits; an in-flight
   prefetch has a short handoff window instead of being cancelled and restarted.
 
+## A1 browser checklist
+
+1. Confirm TIMED is preselected and unchanged from the TIMED-only release.
+2. Open idr0080, A549, `SQ00014610`, well `A01`, site 1, and compare it
+   with the inspection previews.
+3. Compare `A01` across three plates in different cell lines, plus an EMPTY
+   control.
+4. For the channel-colour sanity check, open `SQ00014613` (ES2), well `A01`
+   (EMPTY), site 1. Crop to pixels 216-432 in x and y, then compare channel by
+   channel with Cell Health v2.0's
+   [`1.generate-profiles/figures/example_images/color_channel.png`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/1.generate-profiles/figures/example_images/color_channel.png).
+5. Disconnect after viewing images and confirm it reaches a final state within
+   a few seconds.
+6. Record field-opening timings in this document. If a field takes more than
+   3 seconds, try full-plane chunks, then building Viv selections only for
+   visible channels, then 4 CPUs, keeping only changes that help.
+
 ## Troubleshooting
 
 - Job pending indefinitely: verify the account and partition.

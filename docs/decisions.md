@@ -380,3 +380,17 @@ focused source well. The target summary supplies channel labels and timepoint
 count, so the existing compatibility guard remains authoritative. Tray
 mutations are disabled while an add is in flight; the four-field limit and
 site picker continue to apply across linked plates.
+
+## 2026-10-26: adopt the Cell Health authors' IDR0080 channel colours
+
+The authoritative palette is the `channel_colors` mapping in
+[`broadinstitute/cell-health` v2.0's `scripts/grabPictures.py`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/scripts/grabPictures.py#L75-L82):
+DNA `0000FF`, ER `00FF00`, RNA `FFFF00`, AGP `FF9600` and Mito
+`FF0000`. Tag v2.0 resolves to commit
+`cd91bd0daacef2b5ea25dcceb62482bb664d9de1`.
+
+TIMED adopts those hues while leaving DNA, ER and AGP visible by default. The
+authors' figure helper stretches every cropped channel independently from its
+1st to 99th percentile before colourising it. TIMED deliberately retains the
+fixed per-cell-line contrast windows in Appendix B.2 instead, because a stable
+intensity mapping makes brightness comparable from well to well.

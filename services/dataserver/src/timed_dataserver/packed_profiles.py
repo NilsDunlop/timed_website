@@ -164,7 +164,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=3,
         label="RNA",
-        color="00FFFF",
+        color="FFFF00",
         active=False,
         windows=(
             _window("A549", 26_000, 554, 9_283),
@@ -175,7 +175,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=4,
         label="AGP",
-        color="FF0000",
+        color="FF9600",
         active=True,
         windows=(
             _window("A549", 14_000, 151, 5_035),
@@ -186,7 +186,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=5,
         label="Mito",
-        color="FF00FF",
+        color="FF0000",
         active=False,
         windows=(
             _window("A549", 15_000, 324, 4_066),

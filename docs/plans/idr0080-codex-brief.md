@@ -763,11 +763,17 @@ The stains are DNA, ER, AGP, RNA and Mito.
 | --- | --- | --- | --- |
 | 1 | DNA | `0000FF` | yes |
 | 2 | ER | `00FF00` | yes |
-| 3 | RNA | `00FFFF` | no |
-| 4 | AGP | `FF0000` | yes |
-| 5 | Mito | `FF00FF` | no |
+| 3 | RNA | `FFFF00` | no |
+| 4 | AGP | `FF9600` | yes |
+| 5 | Mito | `FF0000` | no |
 
 The order comes from CellPrompter's records, which map the original source files `ch1…ch5` to these stains. "Shown by default: no" is encoded as OMERO's `"active": false`.
+
+Colours follow the Cell Health authors'
+[`channel_colors` mapping in `scripts/grabPictures.py` at v2.0](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/scripts/grabPictures.py#L75-L82).
+Their figure code stretches each cropped channel independently from its 1st to
+99th percentile; TIMED keeps the fixed cell-line windows in B.2 so brightness
+remains comparable between wells.
 
 ### B.2 Contrast windows
 
