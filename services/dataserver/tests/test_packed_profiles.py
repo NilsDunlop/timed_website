@@ -123,11 +123,11 @@ def test_idr0080_fixture_profile_identity_and_geometry_are_pinned() -> None:
 def test_idr0080_fixture_channels_and_windows_match_appendix_b() -> None:
     profile = IDR0080_FIXTURE_PROFILE
     expected = (
-        (1, "DNA", "0000FF", True, (27_000, 292, 11_552), (27_000, 234, 12_971)),
-        (2, "ER", "00FF00", True, (45_000, 438, 17_554), (45_000, 309, 18_238)),
-        (3, "RNA", "FFFF00", False, (26_000, 554, 9_283), (26_000, 375, 10_793)),
-        (4, "AGP", "FF9600", True, (14_000, 151, 5_035), (14_000, 108, 5_778)),
-        (5, "Mito", "FF0000", False, (15_000, 324, 4_066), (15_000, 334, 7_120)),
+        (1, "DNA", "1300F9", True, (27_000, 292, 11_552), (27_000, 234, 12_971)),
+        (2, "ER", "2AFF1F", True, (45_000, 438, 17_554), (45_000, 309, 18_238)),
+        (3, "RNA", "2DFFFC", False, (26_000, 554, 9_283), (26_000, 375, 10_793)),
+        (4, "AGP", "FF0019", True, (14_000, 151, 5_035), (14_000, 108, 5_778)),
+        (5, "Mito", "FA00FD", False, (15_000, 324, 4_066), (15_000, 334, 7_120)),
     )
 
     assert (
@@ -158,6 +158,7 @@ def test_idr0080_fixture_channels_and_windows_match_appendix_b() -> None:
         for cell_line in ("A549", "ES2")
     )
     assert profile.cell_line_for("idr0080-A549") == "A549"
+    assert profile.experiment_display_name("idr0080-A549") == "A549"
     assert profile.cell_line_for("idr0080-ES2") == "ES2"
     assert profile.cell_line_for("idr0080-HCC44") is None
     assert profile.channel(6) is None
@@ -180,8 +181,13 @@ def test_real_idr0080_profile_identity_geometry_and_codec_are_exactly_pinned() -
         ("idr0080-HCC44", "HCC44"),
     )
     assert profile.metadata_path == "metadata/metadata_idr0080.csv"
+    assert profile.display_name == "Cell Health"
     assert profile.member_prefix == "idr0080/raw/"
     assert profile.plate_name(14618) == "SQ00014618"
+    assert (
+        profile.plate_display_name("idr0080-HCC44", 14618)
+        == "Cell Health \u00b7 HCC44 \u00b7 SQ00014618"
+    )
     assert profile.auto_contrast is False
     assert (
         profile.codec.cname,
@@ -197,7 +203,7 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         (
             1,
             "DNA",
-            "0000FF",
+            "1300F9",
             True,
             (
                 ("A549", 0, 27_000, 292, 11_552),
@@ -208,7 +214,7 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         (
             2,
             "ER",
-            "00FF00",
+            "2AFF1F",
             True,
             (
                 ("A549", 0, 45_000, 438, 17_554),
@@ -219,7 +225,7 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         (
             3,
             "RNA",
-            "FFFF00",
+            "2DFFFC",
             False,
             (
                 ("A549", 0, 26_000, 554, 9_283),
@@ -230,7 +236,7 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         (
             4,
             "AGP",
-            "FF9600",
+            "FF0019",
             True,
             (
                 ("A549", 0, 14_000, 151, 5_035),
@@ -241,7 +247,7 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         (
             5,
             "Mito",
-            "FF0000",
+            "FA00FD",
             False,
             (
                 ("A549", 0, 15_000, 324, 4_066),

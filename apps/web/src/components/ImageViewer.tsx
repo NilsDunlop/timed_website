@@ -385,6 +385,9 @@ export default function ImageViewer() {
   });
   const [viewerSources, setViewerSources] = useState<ViewerSourceState[]>([]);
   const [channels, setChannels] = useState<ChannelState[]>([]);
+  const [grayscaleChannelIndex, setGrayscaleChannelIndex] = useState<
+    number | null
+  >(null);
   const [requestedTime, setRequestedTime] = useState(0);
   const [renderTime, setRenderTime] = useState(0);
   const [displayedTime, setDisplayedTime] = useState<number | null>(null);
@@ -599,6 +602,7 @@ export default function ImageViewer() {
         setJumpFrames(1);
         setViewerSources(loadedSources);
         setChannels(initialChannels);
+        setGrayscaleChannelIndex(null);
         setViewState(null);
         setStatus(
           loadedSources.length > 1 ? "Rendering images…" : "Rendering image…",
@@ -648,6 +652,17 @@ export default function ImageViewer() {
       ? Math.min(...imageSources.map((imageSource) => axisSize(imageSource, "z")))
       : 1;
   const channelCount = channels.length;
+  const renderedChannels = useMemo(
+    () =>
+      grayscaleChannelIndex == null
+        ? channels
+        : channels.map((channel, index) => ({
+            ...channel,
+            color: [255, 255, 255] as [number, number, number],
+            visible: index === grayscaleChannelIndex,
+          })),
+    [channels, grayscaleChannelIndex],
+  );
   const readyKeys = useMemo(
     () => viewerSources.map((viewerSource) => viewerSource.readyKey),
     [viewerSources],
@@ -1196,6 +1211,7 @@ export default function ImageViewer() {
                   <input
                     type="checkbox"
                     checked={channel.visible}
+                    disabled={grayscaleChannelIndex != null}
                     onChange={(event) =>
                       updateChannel(index, { visible: event.target.checked })
                     }
@@ -1247,6 +1263,28 @@ export default function ImageViewer() {
             </fieldset>
           );
         })}
+        {channels.length > 0 && (
+          <fieldset className="grayscale-control">
+            <legend>Grayscale</legend>
+            <div className="grayscale-options">
+              {channels.map((channel, index) => (
+                <label key={channel.name + String(index)}>
+                  <input
+                    type="checkbox"
+                    aria-label={"Show " + channel.name + " in grayscale"}
+                    checked={grayscaleChannelIndex === index}
+                    onChange={(event) =>
+                      setGrayscaleChannelIndex(
+                        event.target.checked ? index : null,
+                      )
+                    }
+                  />
+                  <span>{channel.name}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <a href={backHref}>← Back to data</a>
         </aside>
       )}
@@ -1368,7 +1406,7 @@ export default function ImageViewer() {
                       </header>
                       <VivCanvas
                         loader={viewerSource.loader}
-                        channels={channels}
+                        channels={renderedChannels}
                         selections={selectionsBySource[index] ?? []}
                         viewState={viewState}
                         onViewStateChange={handleViewStateChange}
@@ -1385,7 +1423,7 @@ export default function ImageViewer() {
             ) : (
               <VivCanvas
                 loader={loader}
-                channels={channels}
+                channels={renderedChannels}
                 selections={selections}
                 viewState={viewState}
                 onViewStateChange={handleViewStateChange}

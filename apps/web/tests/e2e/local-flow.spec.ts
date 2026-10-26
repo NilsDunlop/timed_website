@@ -20,6 +20,9 @@ test("starts a local server, renders time data, and stops it", async ({
 
   await page.goto("/");
   await page.getByLabel("Compute profile").selectOption("local");
+  await expect(
+    page.getByRole("combobox", { name: "Dataset" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByTestId("session-state")).toHaveText("connected", {
     timeout: 30_000,

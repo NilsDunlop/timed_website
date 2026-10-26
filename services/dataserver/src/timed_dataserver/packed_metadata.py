@@ -58,7 +58,7 @@ IDR0080_CATEGORY_COLORS: Mapping[str, str] = {
     "Non-cutting controls": "#9367a8",
 }
 
-_PROJECT = "idr0080 \u00b7 Cell Health"
+_PROJECT = "Cell Health"
 _LABELS = PlateMetadataLabels(
     compound="Gene",
     moa="Well type",

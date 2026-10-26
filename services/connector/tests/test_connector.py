@@ -322,8 +322,11 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
         },
         {
             "id": "idr0080",
-            "title": "idr0080 · Cell Health",
-            "description": "CRISPR Cell Painting · A549, ES2, HCC44 · 9 plates · 5 channels",
+            "title": "Cell Health",
+            "description": (
+                "idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - "
+                "9 plates - 5 channels"
+            ),
             "path": (
                 "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/"
                 "idr0080/idr0080-raw.index.parquet"

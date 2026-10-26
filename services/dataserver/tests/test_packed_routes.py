@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import threading
 import time
@@ -97,13 +98,13 @@ def test_parent_index_and_experiment_listings_are_exact(
             "path": str(index),
             "entries": [
                 _entry(
-                    "idr0080-A549",
+                    "A549",
                     index / "idr0080-A549",
                     "dir",
                     detail="2 plates",
                 ),
                 _entry(
-                    "idr0080-ES2",
+                    "ES2",
                     index / "idr0080-ES2",
                     "dir",
                     detail="1 plate",
@@ -123,7 +124,7 @@ def test_parent_index_and_experiment_listings_are_exact(
             "path": str(experiment),
             "entries": [
                 _entry(
-                    f"SQ000{plate}",
+                    f"Cell Health \u00b7 A549 \u00b7 SQ000{plate}",
                     experiment / str(plate),
                     "dir",
                     detail="5 wells \u00b7 2 sites \u00b7 5 channels",
@@ -153,7 +154,7 @@ def test_plate_link_is_idempotent_and_persists_across_apps(
         record = first.json()
         assert {key: record[key] for key in ("path", "name", "ome_zarr")} == {
             "path": str(plate),
-            "name": "SQ00014610",
+            "name": "Cell Health \u00b7 A549 \u00b7 SQ00014610",
             "ome_zarr": {"kind": "plate", "version": "0.5", "zarr_format": 3},
         }
         assert datetime.fromisoformat(record["linked_at"]).tzinfo is not None
@@ -166,6 +167,11 @@ def test_plate_link_is_idempotent_and_persists_across_apps(
         assert repeated.status_code == 201, repeated.text
         assert repeated.json() == record
         assert first_client.get("/api/datasets", headers=AUTH).json() == {"datasets": [record]}
+
+    registry_path = state_dir / "datasets.json"
+    persisted = json.loads(registry_path.read_text(encoding="utf-8"))
+    persisted["datasets"][0]["name"] = "SQ00014610"
+    registry_path.write_text(json.dumps(persisted), encoding="utf-8")
 
     with TestClient(create_app(settings, TOKEN)) as restarted_client:
         assert restarted_client.get("/api/datasets", headers=AUTH).json() == {"datasets": [record]}
@@ -209,7 +215,7 @@ def test_packed_metadata_route_maps_idr0080_fixture(
         "Non-cutting controls": "#9367a8",
     }
     assert metadata["plate"]["plate_id"] == "SQ00014610"
-    assert metadata["plate"]["project"] == "idr0080 \u00b7 Cell Health"
+    assert metadata["plate"]["project"] == "Cell Health"
     assert metadata["plate"]["acquisition"]["sites_per_well"] == 2
     wells = {well["well"]: well for well in metadata["wells"]}
     assert wells["A01"]["compound"] == "EMPTY control"

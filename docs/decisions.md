@@ -237,12 +237,10 @@ profiles for future generated fixtures loadable without weakening the
 data-server guard on requests.
 
 Profiles without collections retain the original filesystem browser exactly.
-Profiles with collections get a Dataset selector followed by Files, with the
-active collection and opened plate encoded in the URL. Collection browsing is
-scoped from the canonical path returned by the data server, while the
-comparison tray deliberately survives collection changes. This keeps shared
-registry records from appearing in the wrong collection and preserves useful
-viewer return links.
+The original C1 design put a Dataset selector followed by Files on the Data
+page. That interaction was superseded by the 2026-10-26 active-dataset
+decision below. The collection model, validation, canonical scoping, and URL
+deep links remain in force.
 
 The browser runner emits both legacy and collection-aware local and test-cluster
 profiles. D1 creates the packed idr0080-like fixture, but the C1-only browser
@@ -381,16 +379,52 @@ count, so the existing compatibility guard remains authoritative. Tray
 mutations are disabled while an add is in flight; the four-field limit and
 site picker continue to apply across linked plates.
 
-## 2026-10-26: adopt the Cell Health authors' IDR0080 channel colours
+## 2026-10-26: choose the active dataset on Connect and restore its place
 
-The authoritative palette is the `channel_colors` mapping in
-[`broadinstitute/cell-health` v2.0's `scripts/grabPictures.py`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/scripts/grabPictures.py#L75-L82):
-DNA `0000FF`, ER `00FF00`, RNA `FFFF00`, AGP `FF9600` and Mito
-`FF0000`. Tag v2.0 resolves to commit
-`cd91bd0daacef2b5ea25dcceb62482bb664d9de1`.
+For profiles with collections, the Connect page owns the Dataset choice. It
+shows every collection's title and description after the compute profile and
+allows the choice both before and after connecting. The browser remembers one
+collection id per profile. A valid `collection` URL parameter takes precedence
+and becomes the remembered choice; without one, the order is the remembered
+choice, the profile default, then the first collection.
 
-TIMED adopts those hues while leaving DNA, ER and AGP visible by default. The
-authors' figure helper stretches every cropped channel independently from its
-1st to 99th percentile before colourising it. TIMED deliberately retains the
-fixed per-cell-line contrast windows in Appendix B.2 instead, because a stable
-intensity mapping makes brightness comparable from well to well.
+The Data page consumes that active collection. It shows the collection title
+as its heading with a small **Change dataset** link to Connect, lists only that
+collection's plates, and has neither a Dataset dropdown nor a Files option.
+The last opened plate and focused well are remembered separately for each
+collection. Viewer return links, the Data navigation link, and reload restore
+that place. Explicit `collection` and `dataset` URL parameters remain deep
+links and override saved state; a deep link to another collection also changes
+the remembered active dataset. If a saved plate is absent or cannot be opened,
+the Data page falls back to the plate list rather than failing.
+
+Profiles without collections keep the original Connect and filesystem Data
+pages unchanged. The Phase 2 QC page consumes the same active dataset instead
+of owning another selector, so Data and QC cannot silently review different
+collections.
+
+The user-facing title for the `idr0080` collection is **Cell Health**. The
+technical id remains `idr0080` in descriptions, ids, experiment names, and
+paths. The packed code profile uses the same display name, producing plate
+names that combine Cell Health, the cell line, and the plate without changing
+the underlying virtual path.
+
+## 2026-10-26: use RxRx hues for composites and grayscale for validation
+
+The composite palette comes from the `RGB_MAP` in Recursion's official
+[`rxrx1-utils` image helper](https://github.com/recursionpharma/rxrx1-utils/blob/31e6f9b826c6de84f531cd2b4f67bfc158036d7d/rxrx/io.py#L17-L42).
+Matching those channel colours by stain gives DNA `1300F9`, ER `2AFF1F`, RNA
+`2DFFFC`, AGP `FF0019`, and Mito `FA00FD`. RxRx's separate PM channel uses
+`FEFF28`; TIMED records that value for later but IDR0080 does not expose a
+separate PM channel.
+
+DNA, ER, and AGP remain visible by default, and every per-cell-line contrast
+window remains unchanged. The hue-separated colours make a five-channel
+composite easier to read.
+
+The superseded Cell Health palette was made for separate, single-channel
+panels. Its figure helper also stretches every cropped channel independently
+from its 1st to 99th percentile. The A1 comparison with Cell Health v2.0 is
+therefore performed one channel at a time in grayscale. TIMED retains the fixed
+Appendix B.2 windows during that comparison because a stable intensity mapping
+keeps brightness comparable between wells.

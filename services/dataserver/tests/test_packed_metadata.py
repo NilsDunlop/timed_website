@@ -44,7 +44,7 @@ def test_idr0080_metadata_maps_plate_acquisition_labels_colors_and_wells(
     assert response.plate.plate_id == "SQ00014610"
     assert response.plate.plate_barcode == "SQ00014610"
     assert response.plate.cell_line == "A549"
-    assert response.plate.project == "idr0080 \u00b7 Cell Health"
+    assert response.plate.project == "Cell Health"
     assert response.plate.acquisition is not None
     assert response.plate.acquisition.timepoint_count == 1
     assert response.plate.acquisition.sites_per_well == 2

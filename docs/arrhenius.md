@@ -78,19 +78,37 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 ## A1 browser checklist
 
 1. Confirm TIMED is preselected and unchanged from the TIMED-only release.
-2. Open idr0080, A549, `SQ00014610`, well `A01`, site 1, and compare it
-   with the inspection previews.
-3. Compare `A01` across three plates in different cell lines, plus an EMPTY
-   control.
-4. For the channel-colour sanity check, open `SQ00014613` (ES2), well `A01`
-   (EMPTY), site 1. Crop to pixels 216-432 in x and y, then compare channel by
-   channel with Cell Health v2.0's
-   [`1.generate-profiles/figures/example_images/color_channel.png`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/1.generate-profiles/figures/example_images/color_channel.png).
+2. Choose **Cell Health**, then open A549, `SQ00014610`, well `A01`, site 1,
+   and compare it with the inspection previews.
+3. Compare `A02` (MCL1) on `SQ00014611` (A549), `SQ00014614` (ES2), and
+   `SQ00014616` (HCC44), plus the `A01` EMPTY control on `SQ00014611`.
+4. For the channel sanity check, open `SQ00014613` (ES2), well `A01` (EMPTY),
+   site 1. Crop to pixels 216-432 in x and y, then use the **Grayscale**
+   section to compare each channel with Cell Health v2.0's
+   [`1.generate-profiles/figures/example_images/greyscale_channel.png`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/1.generate-profiles/figures/example_images/greyscale_channel.png).
 5. Disconnect after viewing images and confirm it reaches a final state within
    a few seconds.
-6. Record field-opening timings in this document. If a field takes more than
-   3 seconds, try full-plane chunks, then building Viv selections only for
-   visible channels, then 4 CPUs, keeping only changes that help.
+6. Record field-opening timings in this document.
+7. Choose Cell Health and TIMED from the Connect page. Confirm that the Data
+   page follows the active choice and that returning from the viewer, using the
+   Data navigation link, and reloading restore the last Cell Health plate and
+   well.
+
+## A1 findings (in progress)
+
+- TIMED was preselected and unchanged from the TIMED-only release.
+- A549 `SQ00014610`, well `A01`, site 1 matched the inspection screenshot. The
+  channel-by-channel grayscale comparison in step 4 remains the independent
+  check and must be repeated after the viewer changes above.
+- The comparison in step 3 loaded quickly, stayed synchronized, and returned
+  to the Data page successfully.
+- Disconnecting after viewing images took about 2 seconds and ended in the
+  `disconnected` state.
+- A field opened in about 4-5 seconds on the operator's work network and about
+  2 seconds at home, comparable to loading a TIMED trajectory. This result is
+  accepted; do not try the performance fallbacks.
+- The revised Connect-page dataset choice and place-restoration flow remains
+  to be checked before A1 is complete.
 
 ## Troubleshooting
 

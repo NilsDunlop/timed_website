@@ -33,7 +33,9 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
 
 **Phase 1 (`feature/idr0080`, release 0.4.0): browse and view idr0080.**
 
-- **Dataset selector.** The Data page has a "Dataset" selector offering TIMED (the default), idr0080, and "Files" (today's browser).
+- **Dataset choice.** Profiles with collections choose their active dataset on
+  the Connect page. The Data page shows only that dataset and restores the last
+  plate and well visited there.
 - **Browsing.** idr0080 is browsed by cell line (A549, ES2, HCC44), then plate, then well, then site (nine per well). Gene, guide and well type come from the metadata CSV.
 - **Viewing.** All five stains are available, with a DNA/ER/AGP composite by default and contrast fixed per cell line.
 - **Comparing.** Compare the same well on other plates, the same gene elsewhere, or the controls on the same plate, up to four fields side by side.
@@ -84,7 +86,8 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
 
 1. On `main`, check that the working tree is clean apart from the operator's untracked inputs in `docs/plans/` and `docs/data/`. Run `uv sync` and `pnpm install --frozen-lockfile`, and confirm the full Python and Playwright suites are green.
 2. Tag the TIMED-only state: `git tag -a v0.3.1-timed -m "TIMED-only viewer before idr0080 work"`, then push the tag.
-3. Run `git switch -c feature/idr0080`, push it, and open a draft pull request to `main`.
+3. Run `git switch -c feature/idr0080` and push it. Skip the draft pull
+   request until the operator asks for it.
 4. Make the first commit on the branch:
    - `.gitignore` entries for the four data inputs: `docs/data/inspection-2026-10-22/`, `docs/data/packed-display-survey.json`, `docs/data/idr0080-extras.json` and `docs/data/idr0080-mask-contract.json`. Check with `git status` that none of them is staged.
    - `AGENTS.md` at the repository root. It should say that agents follow `CLAUDE.md`, the single source of repository conventions.
@@ -112,7 +115,7 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
 
 ## 4. Phase 1 design
 
-### 4.1 Collections and the dataset selector
+### 4.1 Collections and the active dataset
 
 A collection is a titled entry point into data the server can already open. Collections are defined in the connector profile:
 
@@ -130,8 +133,8 @@ A collection is a titled entry point into data the server can already open. Coll
         path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
         default: true          # move to idr0080 to open that dataset first
       - id: idr0080
-        title: idr0080 · Cell Health
-        description: CRISPR Cell Painting · A549, ES2, HCC44 · 9 plates · 5 channels
+        title: Cell Health
+        description: idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - 9 plates - 5 channels
         path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080/idr0080-raw.index.parquet
 ```
 
@@ -140,20 +143,46 @@ A collection is a titled entry point into data the server can already open. Coll
   - Ids are unique and at most one collection is the default.
   - Each path lies inside a data root: checked lexically for Slurm profiles, and resolved and required to exist for local profiles.
   - The data server still enforces containment on every request.
-- **No new data-server API.** The Data page (and, in Phase 2, the QC page) reads collections from `/connector/profiles` and the active `profile_id` from `/connector/session`.
-- **Selector.**
-  - A labelled "Dataset" control lists the collections, then "Files".
-  - The initial choice is the `?collection=` parameter when valid, else the default, else the first collection.
-  - Changing it updates the URL with `history.replaceState`, shows the description, and resets the browser.
-  - The comparison tray persists across datasets.
+- **No new data-server API.** Connect reads collections from
+  `/connector/profiles` and the active `profile_id` from
+  `/connector/session`. Data and, in Phase 2, QC consume the browser's active
+  collection.
+- **Connect-page dataset choice.**
+  - After the compute profile, a labelled **Dataset** choice lists each
+    collection's title and description. It is available before and after
+    connecting.
+  - The selected collection id is remembered per profile in browser storage.
+    The initial choice is the last valid choice, else the profile default, else
+    the first collection. Explicit URL deep links take precedence as described
+    below.
+  - The choice remains active until it is changed on Connect. The comparison
+    tray persists while moving between opened plates in the active dataset.
+- **Data page.**
+  - The active collection title is the page heading, followed by a small
+    **Change dataset** link to Connect. There is no Dataset dropdown and no
+    Files option.
+  - Only the active collection's plates are shown.
+  - Profiles without collections retain the existing Connect page and
+    filesystem Data page exactly.
+- **Place restoration and deep links.**
+  - The last opened plate and selected well are remembered separately for each
+    collection in browser storage.
+  - Returning from the viewer, using the Data navigation link, and reloading
+    the Data page restore that plate and well.
+  - Valid `collection` and `dataset` URL parameters remain deep links and
+    take precedence over saved state. A link to another collection also makes
+    it the active dataset.
+  - If the saved plate no longer exists or cannot be opened, show the plate
+    list instead.
 - **Plates panel.** This is the existing browser, scoped to the collection path.
   - Breadcrumbs start at the collection title.
   - Plain files are hidden, and names drop `.zarr`.
   - Entries show the server's `detail` line, and listings over 30 entries get a filter box.
   - Plates and images have one button, **Open**, which links and opens in one step; the registry already returns the existing record for a known path.
 - **Opened plates.** The registry panel shows the current dataset's plates (matched by path prefix), titled "Opened plates", with "Remove".
-- **Files.** Exactly today's browser, registry panel and wording.
-- **Links.** Viewer links carry `collection`. "Back to data" returns to `/data?collection=<id>&dataset=<id>`, which reopens that plate.
+- **Links.** Viewer links carry `collection`. "Back to data" returns to
+  `/data?collection=<id>&dataset=<id>`, which takes precedence and reopens
+  that plate.
 - **Example profiles.**
   - `config/profiles.example.yaml` gets the `arrhenius` entries above.
   - `local` and `test-cluster` stay unchanged.
@@ -164,8 +193,8 @@ A collection is a titled entry point into data the server can already open. Coll
 
 | idr0080 | In the viewer |
 | --- | --- |
-| Index experiment `idr0080-A549`, `-ES2`, `-HCC44` | Groups in the plates panel, one per cell line ("3 plates") |
-| Plate 14610–14618 | A plate named `SQ000<plate>`, linked as "idr0080 · A549 · SQ00014610"; 384 wells, A–P × 1–24 |
+| Index experiment `idr0080-A549`, `-ES2`, `-HCC44` | User-facing groups labelled A549, ES2, and HCC44 in the plates panel ("3 plates"); experiment ids remain internal |
+| Plate 14610–14618 | A plate named `SQ000<plate>`, linked as "Cell Health · A549 · SQ00014610"; 384 wells, A–P × 1–24 |
 | Well and site 1–9 | Field `<well>_s<site>.zarr`, so the site picker and tray work unchanged |
 | Channels 1–5 | DNA, ER, RNA, AGP, Mito (Appendix B.1) |
 | `metadata_idr0080.csv` row | Well metadata (section 4.4) |
@@ -261,7 +290,7 @@ Cache the result by path, modification time and size. Mask indexes (they have `k
 | `moa` (label "Well type"; fixed colours, Appendix B.4) | `well_type_label`: Query guides, Cutting controls (Chr2), Non-cutting controls (Luc, LacZ); empty only on EMPTY wells |
 | `well_type` | `perturbation_type` (always CRISPR) |
 | `details` | Guide (`idr_guide`), Ensembl ID (`idr_gene_identifier`), Control category (`idr_control_category`) |
-| Plate | id and barcode `SQ000<plate>`, cell line `cell_type`, project "idr0080 · Cell Health" |
+| Plate | id and barcode `SQ000<plate>`, cell line `cell_type`, project "Cell Health" |
 | Acquisition | 1 timepoint, 9 sites per well, channel names |
 | `labels` | `compound` "Gene", `moa` "Well type", `control` "EMPTY control" |
 | `category_colors` | Appendix B.4 |
@@ -282,6 +311,16 @@ Tests that assert exact TIMED response bodies gain the new optional keys and not
   - In the same commit, make TIMED's facade (`_bare_image_summary`) declare `end` 65,535, which is what TIMED has always displayed.
   - Native OME-Zarr windows, such as the test images' 100–8,000, now apply as declared; update tests that asserted the old maximum.
 - **Default visibility.** Set each channel's visibility from OMERO `active ?? true`.
+- **Grayscale channel inspection.**
+  - Add a **Grayscale** section at the bottom of the channel controls with one
+    checkbox per channel. At most one is checked.
+  - Checking a channel shows only that channel in grayscale using its current
+    contrast window. Checking another channel switches the checked channel;
+    unchecking it returns to the colour composite.
+  - Colour visibility state is preserved while grayscale is active, but those
+    visibility checkboxes are disabled. Contrast sliders remain enabled.
+  - This applies to every source and comparison mode. Do not add split view or
+    per-channel Solo buttons.
 - **Single timepoint.** When `timeCount <= 1`, hide the `t x / y` status item and title the controls "Channels". The plate view says "Open field" and "Compare *N* fields"; TIMED keeps "Open trajectory".
 - **Labels.** `ViewerSourceFacts`, the filters, the legend and `PlateMetadataPanel` take their slot names from `metadata.labels`.
 - **Metadata panel.**
@@ -418,7 +457,11 @@ A new page, `qc.astro`, with a `QcBrowser` island and a "QC" link in the site na
 
 **Layout.**
 
-- **Header.** The "Dataset" selector (same behaviour as section 4.1, without "Files"), a plate picker grouped by cell line, and a model selector (default `idr0080_cpsam_B90`; the stock model only on 14610).
+- **Header.** The active dataset title with a small **Change dataset** link, a
+  plate picker grouped by cell line, and a model selector (default
+  `idr0080_cpsam_B90`; the stock model only on 14610).
+  - QC consumes the same active dataset described in section 4.1 and does not
+    own a separate dataset selector.
   - The plate picker lists plates from the same virtual listing as the Data page, and choosing a plate links it (idempotent).
   - A dataset without QC tables, such as TIMED, shows "QC metrics are not available for this dataset."
 - **Filters panel.**
@@ -511,7 +554,8 @@ Each milestone ends with its tests green, the existing suites green, and a push.
 **Phase 1** (`feature/idr0080`):
 
 - **B0. Branch, baseline, `AGENTS.md`, dev-version installs, TIMED regression tests** (section 3).
-- **C1. Collections and the dataset selector** (section 4.1). Built against today's server.
+- **C1. Collections and the Connect-page dataset choice** (section 4.1).
+  Built against today's server.
   *Done when* the new end-to-end tests and the existing suites pass.
 - **D1. Packed foundation**: detection, virtual paths and listing, registry key, catalogue, idr0080-like fixture.
   *Done when* its server tests pass.
@@ -524,10 +568,20 @@ Each milestone ends with its tests green, the existing suites green, and a push.
 - **X1. Same perturbation across plates** (section 4.6).
 - **A1. Operator, on Arrhenius**, with `config/profiles.example.yaml`:
   1. TIMED is preselected and identical to main.
-  2. Open idr0080, A549, 14610, A01 site 1, and compare it with the inspection previews.
-  3. Compare A01 across three plates in different cell lines, plus an EMPTY control.
-  4. Record timings in `docs/arrhenius.md`.
-  5. If a field takes more than 3 s to open, try in order and keep what helps: full-plane chunks; building Viv selections only for visible channels; then 4 CPUs.
+  2. Choose Cell Health on Connect, then open A549, `SQ00014610`, `A01`
+     site 1, and compare it with the inspection preview.
+  3. Compare `A02` (MCL1) on `SQ00014611` (A549), `SQ00014614` (ES2),
+     and `SQ00014616` (HCC44), plus the `A01` EMPTY control on
+     `SQ00014611`.
+  4. Repeat the channel check in grayscale as specified in
+     `docs/arrhenius.md`.
+  5. Disconnect after viewing images and confirm a final state within a few
+     seconds.
+  6. Record the accepted loading times in `docs/arrhenius.md`; do not try the
+     performance fallbacks.
+  7. Exercise the Connect-page dataset choice and confirm Data navigation,
+     viewer return, and reload restore the active dataset's last plate and
+     well.
 - **R1. Merge.**
   - Update `README.md`, `CLAUDE.md` and `docs/decisions.md`. Add `docs/data/IDR0080.md` (Appendices A–B) and `docs/ADDING_DATASETS.md`.
   - Set the version to `0.4.0`.
@@ -574,10 +628,17 @@ Each milestone ends with its tests green, the existing suites green, and a push.
 ### 8.2 Collections (C1)
 
 - **Connector validation**: unique ids, a single default, paths inside the data roots, and clear errors.
-- **Without collections**: no selector and today's page.
-- **Selector**: default and `?collection=` handling.
+- **Without collections**: the Connect and filesystem Data pages are unchanged.
+- **Connect choice**: collection titles and descriptions, the profile default,
+  browser storage per profile, and explicit URL precedence.
+- **Data page**: the active collection title and **Change dataset** link, no
+  Dataset dropdown or Files option, and only that collection's plates.
 - **Scoped browsing**: breadcrumbs stop at the collection, plain files are hidden, and Open is idempotent.
-- **Navigation**: the back link reopens the plate, the tray persists across datasets, and Files matches today's browser.
+- **Place restoration**: the last plate and selected well are remembered per
+  collection and restored after viewer return, Data navigation, and reload. A
+  missing saved plate falls back to the plate list.
+- **Deep links**: valid `collection` and `dataset` parameters take
+  precedence, and a link to another collection changes the active dataset.
 
 ### 8.3 idr0080 fixture (D1)
 
@@ -608,11 +669,21 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
 
 **End-to-end** (`local-datasets`, one flow repeated on the test cluster):
 
-- Select idr0080, then A549, then a plate; check the well-type colours and the "Gene" filter.
+- Choose Cell Health on Connect. Confirm the Data page heading is Cell Health,
+  with no Dataset dropdown and no Files option.
+- Select A549 and a plate; check the well-type colours and the "Gene" filter.
 - Open a field and wait for "Image ready". Then check that:
   - pixels are not uniform and there is no time slider;
   - DNA, ER and AGP are checked and RNA and Mito unchecked;
   - the contrast maximum equals the cell line's window end.
+- Exercise **Grayscale** by checking Mito and then ER: only ER remains checked
+  and visible in grayscale, colour visibility stays unchanged but disabled,
+  and contrast remains adjustable. Uncheck ER to restore the composite, and
+  repeat the check in comparison mode.
+- From the viewer, use the Data navigation link and confirm the same plate and
+  well are open; confirm the same place after a reload.
+- Change the Connect-page choice to TIMED and confirm the Data page shows TIMED.
+- Confirm a profile without collections retains the existing page.
 - Compare C01 across the three plates plus a control.
 - Confirm the guard blocks mixing TIMED and idr0080 fields.
 
@@ -761,16 +832,23 @@ The stains are DNA, ER, AGP, RNA and Mito.
 
 | Index channel | Stain | Colour | Shown by default |
 | --- | --- | --- | --- |
-| 1 | DNA | `0000FF` | yes |
-| 2 | ER | `00FF00` | yes |
-| 3 | RNA | `FFFF00` | no |
-| 4 | AGP | `FF9600` | yes |
-| 5 | Mito | `FF0000` | no |
+| 1 | DNA | `1300F9` | yes |
+| 2 | ER | `2AFF1F` | yes |
+| 3 | RNA | `2DFFFC` | no |
+| 4 | AGP | `FF0019` | yes |
+| 5 | Mito | `FA00FD` | no |
 
 The order comes from CellPrompter's records, which map the original source files `ch1…ch5` to these stains. "Shown by default: no" is encoded as OMERO's `"active": false`.
 
-Colours follow the Cell Health authors'
-[`channel_colors` mapping in `scripts/grabPictures.py` at v2.0](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/scripts/grabPictures.py#L75-L82).
+Composite colours follow the hue-separated `RGB_MAP` in Recursion's official
+[`rxrx1-utils` image helper](https://github.com/recursionpharma/rxrx1-utils/blob/31e6f9b826c6de84f531cd2b4f67bfc158036d7d/rxrx/io.py#L17-L42),
+matched by stain. RxRx's PM channel uses `FEFF28`, reserved for a later
+dataset.
+
+The Cell Health authors' superseded palette was intended for separate,
+single-channel panels. A1 therefore compares channels one at a time in
+grayscale against
+[`greyscale_channel.png`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/1.generate-profiles/figures/example_images/greyscale_channel.png).
 Their figure code stretches each cropped channel independently from its 1st to
 99th percentile; TIMED keeps the fixed cell-line windows in B.2 so brightness
 remains comparable between wells.

@@ -208,6 +208,28 @@ const { title } = Astro.props;
     color: #4d5c50;
   }
 
+  .data-page-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .data-page-heading h1 {
+    margin-bottom: 0.35rem;
+  }
+
+  .data-page-heading .lede {
+    margin-bottom: 0;
+  }
+
+  .change-dataset-link {
+    flex: none;
+    margin-top: 0.35rem;
+    font-size: 0.9rem;
+  }
+
   .entry-filter {
     max-width: 28rem;
   }
@@ -952,6 +974,31 @@ const { title } = Astro.props;
     border-radius: 50%;
   }
 
+  .grayscale-control {
+    display: grid;
+    gap: 0.55rem;
+    margin: 0.25rem 0 0;
+    padding: 0.8rem;
+    border: 1px solid #d5ddd4;
+  }
+
+  .grayscale-control legend {
+    padding: 0 0.25rem;
+    font-weight: 700;
+  }
+
+  .grayscale-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0.8rem;
+  }
+
+  .grayscale-options label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
   .viewer-stage h1 {
     max-width: 34rem;
     margin: 0;
@@ -1220,6 +1267,10 @@ const { title } = Astro.props;
 
     .dataset-selector-panel {
       grid-template-columns: 1fr;
+    }
+
+    .data-page-heading {
+      display: grid;
     }
 
     .comparison-field-grid,

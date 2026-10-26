@@ -88,6 +88,7 @@ class PackedDatasetProfile:
     channels: tuple[PackedChannel, ...]
     experiment_cell_lines: tuple[tuple[str, str], ...]
     metadata_path: str | None
+    display_name: str | None = None
     codec: PackedCodec = PackedCodec()
     dtype: str = "uint16"
     plate_prefix: str = "SQ000"
@@ -109,6 +110,18 @@ class PackedDatasetProfile:
 
     def plate_name(self, plate: int) -> str:
         return f"{self.plate_prefix}{plate}"
+
+    def experiment_display_name(self, experiment: str) -> str:
+        return self.cell_line_for(experiment) or experiment
+
+    def plate_display_name(self, experiment: str, plate: int) -> str:
+        plate_name = self.plate_name(plate)
+        if self.display_name is None:
+            return plate_name
+        cell_line = self.cell_line_for(experiment)
+        if cell_line is None:
+            return f"{self.display_name} \u00b7 {plate_name}"
+        return f"{self.display_name} \u00b7 {cell_line} \u00b7 {plate_name}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +155,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=1,
         label="DNA",
-        color="0000FF",
+        color="1300F9",
         active=True,
         windows=(
             _window("A549", 27_000, 292, 11_552),
@@ -153,7 +166,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=2,
         label="ER",
-        color="00FF00",
+        color="2AFF1F",
         active=True,
         windows=(
             _window("A549", 45_000, 438, 17_554),
@@ -164,7 +177,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=3,
         label="RNA",
-        color="FFFF00",
+        color="2DFFFC",
         active=False,
         windows=(
             _window("A549", 26_000, 554, 9_283),
@@ -175,7 +188,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=4,
         label="AGP",
-        color="FF9600",
+        color="FF0019",
         active=True,
         windows=(
             _window("A549", 14_000, 151, 5_035),
@@ -186,7 +199,7 @@ _IDR0080_CHANNELS = (
     PackedChannel(
         index=5,
         label="Mito",
-        color="FF0000",
+        color="FA00FD",
         active=False,
         windows=(
             _window("A549", 15_000, 324, 4_066),
@@ -214,6 +227,7 @@ IDR0080_PROFILE = PackedDatasetProfile(
         ("idr0080-HCC44", "HCC44"),
     ),
     metadata_path="metadata/metadata_idr0080.csv",
+    display_name="Cell Health",
 )
 
 
@@ -242,6 +256,7 @@ IDR0080_FIXTURE_PROFILE = PackedDatasetProfile(
         ("idr0080-ES2", "ES2"),
     ),
     metadata_path="metadata/metadata_idr0080.csv",
+    display_name="Cell Health",
 )
 
 

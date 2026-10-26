@@ -89,11 +89,11 @@ def test_plate_summary_uses_profile_geometry_and_sparse_catalogue_wells(
         "coordinate_transformations": [{"type": "scale", "scale": [1, 1, 1]}],
     }
     assert [(channel.name, channel.color) for channel in image.channels] == [
-        ("DNA", "0000FF"),
-        ("ER", "00FF00"),
-        ("RNA", "FFFF00"),
-        ("AGP", "FF9600"),
-        ("Mito", "FF0000"),
+        ("DNA", "1300F9"),
+        ("ER", "2AFF1F"),
+        ("RNA", "2DFFFC"),
+        ("AGP", "FF0019"),
+        ("Mito", "FA00FD"),
     ]
     assert [channel.active for channel in image.channels] == [True, True, False, True, False]
     assert image.channels[0].window is not None
@@ -173,7 +173,7 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                     "channels": [
                         {
                             "label": "DNA",
-                            "color": "0000FF",
+                            "color": "1300F9",
                             "active": True,
                             "window": {
                                 "min": 0,
@@ -184,7 +184,7 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                         },
                         {
                             "label": "ER",
-                            "color": "00FF00",
+                            "color": "2AFF1F",
                             "active": True,
                             "window": {
                                 "min": 0,
@@ -195,7 +195,7 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                         },
                         {
                             "label": "RNA",
-                            "color": "FFFF00",
+                            "color": "2DFFFC",
                             "active": False,
                             "window": {
                                 "min": 0,
@@ -206,7 +206,7 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                         },
                         {
                             "label": "AGP",
-                            "color": "FF9600",
+                            "color": "FF0019",
                             "active": True,
                             "window": {
                                 "min": 0,
@@ -217,7 +217,7 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                         },
                         {
                             "label": "Mito",
-                            "color": "FF0000",
+                            "color": "FA00FD",
                             "active": False,
                             "window": {
                                 "min": 0,

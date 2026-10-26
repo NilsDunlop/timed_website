@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
-import type { components as connectorComponents } from "../lib/api/connector-schema";
 import type { components } from "../lib/api/dataserver-schema";
 import { apiErrorMessage, connectorClient, dataServerClient } from "../lib/api/client";
 import {
+  clearCollectionPlace,
   collectionEntryName,
   dataSelectionHref,
   initialCollection,
   pathIsInCollection,
+  readCollectionPlace,
+  readCollectionPreference,
+  writeCollectionPlace,
+  writeCollectionPreference,
+  type DataCollection,
 } from "../lib/collectionNavigation";
 import {
   channelLabelsMatch,
@@ -29,7 +34,6 @@ import PerturbationMatches, {
 } from "./PerturbationMatches";
 
 type Dataset = components["schemas"]["DatasetRecord"];
-type DataCollection = connectorComponents["schemas"]["CollectionConfig"];
 type Entry = components["schemas"]["FilesystemEntry"];
 type Summary =
   | components["schemas"]["ImageSummary"]
@@ -57,7 +61,6 @@ type MatchResults = FocusedGridWell & {
 };
 
 const MAX_COMPARISON_SOURCES = 4;
-const FILES_SELECTION = "__files__";
 
 const metadataColors = [
   "#3b82a0",
@@ -267,6 +270,8 @@ export default function DataBrowser() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [collections, setCollections] = useState<DataCollection[]>([]);
+  const [profileId, setProfileId] = useState("");
+  const [initialized, setInitialized] = useState(false);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
     null,
   );
@@ -337,16 +342,22 @@ export default function DataBrowser() {
         const profile = profilesResult.data.find(
           (candidate) => candidate.id === sessionResult.data.profile_id,
         );
+        const nextProfileId = profile?.id ?? "";
         const availableCollections = profile?.collections ?? [];
         const requested = new URLSearchParams(window.location.search);
+        const rememberedCollectionId = nextProfileId
+          ? readCollectionPreference(window.localStorage, nextProfileId)
+          : null;
         const collection =
           availableCollections.length > 0
             ? initialCollection(
                 availableCollections,
                 requested.get("collection"),
+                rememberedCollectionId,
               )
             : null;
         if (!active) return;
+        setProfileId(nextProfileId);
         setCollections(availableCollections);
         setActiveCollectionId(collection?.id ?? null);
         const listedPath = await loadListing(collection?.path ?? null);
@@ -361,11 +372,27 @@ export default function DataBrowser() {
         );
 
         if (collection) {
+          if (nextProfileId) {
+            writeCollectionPreference(
+              window.localStorage,
+              nextProfileId,
+              collection.id,
+            );
+          }
           const requestedDatasetId = requested.get("dataset");
+          const rememberedPlace = nextProfileId
+            ? readCollectionPlace(
+                window.localStorage,
+                nextProfileId,
+                collection.id,
+              )
+            : null;
+          const datasetId =
+            requestedDatasetId ?? rememberedPlace?.datasetId ?? null;
           const reopened =
             linked.find(
               (dataset) =>
-                dataset.id === requestedDatasetId &&
+                dataset.id === datasetId &&
                 pathIsInCollection(dataset.path, canonicalCollectionPath ?? collection.path),
             ) ?? null;
           window.history.replaceState(
@@ -373,7 +400,49 @@ export default function DataBrowser() {
             "",
             dataSelectionHref(collection.id, reopened?.id ?? null),
           );
-          if (reopened) await selectDataset(reopened);
+          if (reopened) {
+            const rememberedWellPath =
+              rememberedPlace?.datasetId === reopened.id
+                ? rememberedPlace.wellPath
+                : null;
+            try {
+              const restoredWellPath = await selectDataset(
+                reopened,
+                rememberedWellPath,
+                collection,
+              );
+              if (nextProfileId) {
+                writeCollectionPlace(
+                  window.localStorage,
+                  nextProfileId,
+                  collection.id,
+                  {
+                    datasetId: reopened.id,
+                    wellPath: restoredWellPath,
+                  },
+                );
+              }
+            } catch {
+              if (nextProfileId) {
+                clearCollectionPlace(
+                  window.localStorage,
+                  nextProfileId,
+                  collection.id,
+                );
+              }
+              clearDatasetDetails();
+              replaceDataUrl(collection.id);
+            }
+          } else if (
+            rememberedPlace?.datasetId === datasetId &&
+            nextProfileId
+          ) {
+            clearCollectionPlace(
+              window.localStorage,
+              nextProfileId,
+              collection.id,
+            );
+          }
         } else if (linked.length > 0) {
           await selectDataset(linked[0]);
         }
@@ -382,7 +451,10 @@ export default function DataBrowser() {
           setError(reason instanceof Error ? reason.message : String(reason));
         }
       } finally {
-        if (active) setBusy(false);
+        if (active) {
+          setBusy(false);
+          setInitialized(true);
+        }
       }
     }
     void load();
@@ -423,31 +495,23 @@ export default function DataBrowser() {
     setWellKind("all");
   }
 
-  async function changeDataSelection(value: string) {
-    await run(async () => {
-      const collection =
-        value === FILES_SELECTION
-          ? null
-          : collections.find((candidate) => candidate.id === value) ?? null;
-      setActiveCollectionId(collection?.id ?? null);
-      setCollectionRootPath(collection?.path ?? null);
-      setEntryFilter("");
-      clearDatasetDetails();
-      replaceDataUrl(collection?.id ?? null);
-      const listedPath = await loadListing(collection?.path ?? null);
-      const canonicalCollectionPath = collection
-        ? (listedPath ?? collection.path)
-        : null;
-      setCollectionRootPath(canonicalCollectionPath);
-      setBreadcrumbs(
-        collection
-          ? [{ label: collection.title, path: canonicalCollectionPath }]
-          : [{ label: "Data roots", path: null }],
-      );
-      if (!collection && datasets.length > 0) {
-        await selectDataset(datasets[0]);
-      }
-    });
+  function rememberPlace(datasetId: string, wellPath: string | null) {
+    if (!profileId || !activeCollection) return;
+    writeCollectionPlace(
+      window.localStorage,
+      profileId,
+      activeCollection.id,
+      { datasetId, wellPath },
+    );
+  }
+
+  function forgetPlace() {
+    if (!profileId || !activeCollection) return;
+    clearCollectionPlace(
+      window.localStorage,
+      profileId,
+      activeCollection.id,
+    );
   }
 
   async function browse(entry: Entry) {
@@ -485,6 +549,7 @@ export default function DataBrowser() {
       await selectDataset(result.data);
       if (activeCollection) {
         replaceDataUrl(activeCollection.id, result.data.id);
+        rememberPlace(result.data.id, null);
       }
     });
   }
@@ -517,9 +582,13 @@ export default function DataBrowser() {
           : linked[0];
         if (next) {
           await selectDataset(next);
-          if (activeCollection) replaceDataUrl(activeCollection.id, next.id);
+          if (activeCollection) {
+            replaceDataUrl(activeCollection.id, next.id);
+            rememberPlace(next.id, null);
+          }
         } else if (activeCollection) {
           replaceDataUrl(activeCollection.id);
+          forgetPlace();
         }
       }
     });
@@ -528,11 +597,18 @@ export default function DataBrowser() {
   async function chooseDataset(dataset: Dataset) {
     await run(async () => {
       await selectDataset(dataset);
-      if (activeCollection) replaceDataUrl(activeCollection.id, dataset.id);
+      if (activeCollection) {
+        replaceDataUrl(activeCollection.id, dataset.id);
+        rememberPlace(dataset.id, null);
+      }
     });
   }
 
-  async function selectDataset(dataset: Dataset) {
+  async function selectDataset(
+    dataset: Dataset,
+    restoreWellPath: string | null = null,
+    collection: DataCollection | null = activeCollection,
+  ): Promise<string | null> {
     const [summaryResult, metadataResult] = await Promise.all([
       dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
         params: { path: { dataset_id: dataset.id } },
@@ -557,10 +633,66 @@ export default function DataBrowser() {
     setCompoundFilter("");
     setMoaFilter("");
     setWellKind("all");
+
+    if (
+      !restoreWellPath ||
+      summaryResult.data.kind !== "plate" ||
+      !summaryResult.data.wells.some((well) => well.path === restoreWellPath)
+    ) {
+      return null;
+    }
+    try {
+      const restored = await loadWellSelection(
+        dataset,
+        summaryResult.data,
+        restoreWellPath,
+        collection,
+      );
+      setSelectedWells([restored]);
+      setFocusedGridWell({ datasetId: dataset.id, path: restoreWellPath });
+      return restoreWellPath;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadWellSelection(
+    dataset: Dataset,
+    datasetSummary: Summary,
+    wellPath: string,
+    collection: DataCollection | null,
+  ): Promise<WellSelection> {
+    const selectedImage = imageFromSummary(datasetSummary);
+    const channelLabels = selectedImage ? imageChannelLabels(selectedImage) : [];
+    const timepointCount = selectedImage
+      ? imageAxisSize(selectedImage, "t")
+      : 1;
+    const result = await dataServerClient.GET(
+      "/api/datasets/{dataset_id}/wells/{well_path}",
+      {
+        params: {
+          path: { dataset_id: dataset.id, well_path: wellPath },
+        },
+      },
+    );
+    if (!result.data) {
+      throw new Error(apiErrorMessage(result.error, "Could not load well fields"));
+    }
+    const fields = result.data.fields;
+    return {
+      datasetId: dataset.id,
+      datasetName: dataset.name,
+      collectionId: collection?.id ?? null,
+      path: wellPath,
+      fields,
+      fieldPath: fields[0]?.path ?? "",
+      channelLabels,
+      timepointCount,
+    };
   }
 
   async function toggleWell(wellPath: string) {
-    if (!selected) return;
+    if (!selected || !summary) return;
     if (
       selectedWells.some(
         (well) => well.datasetId === selected.id && well.path === wellPath,
@@ -581,28 +713,18 @@ export default function DataBrowser() {
           fallback ? { datasetId: fallback.datasetId, path: fallback.path } : null,
         );
         setMatchResults(null);
+        rememberPlace(selected.id, fallback?.path ?? null);
       }
       return;
     }
     if (selectedWells.length >= MAX_COMPARISON_SOURCES) return;
-    const selectedImage = imageFromSummary(summary);
-    const channelLabels = selectedImage ? imageChannelLabels(selectedImage) : [];
-    const timepointCount = selectedImage
-      ? imageAxisSize(selectedImage, "t")
-      : 1;
     await run(async () => {
-      const result = await dataServerClient.GET(
-        "/api/datasets/{dataset_id}/wells/{well_path}",
-        {
-          params: {
-            path: { dataset_id: selected.id, well_path: wellPath },
-          },
-        },
+      const selection = await loadWellSelection(
+        selected,
+        summary,
+        wellPath,
+        activeCollection,
       );
-      if (!result.data) {
-        throw new Error(apiErrorMessage(result.error, "Could not load well fields"));
-      }
-      const fields = result.data.fields;
       setSelectedWells((current) => {
         if (
           current.length >= MAX_COMPARISON_SOURCES ||
@@ -612,22 +734,11 @@ export default function DataBrowser() {
         ) {
           return current;
         }
-        return [
-          ...current,
-          {
-            datasetId: selected.id,
-            datasetName: selected.name,
-            collectionId: activeCollection?.id ?? null,
-            path: wellPath,
-            fields,
-            fieldPath: fields[0]?.path ?? "",
-            channelLabels,
-            timepointCount,
-          },
-        ];
+        return [...current, selection];
       });
       setFocusedGridWell({ datasetId: selected.id, path: wellPath });
       setMatchResults(null);
+      rememberPlace(selected.id, wellPath);
     });
   }
 
@@ -777,6 +888,9 @@ export default function DataBrowser() {
         fallback ? { datasetId: fallback.datasetId, path: fallback.path } : null,
       );
       setMatchResults(null);
+      if (selected?.id === datasetId) {
+        rememberPlace(datasetId, fallback?.path ?? null);
+      }
     }
   }
 
@@ -784,6 +898,9 @@ export default function DataBrowser() {
     setSelectedWells([]);
     setFocusedGridWell(null);
     setMatchResults(null);
+    if (selected && activeCollection) {
+      rememberPlace(selected.id, null);
+    }
   }
 
   const metadataByWell = useMemo(
@@ -957,43 +1074,43 @@ export default function DataBrowser() {
       )
     : datasets;
 
+  if (!initialized) {
+    return <p className="muted">Loading data browser...</p>;
+  }
+
   return (
     <>
-      {collections.length > 0 && (
-        <section
-          className="panel stack dataset-selector-panel"
-          aria-label="Dataset selection"
-        >
-          <label className="dataset-selector-control">
-            <span>Dataset</span>
-            <select
-              value={activeCollection?.id ?? FILES_SELECTION}
-              disabled={busy}
-              onChange={(event) => void changeDataSelection(event.target.value)}
-            >
-              {collections.map((collection) => (
-                <option key={collection.id} value={collection.id}>
-                  {collection.title}
-                </option>
-              ))}
-              <option value={FILES_SELECTION}>Files</option>
-            </select>
-          </label>
-          {activeCollection?.description && (
-            <p className="dataset-description">{activeCollection.description}</p>
-          )}
-        </section>
+      {activeCollection ? (
+        <header className="data-page-heading">
+          <div>
+            <h1>{activeCollection.title}</h1>
+            {activeCollection.description && (
+              <p className="lede">{activeCollection.description}</p>
+            )}
+          </div>
+          <a className="change-dataset-link" href="/">
+            Change dataset
+          </a>
+        </header>
+      ) : (
+        <>
+          <h1>Browse datasets</h1>
+          <p className="lede">
+            Explore imaging datasets where they are stored, filter plate wells by
+            experimental metadata, and open fields without copying the data.
+          </p>
+        </>
       )}
       <div className="page-grid">
       <section className="panel stack" aria-labelledby="browser-heading">
         <div className="section-heading">
           <div>
             <p className="eyebrow">
-              {activeCollection ? "Collection" : "Filesystem"}
+              {activeCollection ? "Dataset" : "Filesystem"}
             </p>
             <h2 id="browser-heading">
               {activeCollection
-                ? "Browse " + activeCollection.title
+                ? "Browse plates"
                 : "Browse data roots"}
             </h2>
           </div>

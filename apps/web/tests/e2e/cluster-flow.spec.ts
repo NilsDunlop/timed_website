@@ -16,6 +16,8 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
   await page
     .getByLabel("Compute profile")
     .selectOption("test-cluster-datasets");
+  const datasetSelector = page.getByRole("combobox", { name: "Dataset" });
+  await expect(datasetSelector).toHaveValue("timed");
   await page.getByRole("button", { name: "Connect", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Confirm SSH host key" })).toBeVisible();
@@ -34,8 +36,12 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
     fullPage: true,
   });
   await page.getByRole("link", { name: "Data", exact: true }).click();
-  const datasetSelector = page.getByRole("combobox", { name: "Dataset" });
-  await expect(datasetSelector).toHaveValue("timed");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "TIMED", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Dataset" }),
+  ).toHaveCount(0);
 
   const plate = page.locator(".file-list li").filter({
     has: page.getByText("test_plate", { exact: true }),

@@ -418,6 +418,28 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         except PackedIndexError as exc:
             raise _unprocessable(exc) from exc
 
+    async def displayed_dataset(record: DatasetRecord) -> DatasetRecord:
+        try:
+            packed = await packed_path(record.path)
+        except HTTPException:
+            return record
+        if packed is None or packed.experiment is None or packed.plate is None:
+            return record
+        profile = profile_for_index(
+            packed.index_path.name,
+            packed.catalogue.row_count,
+        )
+        if profile is None or profile.display_name is None:
+            return record
+        return record.model_copy(
+            update={
+                "name": profile.plate_display_name(
+                    packed.experiment,
+                    packed.plate,
+                )
+            }
+        )
+
     async def linked(
         dataset_id: str,
     ) -> tuple[DatasetRecord, Path, StoreDescriptor, PackedVirtualPath | None]:
@@ -472,11 +494,12 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             if packed.plate is not None:
                 raise HTTPException(status_code=400, detail="Packed plates are not listable")
             if packed.experiment is None:
+                profile = await packed_profile(packed)
                 return FilesystemListResponse(
                     path=packed.registry_key,
                     entries=[
                         FilesystemEntry(
-                            name=experiment,
+                            name=profile.experiment_display_name(experiment),
                             path=str(Path(packed.registry_key) / experiment),
                             kind="dir",
                             detail=_quantity(
@@ -493,7 +516,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                 path=packed.registry_key,
                 entries=[
                     FilesystemEntry(
-                        name=profile.plate_name(plate),
+                        name=profile.plate_display_name(packed.experiment, plate),
                         path=str(Path(packed.registry_key) / str(plate)),
                         kind="dir",
                         ome_zarr=PACKED_PLATE_DESCRIPTOR.info,
@@ -571,7 +594,11 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
 
     @app.get("/api/datasets", response_model=DatasetListResponse)
     async def list_datasets() -> DatasetListResponse:
-        return DatasetListResponse(datasets=registry.list())
+        datasets = [
+            await displayed_dataset(record)
+            for record in registry.list()
+        ]
+        return DatasetListResponse(datasets=datasets)
 
     @app.post("/api/datasets", response_model=DatasetRecord, status_code=201)
     async def link_dataset(request: DatasetLinkRequest) -> DatasetRecord:
@@ -583,11 +610,13 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                     detail="Link a packed plate, not an index or experiment",
                 )
             profile = await packed_profile(packed)
-            return registry.link_key(
+            record = registry.link_key(
                 packed.registry_key,
-                request.name or profile.plate_name(packed.plate),
+                request.name
+                or profile.plate_display_name(packed.experiment, packed.plate),
                 PACKED_PLATE_DESCRIPTOR.info,
             )
+            return await displayed_dataset(record)
         try:
             path = guard.resolve(request.path)
         except PathForbiddenError as exc:

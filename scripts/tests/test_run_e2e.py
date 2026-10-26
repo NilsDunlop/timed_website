@@ -52,8 +52,8 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
         },
         {
             "id": "idr0080",
-            "title": "idr0080 · Cell Health",
-            "description": "CRISPR Cell Painting · test collection",
+            "title": "Cell Health",
+            "description": "idr0080-like CRISPR Cell Painting test collection",
             "path": str(idr0080_index),
         },
     ]

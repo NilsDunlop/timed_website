@@ -132,8 +132,8 @@ def _profile(
     }
     idr0080_collection = {
         "id": "idr0080",
-        "title": "idr0080 · Cell Health",
-        "description": "CRISPR Cell Painting · test collection",
+        "title": "Cell Health",
+        "description": "idr0080-like CRISPR Cell Painting test collection",
     }
     cluster_profile = {
         "id": "test-cluster",

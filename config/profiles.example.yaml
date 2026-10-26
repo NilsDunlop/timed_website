@@ -16,8 +16,8 @@ profiles:
         path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
         default: true
       - id: idr0080
-        title: idr0080 · Cell Health
-        description: CRISPR Cell Painting · A549, ES2, HCC44 · 9 plates · 5 channels
+        title: Cell Health
+        description: idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - 9 plates - 5 channels
         path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080/idr0080-raw.index.parquet
     slurm:
       account: naiss2026-3-679-cpu
@@ -67,8 +67,8 @@ profiles:
         path: /absolute/path/to/repo/test-data
         default: true
       - id: idr0080
-        title: idr0080 · Cell Health
-        description: CRISPR Cell Painting · idr0080-like fixture
+        title: Cell Health
+        description: idr0080-like CRISPR Cell Painting fixture
         path: /absolute/path/to/repo/test-data/packed/idr0080-like/idr0080-raw.index.parquet
     slurm:
       account: dev
@@ -89,6 +89,6 @@ profiles:
         path: ./test-data
         default: true
       - id: idr0080
-        title: idr0080 · Cell Health
-        description: CRISPR Cell Painting · idr0080-like fixture
+        title: Cell Health
+        description: idr0080-like CRISPR Cell Painting fixture
         path: ./test-data/packed/idr0080-like/idr0080-raw.index.parquet

@@ -58,15 +58,19 @@ export async function exerciseIdr0080Flow(page: Page) {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Browse datasets",
+      name: "Cell Health",
       exact: true,
     }),
   ).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Dataset" })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "Files" })).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Change dataset", exact: true }),
+  ).toBeVisible();
 
-  const datasetSelector = page.getByRole("combobox", { name: "Dataset" });
-  await expect(datasetSelector).toHaveValue("idr0080");
-  await openExperiment(page, "idr0080-A549");
-  await openPlate(page, "SQ00014610");
+  const primaryPlateName = "Cell Health \u00b7 A549 \u00b7 SQ00014610";
+  await openExperiment(page, "A549");
+  await openPlate(page, primaryPlateName);
 
   const geneFilter = page.getByTestId("compound-filter");
   const wellTypeFilter = page.getByTestId("moa-filter");
@@ -174,6 +178,48 @@ export async function exerciseIdr0080Flow(page: Page) {
     await expect(channelControl).toContainText(`Contrast maximum: ${end}`);
   }
 
+  const grayscale = controls.getByRole("group", { name: "Grayscale" });
+  const mitoGrayscale = grayscale.getByRole("checkbox", {
+    name: "Show Mito in grayscale",
+    exact: true,
+  });
+  const erGrayscale = grayscale.getByRole("checkbox", {
+    name: "Show ER in grayscale",
+    exact: true,
+  });
+  await mitoGrayscale.check();
+  await expect(mitoGrayscale).toBeChecked();
+  await expect(erGrayscale).not.toBeChecked();
+  for (const [name, visible] of channels) {
+    const composite = controls.getByRole("checkbox", { name, exact: true });
+    await expect(composite).toBeDisabled();
+    if (visible) await expect(composite).toBeChecked();
+    else await expect(composite).not.toBeChecked();
+  }
+
+  const erContrastMaximum = controls.getByRole("slider", {
+    name: "ER contrast maximum",
+    exact: true,
+  });
+  await expect(erContrastMaximum).toBeEnabled();
+  const originalErContrastMaximum = await erContrastMaximum.inputValue();
+  await erContrastMaximum.press("ArrowLeft");
+  await expect(erContrastMaximum).not.toHaveValue(originalErContrastMaximum);
+
+  await erGrayscale.check();
+  await expect(erGrayscale).toBeChecked();
+  await expect(mitoGrayscale).not.toBeChecked();
+  await erGrayscale.uncheck();
+  await expect(grayscale.locator('input[type="checkbox"]:checked')).toHaveCount(
+    0,
+  );
+  for (const [name, visible] of channels) {
+    const composite = controls.getByRole("checkbox", { name, exact: true });
+    await expect(composite).toBeEnabled();
+    if (visible) await expect(composite).toBeChecked();
+    else await expect(composite).not.toBeChecked();
+  }
+
   const sourceFacts = page.getByTestId("viewer-source-facts");
   await expect(sourceFacts).toContainText("Gene");
   await expect(sourceFacts).toContainText("KRAS");
@@ -196,10 +242,16 @@ export async function exerciseIdr0080Flow(page: Page) {
 
   await page.getByRole("link", { name: "Back to data" }).click();
   await expect(
-    page.getByRole("heading", { level: 2, name: "SQ00014610", exact: true }),
+    page.getByRole("heading", { level: 1, name: "Cell Health", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: primaryPlateName,
+      exact: true,
+    }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Well C1" }).click();
   const matchPanel = page.getByTestId("perturbation-matches");
   await expect(matchPanel).toBeVisible();
 
@@ -248,7 +300,9 @@ export async function exerciseIdr0080Flow(page: Page) {
 
   const comparisonTray = page.getByTestId("well-selection");
   await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(3);
-  const secondPlateSite = page.getByLabel("Site for SQ00014611 C01");
+  const secondPlateSite = page.getByLabel(
+    "Site for Cell Health \u00b7 A549 \u00b7 SQ00014611 C01",
+  );
   await expect(secondPlateSite).toHaveValue("C01_s1.zarr");
   await secondPlateSite.selectOption("C01_s2.zarr");
   await expect(secondPlateSite).toHaveValue("C01_s2.zarr");
@@ -281,7 +335,7 @@ export async function exerciseIdr0080Flow(page: Page) {
   await expect(compareFields).toHaveText("Compare 4 fields");
   await expect(compareFields).toBeEnabled();
   await compareFields.click();
-  await expect(page).toHaveURL(/\/view\?/);
+  await expect(page).toHaveURL(/\/view\/?\?/);
   const viewerUrl = new URL(page.url());
   const comparisonDatasets = viewerUrl.searchParams.getAll("compareDataset");
   const comparisonFields = viewerUrl.searchParams.getAll("compare");
@@ -300,11 +354,34 @@ export async function exerciseIdr0080Flow(page: Page) {
     4,
   );
   await expect(page.getByTestId("viewer-source-facts")).toHaveCount(4);
+  const comparisonCanvases = page
+    .getByTestId("comparison-view")
+    .locator("canvas");
+  const comparisonGrayscale = page
+    .locator("#image-controls")
+    .getByRole("group", { name: "Grayscale" });
+  await comparisonGrayscale
+    .getByRole("checkbox", {
+      name: "Show DNA in grayscale",
+      exact: true,
+    })
+    .check();
+  await expect(page.getByTestId("viewer-status")).toHaveText("Images ready");
+  for (let index = 0; index < 4; index += 1) {
+    await expect(comparisonCanvases.nth(index)).toBeVisible();
+  }
 
   await page.getByRole("link", { name: "Back to data" }).click();
-  await expect(datasetSelector).toHaveValue("idr0080");
   await expect(
-    page.getByRole("heading", { level: 2, name: "SQ00014610", exact: true }),
+    page.getByRole("heading", { level: 1, name: "Cell Health", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Dataset" })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: primaryPlateName,
+      exact: true,
+    }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Well A1" }).click();
   const controlType = page

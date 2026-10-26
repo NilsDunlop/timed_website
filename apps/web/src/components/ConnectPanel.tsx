@@ -6,15 +6,33 @@ import {
   connectorClient,
   webClientHeaders,
 } from "../lib/api/client";
+import {
+  dataSelectionHref,
+  initialCollection,
+  readCollectionPreference,
+  writeCollectionPreference,
+} from "../lib/collectionNavigation";
 
 type Profile = components["schemas"]["Profile"];
 type Session = components["schemas"]["SessionSnapshot"];
 
 const idleSession: Session = { state: "disconnected" };
 
+function preferredCollectionId(profile: Profile): string {
+  const collections = profile.collections ?? [];
+  let rememberedId: string | null = null;
+  try {
+    rememberedId = readCollectionPreference(window.localStorage, profile.id);
+  } catch {
+    // Browser storage is optional. Fall back to the configured default.
+  }
+  return initialCollection(collections, null, rememberedId)?.id ?? "";
+}
+
 export default function ConnectPanel() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState("");
+  const [collectionId, setCollectionId] = useState("");
   const [session, setSession] = useState<Session>(idleSession);
   const [answers, setAnswers] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -49,9 +67,13 @@ export default function ConnectPanel() {
         }
         if (!active) return;
         setProfiles(profilesResult.data);
-        setProfileId(
-          sessionResult.data.profile_id ?? profilesResult.data.at(0)?.id ?? "",
+        const nextProfileId =
+          sessionResult.data.profile_id ?? profilesResult.data.at(0)?.id ?? "";
+        const nextProfile = profilesResult.data.find(
+          (profile) => profile.id === nextProfileId,
         );
+        setProfileId(nextProfileId);
+        setCollectionId(nextProfile ? preferredCollectionId(nextProfile) : "");
         setSession(sessionResult.data);
       } catch (reason) {
         if (active) {
@@ -134,11 +156,35 @@ export default function ConnectPanel() {
     });
   }
 
+  function chooseProfile(nextProfileId: string) {
+    const nextProfile = profiles.find((profile) => profile.id === nextProfileId);
+    setProfileId(nextProfileId);
+    setCollectionId(nextProfile ? preferredCollectionId(nextProfile) : "");
+  }
+
+  function chooseCollection(nextCollectionId: string) {
+    setCollectionId(nextCollectionId);
+    try {
+      writeCollectionPreference(
+        window.localStorage,
+        profileId,
+        nextCollectionId,
+      );
+    } catch {
+      // Browser storage is optional. Keep the choice for this page session.
+    }
+  }
+
   const connected = session.state === "connected";
   const active = session.state !== "disconnected" && session.state !== "error";
   const activeProfile = profiles.find(
     (profile) => profile.id === (session.profile_id ?? profileId),
   );
+  const selectedProfile = profiles.find((profile) => profile.id === profileId);
+  const profileCollections = selectedProfile?.collections ?? [];
+  const selectedCollection =
+    profileCollections.find((collection) => collection.id === collectionId) ??
+    null;
   const localMode = activeProfile?.kind === "local";
 
   return (
@@ -156,7 +202,7 @@ export default function ConnectPanel() {
           name="profile"
           value={profileId}
           disabled={active || busy}
-          onChange={(event) => setProfileId(event.target.value)}
+          onChange={(event) => chooseProfile(event.target.value)}
         >
           {profiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
@@ -174,6 +220,29 @@ export default function ConnectPanel() {
           </button>
         )}
       </div>
+
+      {profileCollections.length > 0 && (
+        <div className="stack">
+          <label className="dataset-selector-control">
+            <span>Dataset</span>
+            <select
+              name="dataset"
+              value={collectionId}
+              disabled={busy}
+              onChange={(event) => chooseCollection(event.target.value)}
+            >
+              {profileCollections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedCollection?.description && (
+            <p className="dataset-description">{selectedCollection.description}</p>
+          )}
+        </div>
+      )}
 
       <dl className="status-grid" aria-live="polite">
         <div>
@@ -318,7 +387,9 @@ export default function ConnectPanel() {
       {connected && (
         <div className="notice success">
           Connected to {String(session.handshake?.hostname ?? "the data server")}.{" "}
-          <a href="/data">Browse data</a>
+          <a href={dataSelectionHref(selectedCollection?.id ?? null)}>
+            Browse data
+          </a>
         </div>
       )}
 
