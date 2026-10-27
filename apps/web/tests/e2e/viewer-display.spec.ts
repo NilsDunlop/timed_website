@@ -19,7 +19,7 @@ function memoryStorage() {
   };
 }
 
-test("defaults to fluorescence and remembers grayscale mode by channel name", () => {
+test("defaults to color and remembers grayscale mode by channel name", () => {
   const storage = memoryStorage();
   expect(readViewerDisplayPreference(storage)).toEqual(
     defaultViewerDisplayPreference,

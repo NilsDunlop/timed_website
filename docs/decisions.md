@@ -407,7 +407,7 @@ paths. The packed code profile uses the same display name, producing plate
 names that combine Cell Health, the cell line, and the plate without changing
 the underlying virtual path.
 
-## 2026-10-26: use RxRx hues for composites and grayscale for validation
+## 2026-10-26: use RxRx hues for composites and Grayscale for validation
 
 The composite palette comes from the `RGB_MAP` in Recursion's official
 [`rxrx1-utils` image helper](https://github.com/recursionpharma/rxrx1-utils/blob/31e6f9b826c6de84f531cd2b4f67bfc158036d7d/rxrx/io.py#L17-L42).
@@ -423,27 +423,33 @@ composite easier to read.
 The superseded Cell Health palette was made for separate, single-channel
 panels. Its figure helper also stretches every cropped channel independently
 from its 1st to 99th percentile. The A1 comparison with Cell Health v2.0 is
-therefore performed one channel at a time in grayscale. TIMED retains the fixed
-Appendix B.2 windows during that comparison because a stable intensity mapping
-keeps brightness comparable between wells.
+therefore performed one channel at a time in **Grayscale** mode. TIMED retains
+the fixed Appendix B.2 windows during that comparison because a stable
+intensity mapping keeps brightness comparable between wells.
 
-## 2026-10-27: make Fluorescence and Grayscale explicit viewer modes
+## 2026-10-27: make Color and Grayscale explicit viewer modes
 
 The previous Grayscale section at the bottom of the channel controls is
-superseded. A **Fluorescence | Grayscale** mode control now belongs at the top.
-Fluorescence is the default colour composite and keeps the existing channel
-visibility controls and the full list of contrast sliders. Grayscale shows one
-selected channel in white with that channel's current contrast window and shows
-only that channel's contrast sliders; selecting another channel switches both
-the grayscale source and the visible sliders.
+superseded. A radio group labelled **Display** now belongs at the top and offers
+**Color** and **Grayscale** in a responsive segmented control. The segments
+share the available width equally, sit side by side when space permits, and
+stack when the control becomes narrow. Their native radio circles are visually
+hidden without removing the inputs or their radio semantics: arrow keys move
+between options, and the keyboard-focused segment has a visible focus ring.
 
-Switching modes preserves the Fluorescence visibility state, and contrast
+Color is the default colour composite and keeps the existing channel visibility
+controls and the full list of contrast sliders. Grayscale shows one selected
+channel in white with that channel's current contrast window and shows only that
+channel's contrast sliders; selecting another channel switches both the
+grayscale source and the visible sliders.
+
+Switching modes preserves the Color visibility state, and contrast
 remains adjustable in either mode. The chosen mode persists while moving
 between fields. One mode applies to all viewer panels, including comparisons
 and every source type. Split view and per-channel Solo buttons remain out of
 scope.
 
-The completed A1 grayscale comparison matched Cell Health's reference exactly.
+The completed A1 Grayscale comparison matched Cell Health's reference exactly.
 That independent result confirms the plate, well, site, orientation, and
 channel order while leaving the fixed cross-well contrast windows intact.
 

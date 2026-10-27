@@ -1127,31 +1127,35 @@ export default function ImageViewer() {
             <h2>{timeCount <= 1 ? "Channels" : "Time and channels"}</h2>
           </div>
 
-        <fieldset className="viewer-mode-control">
-          <legend>Display mode</legend>
-          <div className="viewer-mode-options">
-            <label>
-              <input
-                type="radio"
-                name="viewer-display-mode"
-                value="fluorescence"
-                checked={displayMode === "fluorescence"}
-                onChange={() => chooseDisplayMode("fluorescence")}
-              />
-              <span>Fluorescence</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="viewer-display-mode"
-                value="grayscale"
-                checked={displayMode === "grayscale"}
-                onChange={() => chooseDisplayMode("grayscale")}
-              />
-              <span>Grayscale</span>
-            </label>
-          </div>
-        </fieldset>
+          <fieldset className="viewer-mode-control">
+            <legend id="viewer-display-legend">Display</legend>
+            <div
+              className="viewer-mode-options"
+              role="radiogroup"
+              aria-labelledby="viewer-display-legend"
+            >
+              <label>
+                <input
+                  type="radio"
+                  name="viewer-display-mode"
+                  value="fluorescence"
+                  checked={displayMode === "fluorescence"}
+                  onChange={() => chooseDisplayMode("fluorescence")}
+                />
+                <span>Color</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="viewer-display-mode"
+                  value="grayscale"
+                  checked={displayMode === "grayscale"}
+                  onChange={() => chooseDisplayMode("grayscale")}
+                />
+                <span>Grayscale</span>
+              </label>
+            </div>
+          </fieldset>
 
         {displayMode === "grayscale" && channels.length > 0 && (
           <fieldset className="grayscale-channel-control">

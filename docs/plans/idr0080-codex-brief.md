@@ -38,8 +38,8 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
   plate and well visited there.
 - **Browsing.** idr0080 is browsed by cell line (A549, ES2, HCC44), then plate, then well, then site (nine per well). Gene, guide and well type come from the metadata CSV.
 - **Viewing.** All five stains are available, with a DNA/ER/AGP composite by default and contrast fixed per cell line.
-- **Display modes.** The viewer switches between a colour Fluorescence
-  composite and one channel at a time in Grayscale.
+- **Display modes.** The viewer switches between a **Color** composite and one
+  channel at a time in **Grayscale**.
 - **Comparing.** Keep the selected well while switching plates, highlight the
   same gene or controls on the active plate, and compare up to four fields side
   by side.
@@ -321,14 +321,20 @@ Tests that assert exact TIMED response bodies gain the new optional keys and not
   - In the same commit, make TIMED's facade (`_bare_image_summary`) declare `end` 65,535, which is what TIMED has always displayed.
   - Native OME-Zarr windows, such as the test images' 100–8,000, now apply as declared; update tests that asserted the old maximum.
 - **Default visibility.** Set each channel's visibility from OMERO `active ?? true`.
-- **Fluorescence and Grayscale modes.**
-  - Put a **Fluorescence | Grayscale** mode control at the top of the channel
-    controls. Fluorescence is the colour composite and retains today's full
-    list of channel visibility and contrast controls.
+- **Color and Grayscale modes.**
+  - Put a radio group labelled **Display** at the top of the channel controls.
+    Its **Color** and **Grayscale** options form a responsive, equal-width
+    segmented control: they sit side by side when space permits and stack when
+    the control becomes narrow.
+  - Visually hide the native radio circles without removing the inputs or their
+    radio semantics. Arrow keys move between options, and the keyboard-focused
+    segment has a visible focus ring.
+  - **Color** is the default colour composite and retains today's full list of
+    channel visibility and contrast controls.
   - Grayscale shows exactly one selected channel in white using that channel's
     current contrast window. Show only the selected channel's contrast sliders;
     selecting another channel switches both the grayscale image and the sliders.
-  - Switching modes preserves the Fluorescence visibility state. Contrast
+  - Switching modes preserves the Color visibility state. Contrast
     controls remain available in both modes, and the chosen mode persists while
     moving between fields.
   - The mode applies to every source and to all panels in comparison mode. Do
@@ -601,7 +607,7 @@ Each milestone ends with its tests green, the existing suites green, and a push.
   3. Compare `A02` (MCL1) on `SQ00014611` (A549), `SQ00014614` (ES2),
      and `SQ00014616` (HCC44), plus the `A01` EMPTY control on
      `SQ00014611`.
-  4. Repeat the channel check in grayscale as specified in
+  4. Repeat the channel check in **Grayscale** mode as specified in
      `docs/arrhenius.md`.
   5. Disconnect after viewing images and confirm a final state within a few
      seconds.
@@ -714,10 +720,10 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
   - pixels are not uniform and there is no time slider;
   - DNA, ER and AGP are checked and RNA and Mito unchecked;
   - the contrast maximum equals the cell line's window end.
-- Confirm **Fluorescence** is the initial mode and its visibility state is
-  unchanged. Switch to **Grayscale**, select Mito and then ER, and confirm only
+- Confirm **Color** is the initial mode and its visibility state is unchanged.
+  Switch to **Grayscale**, select Mito and then ER, and confirm only
   ER is shown in white and only ER's contrast sliders are present. Move to
-  another field and confirm Grayscale remains selected. Return to Fluorescence
+  another field and confirm Grayscale remains selected. Return to Color
   and confirm its composite state and full channel-control list are restored;
   repeat the mode check in comparison mode.
 - From the viewer, use the Data navigation link and confirm the same plate and
@@ -895,7 +901,7 @@ dataset.
 
 The Cell Health authors' superseded palette was intended for separate,
 single-channel panels. A1 therefore compares channels one at a time in
-grayscale against
+**Grayscale** mode against
 [`greyscale_channel.png`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/1.generate-profiles/figures/example_images/greyscale_channel.png).
 Their figure code stretches each cropped channel independently from its 1st to
 99th percentile; TIMED keeps the fixed cell-line windows in B.2 so brightness

@@ -93,7 +93,7 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(
     page
       .locator("#image-controls")
-      .getByRole("radio", { name: "Fluorescence", exact: true }),
+      .getByRole("radio", { name: "Color", exact: true }),
   ).toBeChecked();
   await expect(
     page.getByRole("heading", {

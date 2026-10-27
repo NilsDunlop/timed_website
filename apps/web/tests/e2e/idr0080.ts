@@ -41,6 +41,32 @@ async function expectCustomProperty(
     .toBe(value);
 }
 
+async function expectLabelTextInsideSegment(radio: Locator) {
+  const segment = radio.locator("xpath=ancestor::label");
+  const labelText = segment.locator("span");
+  const [segmentBox, labelTextBox] = await Promise.all([
+    segment.boundingBox(),
+    labelText.boundingBox(),
+  ]);
+  expect(segmentBox).not.toBeNull();
+  expect(labelTextBox).not.toBeNull();
+  if (segmentBox == null || labelTextBox == null) return;
+
+  const roundingTolerance = 0.5;
+  expect(labelTextBox.x).toBeGreaterThanOrEqual(
+    segmentBox.x - roundingTolerance,
+  );
+  expect(labelTextBox.y).toBeGreaterThanOrEqual(
+    segmentBox.y - roundingTolerance,
+  );
+  expect(labelTextBox.x + labelTextBox.width).toBeLessThanOrEqual(
+    segmentBox.x + segmentBox.width + roundingTolerance,
+  );
+  expect(labelTextBox.y + labelTextBox.height).toBeLessThanOrEqual(
+    segmentBox.y + segmentBox.height + roundingTolerance,
+  );
+}
+
 async function removeOpenedPlates(page: Page) {
   const opened = page.locator(".dataset-list li");
   while ((await opened.count()) > 0) {
@@ -182,16 +208,53 @@ export async function exerciseIdr0080Flow(page: Page) {
     "data-scale-bar",
     "true",
   );
-  const fluorescenceMode = controls.getByRole("radio", {
-    name: "Fluorescence",
+  const originalViewport = page.viewportSize();
+  await page.setViewportSize({
+    width: 320,
+    height: originalViewport?.height ?? 720,
+  });
+  const controlsBox = await controls.boundingBox();
+  expect(controlsBox).not.toBeNull();
+  expect(controlsBox?.width).toBeGreaterThanOrEqual(279);
+  expect(controlsBox?.width).toBeLessThanOrEqual(281);
+
+  const displayGroup = controls.getByRole("radiogroup", {
+    name: "Display",
     exact: true,
   });
-  const grayscaleMode = controls.getByRole("radio", {
+  await expect(displayGroup).toBeVisible();
+  await expect(displayGroup.getByRole("radio")).toHaveCount(2);
+  const colorMode = displayGroup.getByRole("radio", {
+    name: "Color",
+    exact: true,
+  });
+  const grayscaleMode = displayGroup.getByRole("radio", {
     name: "Grayscale",
     exact: true,
   });
-  await expect(fluorescenceMode).toBeChecked();
-  await grayscaleMode.check();
+  await expect(colorMode).toBeChecked();
+  await expect(grayscaleMode).not.toBeChecked();
+  await expectLabelTextInsideSegment(colorMode);
+  await expectLabelTextInsideSegment(grayscaleMode);
+
+  await colorMode.focus();
+  await expect(colorMode).toBeFocused();
+  await colorMode.press("ArrowRight");
+  await expect(grayscaleMode).toBeFocused();
+  await expect(grayscaleMode).toBeChecked();
+  await expect(colorMode).not.toBeChecked();
+  const focusedSegment = grayscaleMode.locator("xpath=ancestor::label");
+  const focusOutline = await focusedSegment.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      style: style.outlineStyle,
+      width: Number.parseFloat(style.outlineWidth),
+    };
+  });
+  expect(focusOutline.style).toBe("solid");
+  expect(focusOutline.width).toBeGreaterThan(0);
+  if (originalViewport != null) await page.setViewportSize(originalViewport);
+
   const grayscaleChannels = controls.getByRole("group", {
     name: "Grayscale channel",
   });
@@ -227,7 +290,7 @@ export async function exerciseIdr0080Flow(page: Page) {
 
   await expect(erGrayscale).toBeChecked();
   await expect(mitoGrayscale).not.toBeChecked();
-  await fluorescenceMode.check();
+  await colorMode.check();
   await expect(grayscaleChannels).toHaveCount(0);
   await expect(controls.getByRole("slider")).toHaveCount(10);
   await expect(erContrastMaximum).toHaveValue(editedErContrastMaximum);
@@ -407,7 +470,7 @@ export async function exerciseIdr0080Flow(page: Page) {
     );
   }
   await comparisonControls
-    .getByRole("radio", { name: "Fluorescence", exact: true })
+    .getByRole("radio", { name: "Color", exact: true })
     .check();
   for (const [name, visible] of channels) {
     const composite = comparisonControls.getByRole("checkbox", {
