@@ -371,13 +371,11 @@ semantics: same well excludes the source plate, same gene excludes only the
 source occurrence, and controls are EMPTY wells on the source plate. Results
 are sorted by cell line, numeric plate and well, then capped at 200.
 
-The Data page groups those results by cell line and treats each returned path
-as opaque. Adding a result links its plate idempotently, fetches the requested
-well and the target plate summary, and starts at site 1 without changing the
-focused source well. The target summary supplies channel labels and timepoint
-count, so the existing compatibility guard remains authoritative. Tray
-mutations are disabled while an add is in flight; the four-field limit and
-site picker continue to apply across linked plates.
+The original Phase 1 UI grouped those results in a Related fields panel and
+added them directly to the comparison tray. That browser consumer was
+superseded by the 2026-10-27 grid-highlighting decision below. The guarded
+endpoint and its direct contract tests remain, but the current UI does not call
+it.
 
 ## 2026-10-26: choose the active dataset on Connect and restore its place
 
@@ -428,3 +426,57 @@ from its 1st to 99th percentile. The A1 comparison with Cell Health v2.0 is
 therefore performed one channel at a time in grayscale. TIMED retains the fixed
 Appendix B.2 windows during that comparison because a stable intensity mapping
 keeps brightness comparable between wells.
+
+## 2026-10-27: make Fluorescence and Grayscale explicit viewer modes
+
+The previous Grayscale section at the bottom of the channel controls is
+superseded. A **Fluorescence | Grayscale** mode control now belongs at the top.
+Fluorescence is the default colour composite and keeps the existing channel
+visibility controls and the full list of contrast sliders. Grayscale shows one
+selected channel in white with that channel's current contrast window and shows
+only that channel's contrast sliders; selecting another channel switches both
+the grayscale source and the visible sliders.
+
+Switching modes preserves the Fluorescence visibility state, and contrast
+remains adjustable in either mode. The chosen mode persists while moving
+between fields. One mode applies to all viewer panels, including comparisons
+and every source type. Split view and per-channel Solo buttons remain out of
+scope.
+
+The completed A1 grayscale comparison matched Cell Health's reference exactly.
+That independent result confirms the plate, well, site, orientation, and
+channel order while leaving the fixed cross-well contrast windows intact.
+
+## 2026-10-27: use plate-grid highlights instead of Related fields
+
+The Related fields result list and its add-to-comparison actions are removed.
+When a well is selected, **Same gene** and **Controls** act as plate-grid
+highlight toggles for the active plate. They are mutually exclusive: choosing
+one clears the other, and clicking the active button again clears the
+highlight. Within Cell Health, switching plates preserves the selected well,
+making same-position comparison a direct plate-switching workflow; TIMED and
+other collections keep their existing switching behaviour. A carried well is
+appended while the comparison tray has room. At the four-field limit it
+replaces the focused source from the plate being left, in the same tray slot,
+so the coordinate remains selected without evicting an unrelated source. Site
+choices, the four-field limit, and the channel guard otherwise remain
+unchanged.
+
+The packed matches endpoint is deliberately retained for possible later use.
+Its guarded paths, deterministic modes, limit, and direct tests remain useful,
+but the current browser makes no request to it.
+
+## 2026-10-27: deliver scale bars in Phase 1 S1
+
+Physical scale is a viewer concern, not a segmentation dependency, so S1 moves
+from Phase 2 into Phase 1 before R1. TIMED uses its documented calibration of
+0.3 µm/px. The operator checked the Phenix `Index.idx.xml` files for all nine
+Cell Health plates, `SQ00014610` through `SQ00014618`. Every plate reports both
+X and Y as `2.9898804047838085E-07` m at 20×, so Cell Health stores the full
+converted value `0.29898804047838085` µm/px in its packed profile. Display text
+may round that value, but metadata and calculations retain the full precision.
+
+Every image panel derives its scale bar from its own source metadata. This also
+applies in comparison mode, where panels can have different calibrations. A
+panel with no valid pixel size has no scale bar. Phase 2 may reuse the same
+metadata for physical area units, but does not own the scale-bar feature.

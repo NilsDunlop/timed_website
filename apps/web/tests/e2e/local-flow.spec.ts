@@ -86,6 +86,15 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
     timeout: 60_000,
   });
+  await expect(page.locator(".canvas-frame").first()).toHaveAttribute(
+    "data-scale-bar",
+    "true",
+  );
+  await expect(
+    page
+      .locator("#image-controls")
+      .getByRole("radio", { name: "Fluorescence", exact: true }),
+  ).toBeChecked();
   await expect(
     page.getByRole("heading", {
       level: 1,

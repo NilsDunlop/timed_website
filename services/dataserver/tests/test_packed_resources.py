@@ -26,6 +26,7 @@ from zarr.storage import FsspecStore
 
 from scripts import make_test_data
 
+PIXEL_SIZE_UM = 0.29898804047838085
 TOKEN = "packed-resource-test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 ROWS = list("ABCDEFGHIJKLMNOP")
@@ -166,8 +167,8 @@ def _expected_summary() -> dict[str, Any]:
             "path": "A01_s1.zarr",
             "axes": [
                 {"name": "c", "type": "channel", "unit": None},
-                {"name": "y", "type": "space", "unit": None},
-                {"name": "x", "type": "space", "unit": None},
+                {"name": "y", "type": "space", "unit": "micrometer"},
+                {"name": "x", "type": "space", "unit": "micrometer"},
             ],
             "levels": [
                 {
@@ -176,7 +177,9 @@ def _expected_summary() -> dict[str, Any]:
                     "chunks": [1, 32, 32],
                     "shard_shape": None,
                     "dtype": "uint16",
-                    "coordinate_transformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0]}],
+                    "coordinate_transformations": [
+                        {"type": "scale", "scale": [1.0, PIXEL_SIZE_UM, PIXEL_SIZE_UM]}
+                    ],
                 }
             ],
             "channels": _summary_channels("A549"),
@@ -200,14 +203,14 @@ def _expected_group(field: str, cell_line: str) -> dict[str, Any]:
                         "name": field,
                         "axes": [
                             {"name": "c", "type": "channel"},
-                            {"name": "y", "type": "space"},
-                            {"name": "x", "type": "space"},
+                            {"name": "y", "type": "space", "unit": "micrometer"},
+                            {"name": "x", "type": "space", "unit": "micrometer"},
                         ],
                         "datasets": [
                             {
                                 "path": "s0",
                                 "coordinateTransformations": [
-                                    {"type": "scale", "scale": [1, 1, 1]}
+                                    {"type": "scale", "scale": [1, PIXEL_SIZE_UM, PIXEL_SIZE_UM]}
                                 ],
                             }
                         ],

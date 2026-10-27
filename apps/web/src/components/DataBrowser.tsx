@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import type { components } from "../lib/api/dataserver-schema";
 import { apiErrorMessage, connectorClient, dataServerClient } from "../lib/api/client";
 import {
+  carrySelectionAcrossDatasets,
   clearCollectionPlace,
+  collectionCarriesWellBetweenPlates,
   collectionEntryName,
   dataSelectionHref,
   initialCollection,
@@ -21,6 +23,7 @@ import {
 } from "../lib/imageSummary";
 import PlateMetadataPanel, {
   doseLabel,
+  findWellMetadata,
   metadataLabels,
   type PlateMetadata,
 } from "./PlateMetadataPanel";
@@ -28,10 +31,6 @@ import PlateGrid, {
   plateGridKey,
   type PlateGridWell,
 } from "./PlateGrid";
-import PerturbationMatches, {
-  type MatchMode,
-  type PerturbationMatch,
-} from "./PerturbationMatches";
 
 type Dataset = components["schemas"]["DatasetRecord"];
 type Entry = components["schemas"]["FilesystemEntry"];
@@ -55,10 +54,7 @@ type ViewerSource = {
   imagePath: string;
 };
 type FocusedGridWell = { datasetId: string; path: string };
-type MatchResults = FocusedGridWell & {
-  by: MatchMode;
-  matches: PerturbationMatch[];
-};
+type WellHighlightMode = "gene" | "control";
 
 const MAX_COMPARISON_SOURCES = 4;
 
@@ -87,6 +83,7 @@ function viewerHref(
   primary: ViewerSource,
   comparisons: ViewerSource[] = [],
   collectionId: string | null = null,
+  returnDatasetId: string | null = null,
 ): string {
   const query = new URLSearchParams({
     dataset: primary.datasetId,
@@ -96,19 +93,24 @@ function viewerHref(
     query.append("compare", comparison.imagePath);
     query.append("compareDataset", comparison.datasetId);
   }
-  if (collectionId) query.set("collection", collectionId);
+  if (collectionId) {
+    query.set("collection", collectionId);
+    if (returnDatasetId) query.set("returnDataset", returnDatasetId);
+  }
   return "/view?" + query.toString();
 }
 
 function ComparisonTray({
   wells,
   busy,
+  returnDatasetId,
   onClear,
   onSelectField,
   onRemoveWell,
 }: {
   wells: WellSelection[];
   busy: boolean;
+  returnDatasetId: string | null;
   onClear: () => void;
   onSelectField: (
     datasetId: string,
@@ -225,6 +227,7 @@ function ComparisonTray({
               },
               [],
               wells[0].collectionId,
+              returnDatasetId,
             )}
           >
             {wells[0].timepointCount <= 1 ? "Open field" : "Open trajectory"}
@@ -255,6 +258,7 @@ function ComparisonTray({
                   imagePath: well.fieldPath,
                 })),
                 wells[0].collectionId,
+                returnDatasetId,
               )}
             >
               Compare {wells.length}{" "}
@@ -287,7 +291,8 @@ export default function DataBrowser() {
   const [selectedWells, setSelectedWells] = useState<WellSelection[]>([]);
   const [focusedGridWell, setFocusedGridWell] =
     useState<FocusedGridWell | null>(null);
-  const [matchResults, setMatchResults] = useState<MatchResults | null>(null);
+  const [wellHighlightMode, setWellHighlightMode] =
+    useState<WellHighlightMode | null>(null);
   const [compoundFilter, setCompoundFilter] = useState("");
   const [moaFilter, setMoaFilter] = useState("");
   const [wellKind, setWellKind] = useState<"all" | "treatment" | "control">("all");
@@ -490,6 +495,8 @@ export default function DataBrowser() {
     setSelected(null);
     setSummary(null);
     setMetadata(null);
+    setFocusedGridWell(null);
+    setWellHighlightMode(null);
     setCompoundFilter("");
     setMoaFilter("");
     setWellKind("all");
@@ -511,6 +518,22 @@ export default function DataBrowser() {
       window.localStorage,
       profileId,
       activeCollection.id,
+    );
+  }
+
+  function currentDatasetWellPath(): string | null {
+    if (!selected) return null;
+    if (
+      focusedGridWell?.datasetId === selected.id &&
+      selectedWells.some(
+        (well) =>
+          well.datasetId === selected.id && well.path === focusedGridWell.path,
+      )
+    ) {
+      return focusedGridWell.path;
+    }
+    return (
+      selectedWells.find((well) => well.datasetId === selected.id)?.path ?? null
     );
   }
 
@@ -539,6 +562,15 @@ export default function DataBrowser() {
 
   async function link(entry: Entry) {
     await run(async () => {
+      const restoreWellPath = collectionCarriesWellBetweenPlates(
+        activeCollection?.id,
+      )
+        ? currentDatasetWellPath()
+        : null;
+      const carrySource =
+        selected && restoreWellPath
+          ? { datasetId: selected.id, path: restoreWellPath }
+          : null;
       const result = await dataServerClient.POST("/api/datasets", {
         body: { path: entry.path },
       });
@@ -546,10 +578,15 @@ export default function DataBrowser() {
         throw new Error(apiErrorMessage(result.error, "Could not link dataset"));
       }
       await loadDatasets();
-      await selectDataset(result.data);
+      const restoredWellPath = await selectDataset(
+        result.data,
+        restoreWellPath,
+        activeCollection,
+        carrySource,
+      );
       if (activeCollection) {
         replaceDataUrl(activeCollection.id, result.data.id);
-        rememberPlace(result.data.id, null);
+        rememberPlace(result.data.id, restoredWellPath);
       }
     });
   }
@@ -568,7 +605,7 @@ export default function DataBrowser() {
       );
       if (focusedGridWell?.datasetId === dataset.id) {
         setFocusedGridWell(null);
-        setMatchResults(null);
+        setWellHighlightMode(null);
       }
       if (selected?.id === dataset.id) {
         clearDatasetDetails();
@@ -596,10 +633,24 @@ export default function DataBrowser() {
 
   async function chooseDataset(dataset: Dataset) {
     await run(async () => {
-      await selectDataset(dataset);
+      const restoreWellPath = collectionCarriesWellBetweenPlates(
+        activeCollection?.id,
+      )
+        ? currentDatasetWellPath()
+        : null;
+      const carrySource =
+        selected && restoreWellPath
+          ? { datasetId: selected.id, path: restoreWellPath }
+          : null;
+      const restoredWellPath = await selectDataset(
+        dataset,
+        restoreWellPath,
+        activeCollection,
+        carrySource,
+      );
       if (activeCollection) {
         replaceDataUrl(activeCollection.id, dataset.id);
-        rememberPlace(dataset.id, null);
+        rememberPlace(dataset.id, restoredWellPath);
       }
     });
   }
@@ -608,6 +659,7 @@ export default function DataBrowser() {
     dataset: Dataset,
     restoreWellPath: string | null = null,
     collection: DataCollection | null = activeCollection,
+    carrySource: FocusedGridWell | null = null,
   ): Promise<string | null> {
     const [summaryResult, metadataResult] = await Promise.all([
       dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
@@ -639,6 +691,29 @@ export default function DataBrowser() {
       summaryResult.data.kind !== "plate" ||
       !summaryResult.data.wells.some((well) => well.path === restoreWellPath)
     ) {
+      setFocusedGridWell(null);
+      setWellHighlightMode(null);
+      return null;
+    }
+    const existing = selectedWells.find(
+      (well) =>
+        well.datasetId === dataset.id && well.path === restoreWellPath,
+    );
+    if (existing) {
+      setFocusedGridWell({ datasetId: dataset.id, path: restoreWellPath });
+      return restoreWellPath;
+    }
+    if (
+      selectedWells.length >= MAX_COMPARISON_SOURCES &&
+      (!carrySource ||
+        !selectedWells.some(
+          (well) =>
+            well.datasetId === carrySource.datasetId &&
+            well.path === carrySource.path,
+        ))
+    ) {
+      setFocusedGridWell(null);
+      setWellHighlightMode(null);
       return null;
     }
     try {
@@ -648,10 +723,23 @@ export default function DataBrowser() {
         restoreWellPath,
         collection,
       );
-      setSelectedWells([restored]);
+      const nextSelections = carrySelectionAcrossDatasets(
+        selectedWells,
+        restored,
+        carrySource,
+        MAX_COMPARISON_SOURCES,
+      );
+      if (!nextSelections) {
+        setFocusedGridWell(null);
+        setWellHighlightMode(null);
+        return null;
+      }
+      setSelectedWells(nextSelections);
       setFocusedGridWell({ datasetId: dataset.id, path: restoreWellPath });
       return restoreWellPath;
     } catch {
+      setFocusedGridWell(null);
+      setWellHighlightMode(null);
       return null;
     }
   }
@@ -712,7 +800,7 @@ export default function DataBrowser() {
         setFocusedGridWell(
           fallback ? { datasetId: fallback.datasetId, path: fallback.path } : null,
         );
-        setMatchResults(null);
+        if (!fallback) setWellHighlightMode(null);
         rememberPlace(selected.id, fallback?.path ?? null);
       }
       return;
@@ -737,128 +825,7 @@ export default function DataBrowser() {
         return [...current, selection];
       });
       setFocusedGridWell({ datasetId: selected.id, path: wellPath });
-      setMatchResults(null);
       rememberPlace(selected.id, wellPath);
-    });
-  }
-
-  async function loadMatches(by: MatchMode, wellPath: string) {
-    if (!selected) return;
-    const context = { datasetId: selected.id, path: wellPath, by, matches: [] };
-    setMatchResults(context);
-    await run(async () => {
-      try {
-        const result = await dataServerClient.GET(
-          "/api/datasets/{dataset_id}/matches",
-          {
-            params: {
-              path: { dataset_id: selected.id },
-              query: { well: wellPath, by },
-            },
-          },
-        );
-        if (!result.data) {
-          throw new Error(
-            apiErrorMessage(result.error, "Could not load perturbation matches"),
-          );
-        }
-        setMatchResults((current) =>
-          current?.datasetId === context.datasetId &&
-          current.path === context.path &&
-          current.by === context.by
-            ? { ...context, matches: result.data.matches }
-            : current,
-        );
-      } catch (reason) {
-        setMatchResults((current) =>
-          current?.datasetId === context.datasetId &&
-          current.path === context.path &&
-          current.by === context.by
-            ? null
-            : current,
-        );
-        throw reason;
-      }
-    });
-  }
-
-  async function addMatch(match: PerturbationMatch) {
-    if (!selected || selectedWells.length >= MAX_COMPARISON_SOURCES) return;
-    await run(async () => {
-      const linked = await dataServerClient.POST("/api/datasets", {
-        body: { path: match.path },
-      });
-      if (!linked.data) {
-        throw new Error(
-          apiErrorMessage(linked.error, "Could not open matching plate"),
-        );
-      }
-      const linkedDataset = linked.data;
-      setDatasets((current) =>
-        current.some((dataset) => dataset.id === linkedDataset.id)
-          ? current
-          : [...current, linkedDataset],
-      );
-      const [fieldsResult, summaryResult] = await Promise.all([
-        dataServerClient.GET("/api/datasets/{dataset_id}/wells/{well_path}", {
-          params: {
-            path: {
-              dataset_id: linkedDataset.id,
-              well_path: match.well,
-            },
-          },
-        }),
-        dataServerClient.GET("/api/datasets/{dataset_id}/summary", {
-          params: { path: { dataset_id: linkedDataset.id } },
-        }),
-      ]);
-      if (!fieldsResult.data) {
-        throw new Error(
-          apiErrorMessage(fieldsResult.error, "Could not load matching well fields"),
-        );
-      }
-      if (!summaryResult.data) {
-        throw new Error(
-          apiErrorMessage(
-            summaryResult.error,
-            "Could not load matching plate summary",
-          ),
-        );
-      }
-      const fields = fieldsResult.data.fields;
-      if (fields.length === 0) {
-        throw new Error("The matching well has no image fields.");
-      }
-      const targetImage = imageFromSummary(summaryResult.data);
-      if (!targetImage) {
-        throw new Error("The matching plate has no image fields.");
-      }
-      const channelLabels = imageChannelLabels(targetImage);
-      const timepointCount = imageAxisSize(targetImage, "t");
-      setSelectedWells((current) => {
-        if (
-          current.length >= MAX_COMPARISON_SOURCES ||
-          current.some(
-            (well) =>
-              well.datasetId === linkedDataset.id && well.path === match.well,
-          )
-        ) {
-          return current;
-        }
-        return [
-          ...current,
-          {
-            datasetId: linkedDataset.id,
-            datasetName: linkedDataset.name,
-            collectionId: activeCollection?.id ?? null,
-            path: match.well,
-            fields,
-            fieldPath: fields[0].path,
-            channelLabels,
-            timepointCount,
-          },
-        ];
-      });
     });
   }
 
@@ -887,7 +854,7 @@ export default function DataBrowser() {
       setFocusedGridWell(
         fallback ? { datasetId: fallback.datasetId, path: fallback.path } : null,
       );
-      setMatchResults(null);
+      if (!fallback) setWellHighlightMode(null);
       if (selected?.id === datasetId) {
         rememberPlace(datasetId, fallback?.path ?? null);
       }
@@ -897,7 +864,7 @@ export default function DataBrowser() {
   function clearSelectedWells() {
     setSelectedWells([]);
     setFocusedGridWell(null);
-    setMatchResults(null);
+    setWellHighlightMode(null);
     if (selected && activeCollection) {
       rememberPlace(selected.id, null);
     }
@@ -921,22 +888,7 @@ export default function DataBrowser() {
     )
       ? focusedGridWell.path
       : selectedWells.find((well) => well.datasetId === selected?.id)?.path;
-  const visibleMatchResults =
-    selected &&
-    focusedWellPath &&
-    matchResults?.datasetId === selected.id &&
-    matchResults.path === focusedWellPath
-      ? matchResults
-      : null;
-  const datasetPathsById = new Map(
-    datasets.map((dataset) => [dataset.id, dataset.path]),
-  );
-  const addedMatchKeys = new Set(
-    selectedWells.flatMap((well) => {
-      const path = datasetPathsById.get(well.datasetId);
-      return path ? [path + "\u0000" + well.path] : [];
-    }),
-  );
+  const focusedWellMetadata = findWellMetadata(metadata, focusedWellPath);
 
   const compoundOptions = useMemo(() => {
     const compounds = new Map<string, Set<number>>();
@@ -978,6 +930,7 @@ export default function DataBrowser() {
 
   const filtersActive =
     compoundFilter !== "" || moaFilter !== "" || wellKind !== "all";
+  const wellHighlightsActive = wellHighlightMode !== null;
 
   function clearMetadataFilters() {
     setCompoundFilter("");
@@ -992,13 +945,23 @@ export default function DataBrowser() {
       const wellMetadata = metadataByWell.get(
         well.row.toUpperCase() + String(well.column).padStart(2, "0"),
       );
-      const matches = Boolean(
+      const matchesMetadataFilters = Boolean(
         wellMetadata &&
           (!compoundFilter || wellMetadata.compound === compoundFilter) &&
           (!moaFilter || wellMetadata.moa === moaFilter) &&
           (wellKind !== "control" || wellMetadata.is_control) &&
           (wellKind !== "treatment" || !wellMetadata.is_control),
       );
+      const matchesWellHighlight =
+        wellHighlightMode === "gene"
+          ? Boolean(
+              focusedWellMetadata?.compound &&
+                wellMetadata?.compound === focusedWellMetadata.compound,
+            )
+          : wellHighlightMode === "control"
+            ? Boolean(wellMetadata?.is_control)
+            : true;
+      const matches = matchesMetadataFilters && matchesWellHighlight;
       const selectedIndex = selectedWells.findIndex(
         (selection) =>
           selection.datasetId === selected.id && selection.path === well.path,
@@ -1024,8 +987,8 @@ export default function DataBrowser() {
         color,
         selected: selectedIndex >= 0,
         control: wellMetadata?.is_control,
-        highlighted: filtersActive && matches,
-        dimmed: filtersActive && !matches,
+        highlighted: (filtersActive || wellHighlightsActive) && matches,
+        dimmed: (filtersActive || wellHighlightsActive) && !matches,
         disabled:
           busy ||
           (selectedWells.length >= MAX_COMPARISON_SOURCES && selectedIndex < 0),
@@ -1037,6 +1000,7 @@ export default function DataBrowser() {
     busy,
     compoundFilter,
     filtersActive,
+    focusedWellMetadata?.compound,
     labels.control,
     metadataByWell,
     moaColors,
@@ -1044,6 +1008,8 @@ export default function DataBrowser() {
     selected,
     selectedWells,
     summary,
+    wellHighlightMode,
+    wellHighlightsActive,
     wellKind,
   ]);
 
@@ -1263,10 +1229,15 @@ export default function DataBrowser() {
             {summary.kind === "image" && (
               <a
                 className="button-link"
-                href={viewerHref({
-                  datasetId: selected.id,
-                  imagePath: summary.path,
-                }, [], activeCollection?.id ?? null)}
+                href={viewerHref(
+                  {
+                    datasetId: selected.id,
+                    imagePath: summary.path,
+                  },
+                  [],
+                  activeCollection?.id ?? null,
+                  selected.id,
+                )}
               >
                 Open image
               </a>
@@ -1405,17 +1376,51 @@ export default function DataBrowser() {
                 selectedWell={focusedWellPath}
               />
 
-              {metadata?.labels && focusedWellPath && (
-                <PerturbationMatches
-                  sourceWell={focusedWellPath}
-                  activeMode={visibleMatchResults?.by ?? null}
-                  matches={visibleMatchResults?.matches ?? []}
-                  busy={busy}
-                  limitReached={selectedWells.length >= MAX_COMPARISON_SOURCES}
-                  addedKeys={addedMatchKeys}
-                  onChoose={(by) => void loadMatches(by, focusedWellPath)}
-                  onAdd={(match) => void addMatch(match)}
-                />
+              {metadata?.labels && focusedWellPath && focusedWellMetadata && (
+                <section
+                  className="subpanel stack"
+                  aria-label={"Well highlights for " + focusedWellPath}
+                  data-testid="well-highlight-controls"
+                >
+                  <div>
+                    <p className="eyebrow">Selected well</p>
+                    <h3>Highlight matching wells</h3>
+                  </div>
+                  <div
+                    className="button-row"
+                    role="group"
+                    aria-label="Highlight wells"
+                  >
+                    <button
+                      type="button"
+                      className={wellHighlightMode === "gene" ? "" : "secondary"}
+                      disabled={busy || !focusedWellMetadata.compound}
+                      aria-pressed={wellHighlightMode === "gene"}
+                      onClick={() =>
+                        setWellHighlightMode((current) =>
+                          current === "gene" ? null : "gene",
+                        )
+                      }
+                    >
+                      Same gene
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        wellHighlightMode === "control" ? "" : "secondary"
+                      }
+                      disabled={busy}
+                      aria-pressed={wellHighlightMode === "control"}
+                      onClick={() =>
+                        setWellHighlightMode((current) =>
+                          current === "control" ? null : "control",
+                        )
+                      }
+                    >
+                      Controls
+                    </button>
+                  </div>
+                </section>
               )}
 
               <div className="selection-hint">
@@ -1487,6 +1492,7 @@ export default function DataBrowser() {
               <ComparisonTray
                 wells={selectedWells}
                 busy={busy}
+                returnDatasetId={selected.id}
                 onClear={clearSelectedWells}
                 onSelectField={selectField}
                 onRemoveWell={removeWell}
@@ -1505,6 +1511,7 @@ export default function DataBrowser() {
             <ComparisonTray
               wells={selectedWells}
               busy={busy}
+              returnDatasetId={selected?.id ?? null}
               onClear={clearSelectedWells}
               onSelectField={selectField}
               onRemoveWell={removeWell}

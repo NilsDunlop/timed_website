@@ -974,29 +974,47 @@ const { title } = Astro.props;
     border-radius: 50%;
   }
 
-  .grayscale-control {
+  .viewer-mode-control,
+  .grayscale-channel-control {
     display: grid;
     gap: 0.55rem;
-    margin: 0.25rem 0 0;
+    margin: 0;
     padding: 0.8rem;
     border: 1px solid #d5ddd4;
   }
 
-  .grayscale-control legend {
+  .viewer-mode-control legend,
+  .grayscale-channel-control legend {
     padding: 0 0.25rem;
     font-weight: 700;
   }
 
-  .grayscale-options {
+  .viewer-mode-options,
+  .grayscale-channel-options {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem 0.8rem;
   }
 
-  .grayscale-options label {
+  .viewer-mode-options label,
+  .grayscale-channel-options label {
     display: flex;
     align-items: center;
     gap: 0.45rem;
+  }
+
+  .viewer-mode-options label {
+    padding: 0.45rem 0.55rem;
+    border: 1px solid #b7c6b9;
+    border-radius: 0.35rem;
+    background: #fff;
+    font-weight: 700;
+  }
+
+  .viewer-mode-options label:has(input:checked) {
+    border-color: #537d5d;
+    background: #e1ebe0;
+    color: #254b30;
   }
 
   .viewer-stage h1 {

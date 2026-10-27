@@ -28,3 +28,22 @@ export function channelLabelsMatch(
     left.every((label, index) => label === right[index])
   );
 }
+
+export function imageHasPhysicalPixelSize(image: ImageSummary): boolean {
+  const xAxisIndex = image.axes.findIndex((axis) => axis.name === "x");
+  if (xAxisIndex < 0 || !image.axes[xAxisIndex]?.unit?.trim()) return false;
+
+  return (image.levels[0]?.coordinate_transformations ?? []).some(
+    (transformation) => {
+      if (transformation.type !== "scale") return false;
+      const scale = transformation.scale;
+      if (!Array.isArray(scale)) return false;
+      const xScale = scale[xAxisIndex];
+      return (
+        typeof xScale === "number" &&
+        Number.isFinite(xScale) &&
+        xScale > 0
+      );
+    },
+  );
+}

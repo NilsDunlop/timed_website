@@ -178,25 +178,43 @@ export async function exerciseIdr0080Flow(page: Page) {
     await expect(channelControl).toContainText(`Contrast maximum: ${end}`);
   }
 
-  const grayscale = controls.getByRole("group", { name: "Grayscale" });
-  const mitoGrayscale = grayscale.getByRole("checkbox", {
-    name: "Show Mito in grayscale",
+  await expect(page.locator(".canvas-frame").first()).toHaveAttribute(
+    "data-scale-bar",
+    "true",
+  );
+  const fluorescenceMode = controls.getByRole("radio", {
+    name: "Fluorescence",
     exact: true,
   });
-  const erGrayscale = grayscale.getByRole("checkbox", {
-    name: "Show ER in grayscale",
+  const grayscaleMode = controls.getByRole("radio", {
+    name: "Grayscale",
+    exact: true,
+  });
+  await expect(fluorescenceMode).toBeChecked();
+  await grayscaleMode.check();
+  const grayscaleChannels = controls.getByRole("group", {
+    name: "Grayscale channel",
+  });
+  const mitoGrayscale = grayscaleChannels.getByRole("radio", {
+    name: "Mito",
+    exact: true,
+  });
+  const erGrayscale = grayscaleChannels.getByRole("radio", {
+    name: "ER",
     exact: true,
   });
   await mitoGrayscale.check();
   await expect(mitoGrayscale).toBeChecked();
   await expect(erGrayscale).not.toBeChecked();
-  for (const [name, visible] of channels) {
-    const composite = controls.getByRole("checkbox", { name, exact: true });
-    await expect(composite).toBeDisabled();
-    if (visible) await expect(composite).toBeChecked();
-    else await expect(composite).not.toBeChecked();
-  }
+  await expect(controls.getByRole("slider")).toHaveCount(2);
+  await expect(
+    controls.getByRole("slider", {
+      name: "DNA contrast maximum",
+      exact: true,
+    }),
+  ).toHaveCount(0);
 
+  await erGrayscale.check();
   const erContrastMaximum = controls.getByRole("slider", {
     name: "ER contrast maximum",
     exact: true,
@@ -205,20 +223,26 @@ export async function exerciseIdr0080Flow(page: Page) {
   const originalErContrastMaximum = await erContrastMaximum.inputValue();
   await erContrastMaximum.press("ArrowLeft");
   await expect(erContrastMaximum).not.toHaveValue(originalErContrastMaximum);
+  const editedErContrastMaximum = await erContrastMaximum.inputValue();
 
-  await erGrayscale.check();
   await expect(erGrayscale).toBeChecked();
   await expect(mitoGrayscale).not.toBeChecked();
-  await erGrayscale.uncheck();
-  await expect(grayscale.locator('input[type="checkbox"]:checked')).toHaveCount(
-    0,
-  );
+  await fluorescenceMode.check();
+  await expect(grayscaleChannels).toHaveCount(0);
+  await expect(controls.getByRole("slider")).toHaveCount(10);
+  await expect(erContrastMaximum).toHaveValue(editedErContrastMaximum);
   for (const [name, visible] of channels) {
     const composite = controls.getByRole("checkbox", { name, exact: true });
-    await expect(composite).toBeEnabled();
     if (visible) await expect(composite).toBeChecked();
     else await expect(composite).not.toBeChecked();
   }
+  await grayscaleMode.check();
+  await expect(
+    controls
+      .getByRole("group", { name: "Grayscale channel" })
+      .getByRole("radio", { name: "ER", exact: true }),
+  ).toBeChecked();
+  await expect(erContrastMaximum).toHaveValue(editedErContrastMaximum);
 
   const sourceFacts = page.getByTestId("viewer-source-facts");
   await expect(sourceFacts).toContainText("Gene");
@@ -252,54 +276,54 @@ export async function exerciseIdr0080Flow(page: Page) {
     }),
   ).toBeVisible();
 
-  const matchPanel = page.getByTestId("perturbation-matches");
-  await expect(matchPanel).toBeVisible();
+  await expect(page.getByText("Related fields", { exact: true })).toHaveCount(0);
+  const highlightControls = page.getByTestId("well-highlight-controls");
+  const sameGene = highlightControls.getByRole("button", {
+    name: "Same gene",
+    exact: true,
+  });
+  const controlHighlights = highlightControls.getByRole("button", {
+    name: "Controls",
+    exact: true,
+  });
+  const emptyControl = page.getByRole("button", { name: "Well A1" });
 
-  await matchPanel
-    .getByRole("button", { name: "Same gene", exact: true })
-    .click();
-  const matchResults = matchPanel.getByTestId("perturbation-match-results");
-  await expect(matchResults.getByTestId("perturbation-match-row")).toHaveCount(5);
-  await expect(matchResults.locator('[data-cell-line="A549"]')).toBeVisible();
-  await expect(matchResults.locator('[data-cell-line="ES2"]')).toBeVisible();
-  await expect(matchResults).toContainText("KRAS-2");
-  await expect(
-    matchResults
-      .getByTestId("perturbation-match-row")
-      .filter({ hasText: "SQ00014610" })
-      .filter({ hasText: "Well C01" }),
-  ).toHaveCount(0);
+  await sameGene.click();
+  await expect(sameGene).toHaveAttribute("aria-pressed", "true");
+  await expect(controlHighlights).toHaveAttribute("aria-pressed", "false");
+  await expect(kras).toHaveClass(/well-highlighted/);
+  await expect(secondKras).toHaveClass(/well-highlighted/);
+  await expect(cuttingControl).toHaveClass(/well-dimmed/);
 
-  await matchPanel
-    .getByRole("button", { name: "Controls on this plate", exact: true })
-    .click();
-  await expect(matchResults.getByTestId("perturbation-match-row")).toHaveCount(1);
-  await expect(matchResults).toContainText("SQ00014610");
-  await expect(matchResults).toContainText("Well A01");
-  await expect(matchResults).toContainText("Guide EMPTY");
-  await expect(matchResults).toContainText("EMPTY control");
+  await sameGene.click();
+  await expect(sameGene).toHaveAttribute("aria-pressed", "false");
+  await expect(kras).not.toHaveClass(/well-highlighted/);
+  await expect(cuttingControl).not.toHaveClass(/well-dimmed/);
 
-  await matchPanel
-    .getByRole("button", { name: "Same well on other plates", exact: true })
-    .click();
-  await expect(matchResults.getByTestId("perturbation-match-row")).toHaveCount(2);
-  for (const plate of ["SQ00014611", "SQ00014613"]) {
-    await matchPanel
-      .getByRole("button", {
-        name: `Add ${plate} C01 to comparison`,
-        exact: true,
-      })
-      .click();
-    await expect(
-      matchPanel.getByRole("button", {
-        name: `${plate} C01 added`,
-        exact: true,
-      }),
-    ).toBeDisabled();
-  }
+  await controlHighlights.click();
+  await expect(controlHighlights).toHaveAttribute("aria-pressed", "true");
+  await expect(emptyControl).toHaveClass(/well-highlighted/);
+  await expect(kras).toHaveClass(/well-dimmed/);
+
+  await sameGene.click();
+  await expect(sameGene).toHaveAttribute("aria-pressed", "true");
+  await expect(controlHighlights).toHaveAttribute("aria-pressed", "false");
+  await expect(kras).toHaveClass(/well-highlighted/);
+  await expect(secondKras).toHaveClass(/well-highlighted/);
+
+  const secondPlateName = "Cell Health \u00b7 A549 \u00b7 SQ00014611";
+  await openExperiment(page, "A549");
+  await openPlate(page, secondPlateName);
+  await expect(page.getByRole("button", { name: "Well C1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByRole("button", { name: "Well P24" })).toHaveClass(
+    /well-highlighted/,
+  );
 
   const comparisonTray = page.getByTestId("well-selection");
-  await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(3);
+  await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(2);
   const secondPlateSite = page.getByLabel(
     "Site for Cell Health \u00b7 A549 \u00b7 SQ00014611 C01",
   );
@@ -307,29 +331,23 @@ export async function exerciseIdr0080Flow(page: Page) {
   await secondPlateSite.selectOption("C01_s2.zarr");
   await expect(secondPlateSite).toHaveValue("C01_s2.zarr");
 
-  await matchPanel
-    .getByRole("button", { name: "Controls on this plate", exact: true })
+  const dataPath = page.getByRole("navigation", { name: "Data path" });
+  await dataPath
+    .getByRole("button", { name: "Cell Health", exact: true })
     .click();
-  await matchPanel
-    .getByRole("button", {
-      name: "Add SQ00014610 A01 to comparison",
-      exact: true,
-    })
-    .click();
+  const thirdPlateName = "Cell Health \u00b7 ES2 \u00b7 SQ00014613";
+  await openExperiment(page, "ES2");
+  await openPlate(page, thirdPlateName);
+  await expect(page.getByRole("button", { name: "Well C1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(3);
+
+  await page.getByRole("button", { name: "Well A1" }).click();
   await expect(comparisonTray.locator(".comparison-source-card")).toHaveCount(4);
   await expect(page.locator(".dataset-list li")).toHaveCount(3);
-
-  await matchPanel
-    .getByRole("button", { name: "Same gene", exact: true })
-    .click();
-  await expect(matchPanel.getByTestId("perturbation-match-limit")).toBeVisible();
-  const unaddedGene = matchResults
-    .getByTestId("perturbation-match-row")
-    .filter({ hasText: "SQ00014610" })
-    .filter({ hasText: "Well P24" });
-  await expect(
-    unaddedGene.getByRole("button", { name: /Add .* to comparison/ }),
-  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Well P24" })).toBeDisabled();
 
   const compareFields = page.getByTestId("open-comparison");
   await expect(compareFields).toHaveText("Compare 4 fields");
@@ -342,6 +360,9 @@ export async function exerciseIdr0080Flow(page: Page) {
   expect(comparisonDatasets).toHaveLength(3);
   expect(comparisonFields).toHaveLength(3);
   expect(comparisonFields[0]).toBe("C01_s2.zarr");
+  expect(viewerUrl.searchParams.get("returnDataset")).toBe(
+    comparisonDatasets[2],
+  );
 
   await expect(page.getByTestId("viewer-status")).toHaveText("Images ready", {
     timeout: 60_000,
@@ -357,18 +378,44 @@ export async function exerciseIdr0080Flow(page: Page) {
   const comparisonCanvases = page
     .getByTestId("comparison-view")
     .locator("canvas");
-  const comparisonGrayscale = page
-    .locator("#image-controls")
-    .getByRole("group", { name: "Grayscale" });
-  await comparisonGrayscale
-    .getByRole("checkbox", {
-      name: "Show DNA in grayscale",
+  const comparisonControls = page.locator("#image-controls");
+  await expect(
+    comparisonControls.getByRole("radio", {
+      name: "Grayscale",
       exact: true,
-    })
+    }),
+  ).toBeChecked();
+  const comparisonGrayscale = comparisonControls.getByRole("group", {
+    name: "Grayscale channel",
+  });
+  await expect(
+    comparisonGrayscale.getByRole("radio", { name: "ER", exact: true }),
+  ).toBeChecked();
+  await expect(comparisonControls.getByRole("slider")).toHaveCount(2);
+  await comparisonGrayscale
+    .getByRole("radio", { name: "DNA", exact: true })
     .check();
   await expect(page.getByTestId("viewer-status")).toHaveText("Images ready");
+  const comparisonFrames = page
+    .getByTestId("comparison-view")
+    .locator(".canvas-frame");
   for (let index = 0; index < 4; index += 1) {
     await expect(comparisonCanvases.nth(index)).toBeVisible();
+    await expect(comparisonFrames.nth(index)).toHaveAttribute(
+      "data-scale-bar",
+      "true",
+    );
+  }
+  await comparisonControls
+    .getByRole("radio", { name: "Fluorescence", exact: true })
+    .check();
+  for (const [name, visible] of channels) {
+    const composite = comparisonControls.getByRole("checkbox", {
+      name,
+      exact: true,
+    });
+    if (visible) await expect(composite).toBeChecked();
+    else await expect(composite).not.toBeChecked();
   }
 
   await page.getByRole("link", { name: "Back to data" }).click();
@@ -379,11 +426,14 @@ export async function exerciseIdr0080Flow(page: Page) {
   await expect(
     page.getByRole("heading", {
       level: 2,
-      name: primaryPlateName,
+      name: thirdPlateName,
       exact: true,
     }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Well A1" }).click();
+  await expect(page.getByRole("button", { name: "Well A1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   const controlType = page
     .getByTestId("plate-metadata")
     .locator(".well-metadata-grid > div")

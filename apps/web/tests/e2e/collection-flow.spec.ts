@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const cellHealthPlate = "Cell Health \u00b7 A549 \u00b7 SQ00014610";
+const secondCellHealthPlate = "Cell Health \u00b7 A549 \u00b7 SQ00014611";
 
 async function expectRestoredPlateAndWell(page: import("@playwright/test").Page) {
   await expect(
@@ -67,6 +68,85 @@ test("chooses a dataset on Connect and restores a plate and well", async ({
 
   await page.reload();
   await expectRestoredPlateAndWell(page);
+
+  const kras = page.getByRole("button", { name: "Well C1" });
+  const secondKras = page.getByRole("button", { name: "Well P24" });
+  const cuttingControl = page.getByRole("button", { name: "Well A2" });
+  const emptyControl = page.getByRole("button", { name: "Well A1" });
+  await kras.click();
+
+  const highlights = page.getByTestId("well-highlight-controls");
+  const sameGene = highlights.getByRole("button", {
+    name: "Same gene",
+    exact: true,
+  });
+  const controls = highlights.getByRole("button", {
+    name: "Controls",
+    exact: true,
+  });
+  await sameGene.click();
+  await expect(sameGene).toHaveAttribute("aria-pressed", "true");
+  await expect(kras).toHaveClass(/well-highlighted/);
+  await expect(secondKras).toHaveClass(/well-highlighted/);
+  await expect(cuttingControl).toHaveClass(/well-dimmed/);
+
+  await controls.click();
+  await expect(sameGene).toHaveAttribute("aria-pressed", "false");
+  await expect(controls).toHaveAttribute("aria-pressed", "true");
+  await expect(emptyControl).toHaveClass(/well-highlighted/);
+  await expect(kras).toHaveClass(/well-dimmed/);
+  await controls.click();
+  await expect(controls).toHaveAttribute("aria-pressed", "false");
+  await expect(kras).not.toHaveClass(/well-dimmed/);
+
+  const a549Again = page.locator(".file-list li").filter({
+    has: page.getByText("A549", { exact: true }),
+  });
+  await a549Again.getByRole("button", { name: "Open folder" }).click();
+  const secondPlate = page.locator(".file-list li").filter({
+    has: page.getByText(secondCellHealthPlate, { exact: true }),
+  });
+  await secondPlate.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: secondCellHealthPlate,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Well C1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    page.getByTestId("well-selection").locator(".comparison-source-card"),
+  ).toHaveCount(3);
+
+  const firstOpenedPlate = page.locator(".dataset-list li").filter({
+    has: page.getByRole("button", { name: cellHealthPlate, exact: true }),
+  });
+  await firstOpenedPlate
+    .getByRole("button", { name: cellHealthPlate, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: cellHealthPlate, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Well C1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  const secondOpenedPlate = page.locator(".dataset-list li").filter({
+    has: page.getByRole("button", { name: secondCellHealthPlate, exact: true }),
+  });
+  await secondOpenedPlate
+    .getByRole("button", { name: "Remove", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Well C1" }).click();
+  await expect(page.getByRole("button", { name: "Well A1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await expect(page.getByLabel("Dataset")).toHaveValue("idr0080");

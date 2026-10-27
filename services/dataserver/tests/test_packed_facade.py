@@ -26,6 +26,8 @@ from timed_dataserver.packed_profiles import IDR0080_FIXTURE_PROFILE, PackedCode
 
 from scripts import make_test_data
 
+PIXEL_SIZE_UM = 0.29898804047838085
+
 
 @pytest.fixture(scope="module")
 def catalogue(tmp_path_factory: pytest.TempPathFactory) -> PackedCatalogue:
@@ -77,8 +79,8 @@ def test_plate_summary_uses_profile_geometry_and_sparse_catalogue_wells(
     assert image.path == "A01_s1.zarr"
     assert [axis.model_dump() for axis in image.axes] == [
         {"name": "c", "type": "channel", "unit": None},
-        {"name": "y", "type": "space", "unit": None},
-        {"name": "x", "type": "space", "unit": None},
+        {"name": "y", "type": "space", "unit": "micrometer"},
+        {"name": "x", "type": "space", "unit": "micrometer"},
     ]
     assert image.levels[0].model_dump() == {
         "path": "s0",
@@ -86,7 +88,9 @@ def test_plate_summary_uses_profile_geometry_and_sparse_catalogue_wells(
         "chunks": [1, 32, 32],
         "shard_shape": None,
         "dtype": "uint16",
-        "coordinate_transformations": [{"type": "scale", "scale": [1, 1, 1]}],
+        "coordinate_transformations": [
+            {"type": "scale", "scale": [1, PIXEL_SIZE_UM, PIXEL_SIZE_UM]}
+        ],
     }
     assert [(channel.name, channel.color) for channel in image.channels] == [
         ("DNA", "1300F9"),
@@ -124,6 +128,34 @@ def test_plate_summary_selects_cell_line_specific_windows(
     }
 
 
+def test_uncalibrated_source_omits_spatial_units_and_uses_pixel_scales(
+    catalogue: PackedCatalogue,
+) -> None:
+    profile = replace(IDR0080_FIXTURE_PROFILE, pixel_size_um=None)
+    summary = packed_plate_summary(_plate(catalogue), profile)
+
+    assert summary.first_image is not None
+    assert [axis.model_dump() for axis in summary.first_image.axes] == [
+        {"name": "c", "type": "channel", "unit": None},
+        {"name": "y", "type": "space", "unit": None},
+        {"name": "x", "type": "space", "unit": None},
+    ]
+    assert summary.first_image.levels[0].coordinate_transformations == [
+        {"type": "scale", "scale": [1, 1, 1]}
+    ]
+
+    group = json.loads(packed_group_metadata_bytes(profile, "idr0080-A549", "A01_s1"))
+    multiscale = group["attributes"]["ome"]["multiscales"][0]
+    assert multiscale["axes"] == [
+        {"name": "c", "type": "channel"},
+        {"name": "y", "type": "space"},
+        {"name": "x", "type": "space"},
+    ]
+    assert multiscale["datasets"][0]["coordinateTransformations"] == [
+        {"type": "scale", "scale": [1, 1, 1]}
+    ]
+
+
 def test_well_fields_come_from_actual_catalogue_keys(catalogue: PackedCatalogue) -> None:
     fields = {
         key: members
@@ -156,14 +188,17 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                         "name": "A01_s1",
                         "axes": [
                             {"name": "c", "type": "channel"},
-                            {"name": "y", "type": "space"},
-                            {"name": "x", "type": "space"},
+                            {"name": "y", "type": "space", "unit": "micrometer"},
+                            {"name": "x", "type": "space", "unit": "micrometer"},
                         ],
                         "datasets": [
                             {
                                 "path": "s0",
                                 "coordinateTransformations": [
-                                    {"type": "scale", "scale": [1, 1, 1]}
+                                    {
+                                        "type": "scale",
+                                        "scale": [1, PIXEL_SIZE_UM, PIXEL_SIZE_UM],
+                                    }
                                 ],
                             }
                         ],

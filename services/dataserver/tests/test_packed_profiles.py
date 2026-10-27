@@ -106,6 +106,7 @@ def test_idr0080_fixture_profile_identity_and_geometry_are_pinned() -> None:
     assert profile.plate_name(14610) == "SQ00014610"
     assert profile.member_prefix == "idr0080/raw/"
     assert profile.metadata_path == "metadata/metadata_idr0080.csv"
+    assert profile.pixel_size_um == 0.29898804047838085
     assert profile.auto_contrast is False
     assert (
         profile.codec.cname,
@@ -182,6 +183,7 @@ def test_real_idr0080_profile_identity_geometry_and_codec_are_exactly_pinned() -
     )
     assert profile.metadata_path == "metadata/metadata_idr0080.csv"
     assert profile.display_name == "Cell Health"
+    assert profile.pixel_size_um == 0.29898804047838085
     assert profile.member_prefix == "idr0080/raw/"
     assert profile.plate_name(14618) == "SQ00014618"
     assert (

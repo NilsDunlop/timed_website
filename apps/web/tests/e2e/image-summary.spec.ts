@@ -4,6 +4,7 @@ import type { components } from "../../src/lib/api/dataserver-schema";
 import {
   channelLabelsMatch,
   imageChannelLabels,
+  imageHasPhysicalPixelSize,
 } from "../../src/lib/imageSummary";
 
 type ImageSummary = components["schemas"]["ImageSummary"];
@@ -74,4 +75,24 @@ test("requires the effective channel labels to match in order", () => {
       ["DNA", "RNA", "ER"],
     ),
   ).toBe(false);
+});
+
+test("requires a spatial unit and positive scale for a physical pixel size", () => {
+  const calibrated = imageWithChannels(3, ["DNA", "ER", "AGP"]);
+  calibrated.axes[2] = { name: "x", type: "space", unit: "micrometer" };
+  calibrated.levels[0].coordinate_transformations = [
+    { type: "scale", scale: [1, 0.3, 0.3] },
+  ];
+  expect(imageHasPhysicalPixelSize(calibrated)).toBe(true);
+
+  const uncalibrated = imageWithChannels(3, ["DNA", "ER", "AGP"]);
+  uncalibrated.levels[0].coordinate_transformations = [
+    { type: "scale", scale: [1, 1, 1] },
+  ];
+  expect(imageHasPhysicalPixelSize(uncalibrated)).toBe(false);
+
+  calibrated.levels[0].coordinate_transformations = [
+    { type: "scale", scale: [1, 0.3, 0] },
+  ];
+  expect(imageHasPhysicalPixelSize(calibrated)).toBe(false);
 });

@@ -1,13 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  carrySelectionAcrossDatasets,
   clearCollectionPlace,
+  collectionCarriesWellBetweenPlates,
   collectionEntryName,
   dataSelectionHref,
   initialCollection,
   pathIsInCollection,
   readCollectionPlace,
   readCollectionPreference,
+  viewerReturnHref,
   writeCollectionPlace,
   writeCollectionPreference,
   type DataCollection,
@@ -144,4 +147,62 @@ test("builds collection return links and collection display names", () => {
     "/data?collection=idr0080&dataset=dataset+1",
   );
   expect(dataSelectionHref(null, "ignored")).toBe("/data");
+});
+
+test("returns from a comparison to the dataset that launched it", () => {
+  expect(
+    viewerReturnHref(
+      "?collection=idr0080&dataset=primary&returnDataset=active",
+    ),
+  ).toBe("/data?collection=idr0080&dataset=active");
+  expect(viewerReturnHref("?collection=idr0080&dataset=primary")).toBe(
+    "/data?collection=idr0080&dataset=primary",
+  );
+  expect(viewerReturnHref("?dataset=local")).toBe("/data");
+});
+
+test("carries coordinates only between Cell Health plates", () => {
+  expect(collectionCarriesWellBetweenPlates("idr0080")).toBe(true);
+  expect(collectionCarriesWellBetweenPlates("timed")).toBe(false);
+  expect(collectionCarriesWellBetweenPlates("another-collection")).toBe(false);
+  expect(collectionCarriesWellBetweenPlates(null)).toBe(false);
+});
+
+test("replaces the plate being left when a carried coordinate fills the tray", () => {
+  const selections = [
+    { datasetId: "plate-a", path: "C01", marker: "leaving" },
+    { datasetId: "plate-b", path: "A01", marker: "keep-b" },
+    { datasetId: "plate-c", path: "B01", marker: "keep-c" },
+    { datasetId: "plate-d", path: "P24", marker: "keep-d" },
+  ];
+  const carried = { datasetId: "plate-e", path: "C01", marker: "carried" };
+
+  expect(
+    carrySelectionAcrossDatasets(
+      selections,
+      carried,
+      { datasetId: "plate-a", path: "C01" },
+      4,
+    ),
+  ).toEqual([carried, selections[1], selections[2], selections[3]]);
+  expect(
+    carrySelectionAcrossDatasets(
+      selections,
+      carried,
+      { datasetId: "missing", path: "C01" },
+      4,
+    ),
+  ).toBeNull();
+});
+
+test("appends or deduplicates a carried coordinate while the tray has room", () => {
+  const source = { datasetId: "plate-a", path: "C01" };
+  const carried = { datasetId: "plate-b", path: "C01" };
+  expect(carrySelectionAcrossDatasets([source], carried, source, 4)).toEqual([
+    source,
+    carried,
+  ]);
+  expect(
+    carrySelectionAcrossDatasets([source, carried], carried, source, 4),
+  ).toEqual([source, carried]);
 });

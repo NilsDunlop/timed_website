@@ -11,6 +11,11 @@ export type CollectionPlace = {
   wellPath: string | null;
 };
 
+export type DatasetWell = {
+  datasetId: string;
+  path: string;
+};
+
 export type CollectionStorage = Pick<
   Storage,
   "getItem" | "setItem" | "removeItem"
@@ -142,6 +147,40 @@ export function collectionEntryName(name: string): string {
   return name.replace(/\.zarr$/i, "");
 }
 
+export function collectionCarriesWellBetweenPlates(
+  collectionId: string | null | undefined,
+): boolean {
+  return collectionId === "idr0080";
+}
+
+export function carrySelectionAcrossDatasets<T extends DatasetWell>(
+  selections: readonly T[],
+  carried: T,
+  source: DatasetWell | null,
+  limit: number,
+): T[] | null {
+  if (
+    selections.some(
+      (selection) =>
+        selection.datasetId === carried.datasetId &&
+        selection.path === carried.path,
+    )
+  ) {
+    return [...selections];
+  }
+  if (selections.length < limit) return [...selections, carried];
+  if (!source) return null;
+  const sourceIndex = selections.findIndex(
+    (selection) =>
+      selection.datasetId === source.datasetId &&
+      selection.path === source.path,
+  );
+  if (sourceIndex < 0) return null;
+  const next = [...selections];
+  next[sourceIndex] = carried;
+  return next;
+}
+
 export function dataSelectionHref(
   collectionId: string | null,
   datasetId: string | null = null,
@@ -150,4 +189,15 @@ export function dataSelectionHref(
   const query = new URLSearchParams({ collection: collectionId });
   if (datasetId) query.set("dataset", datasetId);
   return "/data?" + query.toString();
+}
+
+export function viewerReturnHref(search: string): string {
+  const query = new URLSearchParams(search);
+  const collectionId = query.get("collection");
+  return dataSelectionHref(
+    collectionId,
+    collectionId
+      ? (query.get("returnDataset") ?? query.get("dataset"))
+      : null,
+  );
 }

@@ -38,8 +38,15 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
   plate and well visited there.
 - **Browsing.** idr0080 is browsed by cell line (A549, ES2, HCC44), then plate, then well, then site (nine per well). Gene, guide and well type come from the metadata CSV.
 - **Viewing.** All five stains are available, with a DNA/ER/AGP composite by default and contrast fixed per cell line.
-- **Comparing.** Compare the same well on other plates, the same gene elsewhere, or the controls on the same plate, up to four fields side by side.
-- **TIMED unchanged.** TIMED renders and behaves exactly as today.
+- **Display modes.** The viewer switches between a colour Fluorescence
+  composite and one channel at a time in Grayscale.
+- **Comparing.** Keep the selected well while switching plates, highlight the
+  same gene or controls on the active plate, and compare up to four fields side
+  by side.
+- **Scale bars.** Each viewer panel shows its own scale bar when that source
+  has a pixel size; sources without one show no scale bar.
+- **TIMED defaults unchanged.** TIMED keeps its pixels, contrast, channels,
+  time controls, and workflow; S1 adds only its calibrated scale bar.
 
 **Phase 2 (`feature/idr0080-masks`, release 0.5.0): segmentation and QC review.**
 
@@ -49,8 +56,6 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
   - Pick a plate, then add filters on QC metrics, each with a range slider over the metric's distribution.
   - The wells and sites that fall within the thresholds are highlighted on the plate grid and listed.
   - A review queue steps through them in the viewer with outlines on, so the operator knows exactly where to look for manual verification.
-- **Scale bar.** Added once the operator supplies the pixel size.
-
 **Not in this brief:**
 
 - plate heatmaps;
@@ -61,7 +66,11 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
 
 ## 2. Ground rules
 
-- **TIMED stays identical**: same pixels, contrast, controls and workflow. Regression tests committed first (B0) prove it on every later commit. The QC screen shows a short "no QC data" message for TIMED plates.
+- **TIMED defaults stay identical**: same pixels, contrast, channel defaults,
+  time controls and workflow. Regression tests committed first (B0) prove it
+  on every later commit. S1 adds only the scale bar from TIMED's documented
+  pixel size. The QC screen shows a short "no QC data" message for TIMED
+  plates.
 - **Old profiles see the old page.** Profiles without `collections` get exactly today's Data page, so the existing suites run unchanged.
 - **Blind QC.** The website must not read, store or show CellPrompter's exclusion decisions, or anything derived from them. These are the `*_mad_exclusions.json` records, everything else under `profiles/`, and `run_ledger.jsonl`.
   - The only QC source is the per-field measurement table in each mask store (section 5.2).
@@ -243,8 +252,9 @@ Cache the result by path, modification time and size. Mask indexes (they have `k
 **Facade.**
 
 - **Group metadata.** `<field>.zarr/zarr.json` has `ome.version` "0.5" and one multiscale:
-  - axes `c` (channel), `y` and `x` (space; units only after S1);
-  - dataset `s0` with scale `[1, 1, 1]`;
+  - axes `c` (channel), `y` and `x` (space, unit `micrometer`);
+  - dataset `s0` with scale
+    `[1, 0.29898804047838085, 0.29898804047838085]`;
   - `omero.channels` from Appendix B: `label`, `color`, `active`, and `window {min, max, start, end}` for the field's cell line.
 - **Array metadata.** `s0/zarr.json`:
 
@@ -311,16 +321,18 @@ Tests that assert exact TIMED response bodies gain the new optional keys and not
   - In the same commit, make TIMED's facade (`_bare_image_summary`) declare `end` 65,535, which is what TIMED has always displayed.
   - Native OME-Zarr windows, such as the test images' 100–8,000, now apply as declared; update tests that asserted the old maximum.
 - **Default visibility.** Set each channel's visibility from OMERO `active ?? true`.
-- **Grayscale channel inspection.**
-  - Add a **Grayscale** section at the bottom of the channel controls with one
-    checkbox per channel. At most one is checked.
-  - Checking a channel shows only that channel in grayscale using its current
-    contrast window. Checking another channel switches the checked channel;
-    unchecking it returns to the colour composite.
-  - Colour visibility state is preserved while grayscale is active, but those
-    visibility checkboxes are disabled. Contrast sliders remain enabled.
-  - This applies to every source and comparison mode. Do not add split view or
-    per-channel Solo buttons.
+- **Fluorescence and Grayscale modes.**
+  - Put a **Fluorescence | Grayscale** mode control at the top of the channel
+    controls. Fluorescence is the colour composite and retains today's full
+    list of channel visibility and contrast controls.
+  - Grayscale shows exactly one selected channel in white using that channel's
+    current contrast window. Show only the selected channel's contrast sliders;
+    selecting another channel switches both the grayscale image and the sliders.
+  - Switching modes preserves the Fluorescence visibility state. Contrast
+    controls remain available in both modes, and the chosen mode persists while
+    moving between fields.
+  - The mode applies to every source and to all panels in comparison mode. Do
+    not add split view or per-channel Solo buttons.
 - **Single timepoint.** When `timeCount <= 1`, hide the `t x / y` status item and title the controls "Channels". The plate view says "Open field" and "Compare *N* fields"; TIMED keeps "Open trajectory".
 - **Labels.** `ViewerSourceFacts`, the filters, the legend and `PlateMetadataPanel` take their slot names from `metadata.labels`.
 - **Metadata panel.**
@@ -332,20 +344,54 @@ Tests that assert exact TIMED response bodies gain the new optional keys and not
 - **Shared grid.** Extract the well grid from `DataBrowser.tsx` into a shared `PlateGrid` component (props for colours, badges, markers and dimming) without changing its behaviour. The QC screen reuses it.
 - **Text.** Change `data.astro`'s heading and lede so they describe datasets in general.
 
-### 4.6 Same perturbation across plates
+### 4.6 Cross-plate comparison and well highlighting
 
 All nine plates share one plate map (inventory): a well position carries the same guide on every plate. So "the same well on other plates" gives exact replicates: two more in the same cell line and three in each of the other two.
 
-- **Server.** Add `GET /api/datasets/{dataset_id}/matches?well=<well>&by=well|gene|control` for packed plates; other stores return 404.
+- **Plate switching.** Preserve the selected well when switching Cell Health
+  plates; do not change TIMED or other collections. This makes same-position
+  comparisons explicit: switch plate and keep the same coordinate in view and
+  in the comparison tray. Append it while the tray has room. At the four-field
+  limit, replace the focused source from the plate being left in the same tray
+  slot, so the coordinate remains selected without evicting an unrelated
+  source.
+- **Grid highlighting.** With a well selected, offer **Same gene** and
+  **Controls** toggles on the plate grid. They are mutually exclusive: choosing
+  one replaces the other, and clicking the active toggle again clears it. They
+  highlight matching wells on the active plate instead of opening a separate
+  Related fields result list. Switching plates preserves the selected well,
+  and the active toggle applies to the newly active plate.
+- **Comparison.** The existing tray, per-field site picker, four-field limit,
+  and channel compatibility guard continue to apply.
+- **Retained server endpoint.** Keep
+  `GET /api/datasets/{dataset_id}/matches?well=<well>&by=well|gene|control`
+  and its tests, but do not call it from the current UI.
   - `well` returns the same well on the other eight plates.
   - `gene` returns wells with the same gene on all nine plates (other guides included), excluding this well.
   - `control` returns the EMPTY control wells on the same plate.
   - Each match carries the virtual plate path, plate label, cell line, well, guide, `is_control` and well type. Matches are sorted by cell line, plate and well, at most 200.
   - The source is the cached metadata CSV.
-- **UI.**
-  - With a well selected in the plate panel, offer "Same well on other plates", "Same gene" and "Controls on this plate".
-  - Each lists its matches grouped by cell line, with **Add to comparison**: link the plate (idempotent), fetch the well's fields, and add the well at site 1 to the tray, where the site can be changed.
-  - The four-field comparison limit and the channel guard apply.
+
+### 4.7 Scale bars (S1)
+
+Scale bars are a Phase 1 viewer requirement and do not depend on segmentation
+or QC.
+
+- **Metadata.** Store a source's physical pixel size as `pixel_size_um`. Give
+  the facade's `y` and `x` axes the unit `micrometer`, put `s` in the
+  corresponding positions of the dataset scale, and leave non-spatial axes at
+  1.
+- **TIMED.** Use the documented pixel size of 0.3 µm/px.
+- **Cell Health.** The operator checked every Phenix acquisition index from
+  `SQ00014610` through `SQ00014618`. All nine report identical X and Y
+  resolutions of `2.9898804047838085E-07` m at 20×. Store the converted value
+  as `pixel_size_um = 0.29898804047838085` in the packed profile. Preserve that
+  full precision in metadata and calculations; round only when displaying it.
+- **Rendering.** Render a scale bar independently in every viewer panel,
+  including comparison mode, using that panel's source metadata. If a source
+  has no valid pixel size, omit its scale bar rather than guessing.
+- **Phase 2 reuse.** Field QC and the QC screen may also show areas in µm²
+  once the source has a pixel size; otherwise they retain pixel units.
 
 ## 5. Phase 2 design: segmentation and QC review
 
@@ -516,25 +562,6 @@ A new page, `qc.astro`, with a `QcBrowser` island and a "QC" link in the site na
   Moving keeps the overlay settings and the channel contrast.
 - **TIMED.** Without `review`, the viewer is unchanged, so TIMED is unaffected.
 
-### 5.6 Scale bar
-
-**Operator:** read the Phenix acquisition index for the pixel size and report the output:
-
-```bash
-cd /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080/source
-for f in SQ*/Images/Index.idx.xml; do
-  echo "$f: $(grep -m1 -o '<ImageResolutionX[^<]*' "$f") $(grep -m1 -o '<ImageResolutionY[^<]*' "$f") $(grep -m1 -o '<ObjectiveMagnification[^<]*' "$f")"
-done
-```
-
-Then, in the code:
-
-- Store the value (metres converted to micrometres) as `pixel_size_um` in the idr0080 profile, after confirming that all nine plates agree.
-- Give the facade's `y` and `x` axes the unit `micrometer` and the scale `[1, s, s]`, so Viv's scale bar appears as it does for TIMED.
-- Show areas in µm² as well as px in the viewer's Field QC block and the QC screen.
-
-If the value is missing or the plates disagree, skip S1 and record why.
-
 ## 6. Performance targets
 
 | Action | Target |
@@ -565,8 +592,9 @@ Each milestone ends with its tests green, the existing suites green, and a push.
   *Done when* the pin test and mapping tests pass.
 - **V1. Viewer and plate view**, including the shared `PlateGrid` (section 4.5).
   *Done when* the idr0080 end-to-end tests pass and the TIMED regression tests are unchanged.
-- **X1. Same perturbation across plates** (section 4.6).
-- **A1. Operator, on Arrhenius**, with `config/profiles.example.yaml`:
+- **X1. Cross-plate selection and grid highlighting** (section 4.6).
+- **A1. Done on Arrhenius (2026-10-27)**, with
+  `config/profiles.example.yaml`:
   1. TIMED is preselected and identical to main.
   2. Choose Cell Health on Connect, then open A549, `SQ00014610`, `A01`
      site 1, and compare it with the inspection preview.
@@ -582,6 +610,14 @@ Each milestone ends with its tests green, the existing suites green, and a push.
   7. Exercise the Connect-page dataset choice and confirm Data navigation,
      viewer return, and reload restore the active dataset's last plate and
      well.
+- **S1. Scale bars** (section 4.7).
+  - TIMED uses its documented 0.3 µm/px.
+  - Cell Health uses `0.29898804047838085` µm/px: all nine acquisition
+    indexes, `SQ00014610` through `SQ00014618`, report identical X and Y values
+    of `2.9898804047838085E-07` m at 20×.
+  - *Done when* calibrated sources show one correct scale bar per viewer panel,
+    comparison panels use their own source metadata, and uncalibrated sources
+    show none.
 - **R1. Merge.**
   - Update `README.md`, `CLAUDE.md` and `docs/decisions.md`. Add `docs/data/IDR0080.md` (Appendices A–B) and `docs/ADDING_DATASETS.md`.
   - Set the version to `0.4.0`.
@@ -603,15 +639,13 @@ Each milestone ends with its tests green, the existing suites green, and a push.
   *Done when* the QC end-to-end tests pass and the browser filter agrees with the shared cases.
 - **Q4. The review queue** (section 5.5).
   *Done when* the review end-to-end test passes and TIMED's viewer is unchanged.
-- **S1. Scale bar** (section 5.6), after the operator reports the pixel size.
 - **A2. Operator, on Arrhenius.**
   1. On 14610 A01 site 1, nucleus outlines (731 nuclei) and cell outlines (616) align with the image, and the stock model is offered only on 14610.
   2. The viewer's Field QC block for that field shows the same counts.
   3. On the QC screen, apply each preset to 14610 with the plate as reference, and check that the highlighted sites agree with the histograms.
   4. Review the matches in the viewer with outlines on.
   5. Try "Few cells" across all plates, checking the per-plate counts.
-  6. Check the scale bar, if S1 was done.
-  7. Record outline and QC timings in `docs/arrhenius.md`.
+  6. Record outline and QC timings in `docs/arrhenius.md`.
 - **R2.** Merge as `0.5.0`.
 
 ## 8. Tests
@@ -663,7 +697,11 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
 - Field loading: one contiguous read per field, and single-flight under concurrent requests.
 - Errors: 404s for bad keys; ETag and 304; header mismatch, out-of-bounds member and dtype mismatch each fail cleanly.
 - Metadata mapping.
-- Matches: same well, same gene, controls, the 200 limit, 404 for non-packed stores.
+- Matches endpoint: same well, same gene, controls, the 200 limit, and 404 for
+  non-packed stores. It remains covered directly even though the current UI
+  does not call it.
+- Pixel-size facade metadata: TIMED is exactly 0.3 µm/px, a configured packed
+  source exposes its value, and a source without one exposes no physical scale.
 - The pin test.
 - A zarr-python round trip.
 
@@ -676,15 +714,26 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
   - pixels are not uniform and there is no time slider;
   - DNA, ER and AGP are checked and RNA and Mito unchecked;
   - the contrast maximum equals the cell line's window end.
-- Exercise **Grayscale** by checking Mito and then ER: only ER remains checked
-  and visible in grayscale, colour visibility stays unchanged but disabled,
-  and contrast remains adjustable. Uncheck ER to restore the composite, and
-  repeat the check in comparison mode.
+- Confirm **Fluorescence** is the initial mode and its visibility state is
+  unchanged. Switch to **Grayscale**, select Mito and then ER, and confirm only
+  ER is shown in white and only ER's contrast sliders are present. Move to
+  another field and confirm Grayscale remains selected. Return to Fluorescence
+  and confirm its composite state and full channel-control list are restored;
+  repeat the mode check in comparison mode.
 - From the viewer, use the Data navigation link and confirm the same plate and
   well are open; confirm the same place after a reload.
 - Change the Connect-page choice to TIMED and confirm the Data page shows TIMED.
 - Confirm a profile without collections retains the existing page.
-- Compare C01 across the three plates plus a control.
+- Select C01, toggle **Same gene** and **Controls**, and confirm the expected
+  wells are highlighted on the active grid and only one toggle can be active.
+  Click the active toggle again and confirm the highlight clears. Switch plates
+  and confirm C01 remains selected, then compare it across the three plates
+  plus a control.
+- Confirm there is no Related fields panel and that the browser does not call
+  the retained matches endpoint.
+- For a calibrated fixture, confirm a scale bar is shown independently on each
+  viewer panel in comparison mode. Confirm it is absent for a source without a
+  pixel size.
 - Confirm the guard blocks mixing TIMED and idr0080 fields.
 
 ### 8.5 Phase 2 fixtures and tests
@@ -723,7 +772,6 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
 - `qc/fields` shape and nulls; `qc/field`; the `qc` status, including the unavailable state.
 - **Blind QC.** Instrument file opens across the whole Phase 2 test run and assert that nothing under a `profiles/` folder, and no `run_ledger.jsonl`, is opened. The fixture includes a decoy `profiles/…_mad_exclusions.json` and a decoy `run_ledger.jsonl` to make this meaningful.
 - `qc/summary` counts against the shared cases.
-- Pixel-size facade metadata (S1).
 
 **End-to-end.**
 
@@ -774,7 +822,7 @@ The survey confirmed this sample of the data: 450 sampled planes (90 random fiel
 | Second mask store | `masks/cpsam_stock_R2_top999/idr0080-A549/Plate14610.*` | One plate, with its own QC table |
 | Manifests | `masks/<model>/manifest.json` | `frozen: false`, `tar+wal/v1`, uint16, kinds nuclei/cells/cytoplasm, recipe, software provenance |
 | Leases | `Plate<plate>.lease` | JSON `{pid, host, slurm_job_id, slurm_array_task_id, acquired_at}` from 2026-10-15; never touched |
-| Acquisition index | `source/SQ000<plate>/Images/Index.idx.xml` | Phenix metadata; pixel size (S1) |
+| Acquisition index | `source/SQ000<plate>/Images/Index.idx.xml` | Phenix metadata; all nine plates report X/Y `2.9898804047838085E-07` m at 20× (S1) |
 
 Plate 14610, well A01, site 1 (`idr0080_cpsam_B90`): 774 raw nuclei, 43 removed at the border, **731 final**; **616 cells** after 32 orphans removed; 616 cytoplasm; median nucleus area 1,684 px.
 

@@ -89,6 +89,7 @@ class PackedDatasetProfile:
     experiment_cell_lines: tuple[tuple[str, str], ...]
     metadata_path: str | None
     display_name: str | None = None
+    pixel_size_um: float | None = None
     codec: PackedCodec = PackedCodec()
     dtype: str = "uint16"
     plate_prefix: str = "SQ000"
@@ -228,6 +229,7 @@ IDR0080_PROFILE = PackedDatasetProfile(
     ),
     metadata_path="metadata/metadata_idr0080.csv",
     display_name="Cell Health",
+    pixel_size_um=0.29898804047838085,
 )
 
 
@@ -257,6 +259,7 @@ IDR0080_FIXTURE_PROFILE = PackedDatasetProfile(
     ),
     metadata_path="metadata/metadata_idr0080.csv",
     display_name="Cell Health",
+    pixel_size_um=0.29898804047838085,
 )
 
 

@@ -187,13 +187,15 @@ def _image_summary(
 ) -> ImageSummary:
     height, width = profile.geometry.image_shape
     chunk_height, chunk_width = profile.geometry.chunk_shape
+    spatial_unit = "micrometer" if profile.pixel_size_um is not None else None
+    spatial_scale = profile.pixel_size_um if profile.pixel_size_um is not None else 1
     return ImageSummary(
         name=field.name,
         path=field.path,
         axes=[
             AxisSummary(name="c", type="channel"),
-            AxisSummary(name="y", type="space"),
-            AxisSummary(name="x", type="space"),
+            AxisSummary(name="y", type="space", unit=spatial_unit),
+            AxisSummary(name="x", type="space", unit=spatial_unit),
         ],
         levels=[
             ResolutionLevel(
@@ -201,7 +203,9 @@ def _image_summary(
                 shape=[len(profile.channels), height, width],
                 chunks=[1, chunk_height, chunk_width],
                 dtype=profile.dtype,
-                coordinate_transformations=[{"type": "scale", "scale": [1, 1, 1]}],
+                coordinate_transformations=[
+                    {"type": "scale", "scale": [1, spatial_scale, spatial_scale]}
+                ],
             )
         ],
         channels=_summary_channels(profile, experiment),
@@ -298,6 +302,14 @@ def packed_group_metadata_bytes(
                 },
             }
         )
+    spatial_axes: list[dict[str, object]] = [
+        {"name": "y", "type": "space"},
+        {"name": "x", "type": "space"},
+    ]
+    spatial_scale = profile.pixel_size_um if profile.pixel_size_um is not None else 1
+    if profile.pixel_size_um is not None:
+        for axis in spatial_axes:
+            axis["unit"] = "micrometer"
     metadata: dict[str, object] = {
         "attributes": {
             "ome": {
@@ -307,14 +319,16 @@ def packed_group_metadata_bytes(
                         "name": field_name,
                         "axes": [
                             {"name": "c", "type": "channel"},
-                            {"name": "y", "type": "space"},
-                            {"name": "x", "type": "space"},
+                            *spatial_axes,
                         ],
                         "datasets": [
                             {
                                 "path": "s0",
                                 "coordinateTransformations": [
-                                    {"type": "scale", "scale": [1, 1, 1]}
+                                    {
+                                        "type": "scale",
+                                        "scale": [1, spatial_scale, spatial_scale],
+                                    }
                                 ],
                             }
                         ],
