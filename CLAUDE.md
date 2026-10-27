@@ -2,9 +2,11 @@
 
 ## Purpose
 
-TIMED lets researchers browse and view time-resolved OME-Zarr microscopy data
-where it lives. The priority path connects a browser to Arrhenius through a
-local connector, an SSH tunnel, and a Slurm-hosted data server.
+TIMED lets researchers browse and view microscopy data where it lives. It
+supports native OME-Zarr, TIMED's bare-array collections, and packed Cell Health
+(idr0080) images through a read-only virtual OME-Zarr facade. The priority path
+connects a browser to Arrhenius through a local connector, an SSH tunnel, and a
+Slurm-hosted data server.
 
 ## Architecture
 
@@ -12,7 +14,8 @@ local connector, an SSH tunnel, and a Slurm-hosted data server.
   `/connector` and `/backend` to `http://127.0.0.1:8700`.
 - `services/connector`: local FastAPI/asyncssh service. It owns session state,
   SSH/Slurm lifecycle, and the authenticated reverse proxy.
-- `services/dataserver`: token-protected FastAPI service beside the OME-Zarr data.
+- `services/dataserver`: token-protected FastAPI service beside the image data;
+  it serves native OME-Zarr and read-only facades for TIMED and packed indexes.
 - `dev/test_cluster`: POSIX local SSH/Slurm-compatible harness.
 - `scripts`: metadata inventory and deterministic synthetic-data tools.
 
@@ -23,7 +26,7 @@ in local and HPC modes; only its launch mechanism changes.
 ## Commands
 
 ```bash
-make dev          # connector plus Astro development servers
+make dev          # connector plus Astro, using config/profiles.example.yaml
 make test-cluster # local SSH/Slurm harness (POSIX)
 make test         # Python and web checks
 make test-e2e     # isolated test cluster plus Playwright browser suite
@@ -41,6 +44,11 @@ pnpm -C apps/web check
 pnpm -C apps/web build
 ```
 
+The direct development command, including on Windows without GNU Make, is
+`uv run python scripts/dev.py --profiles config/profiles.example.yaml`. Set the
+Makefile's `PROFILES` variable only when deliberately using another profile
+file.
+
 ## Data server
 
 Run `uv run timed-dataserver export-openapi` to print the complete API schema.
@@ -52,11 +60,24 @@ file only after Uvicorn is accepting connections, and removes the file on clean
 shutdown. Every route requires that token. Linked datasets are stored atomically
 in `<state-dir>/datasets.json`; unlinking never deletes image data.
 
+A packed dataset is detected from the schema of an `*.index.parquet` file and
+its adjacent tar shards, not from its filename alone. The server presents
+`<index>/<experiment>/<plate>` as a guarded virtual hierarchy. Each field is an
+in-memory OME-Zarr 0.5 / Zarr v3 group whose `s0` chunks are encoded from the
+original TIFF planes on demand; the index, tar shards, and TIFF payloads remain
+untouched. The first cold request loads all channels for one field into a
+single-flight, byte-bounded cache (1 GiB by default); `serve
+--packed-cache-mb` changes that budget.
+
 ## Connector and test cluster
 
-Copy `config/profiles.example.yaml` to `~/.timed/profiles.yaml` and replace the
-test-cluster data-root placeholder with an absolute path. Then run `make
-test-cluster` on macOS/Linux (or WSL) and `make dev` in another terminal.
+`config/profiles.example.yaml` is the repository's active development profile;
+do not assume a separate `~/.timed/profiles.yaml` on the operator workstation.
+Its Arrhenius profile declares both the **TIMED** and **Cell Health** collections,
+with TIMED carrying the sole `default: true`. Dataset choice remains available
+on Connect before and after connecting. For a manual test-cluster run, replace
+the profile's absolute-path placeholders, run `make test-cluster` on
+macOS/Linux (or WSL), and run `make dev` in another terminal.
 
 The connector binds loopback only, validates `Host`, and requires
 `X-Timed-Client: web` on state-changing connector routes. Authentication
@@ -87,6 +108,13 @@ workflows. API calls use the committed `openapi-typescript` schemas and
 `openapi-fetch` clients in `apps/web/src/lib/api`. Run `make gen-api` after a
 response model or route changes, then commit the regenerated files.
 
+For profiles with collections, Connect owns the active Dataset choice and
+remembers it per profile. Data shows only the active collection, restores the
+last opened plate and focused well separately for each collection, and offers a
+small **Change dataset** link. Explicit `collection` and `dataset` URL
+parameters override saved state. Profiles without collections keep the legacy
+Connect page and filesystem Data browser unchanged.
+
 The viewer pins Viv 0.23 with deck.gl 9.4.0 and luma.gl 9.4.2. Native
 OME-Zarr 0.4/Zarr v2 data loads through Viv's URL loader. OME-Zarr 0.5/Zarr v3
 and TIMED's synthetic field facade use a same-origin Zarrita store that skips
@@ -95,11 +123,26 @@ browser console errors. The data server implements GET and HEAD for Zarr
 resources because sharded v3 reads discover object lengths before sending byte
 ranges.
 
-`make test-e2e` creates isolated test-cluster and local profiles. It drives the
-complete Connect -> Data -> View flow for both modes, verifies nonuniform pixels
-and time changes, checks the browser console, disconnects, confirms that no
-Slurm job remains, and proves that the local child stops. Successful runs retain
-screenshots under the gitignored Playwright test-results folder.
+Cell Health declares Color and Grayscale support. Color uses a DNA/ER/AGP
+composite by default; Grayscale shows one selected channel in white. The
+**Display** switch appears only when every loaded source explicitly declares
+the capability, including in comparison mode. TIMED deliberately omits the
+declaration and retains its original composite channel controls, contrast, time
+navigation, and workflow. Cell Health carries the selected well between plates,
+highlights the same gene or controls on the active grid, and compares up to four
+channel-compatible fields.
+
+Every viewer panel derives its own scale bar from source metadata. TIMED uses
+0.3 micrometres per pixel and Cell Health uses
+0.29898804047838085 micrometres per pixel. A source without a valid pixel size
+gets no scale bar; never infer one.
+
+`make test-e2e` creates isolated legacy and collection-aware test-cluster and
+local profiles. It drives Connect -> Data -> View for TIMED and the packed
+idr0080-like fixture, verifies viewer state and pixels, checks the browser
+console, disconnects, confirms that no Slurm job remains, and proves that the
+local child stops. Successful runs retain screenshots under the gitignored
+Playwright test-results folder.
 
 ## Conventions
 
@@ -113,6 +156,10 @@ screenshots under the gitignored Playwright test-results folder.
   Astro's `client:only="react"` directive because they require WebGL.
 - Detect OME-Zarr through metadata, never through its directory suffix.
 - Display plate names verbatim and load well metadata only on demand.
+- Keep collection-aware behavior optional; profiles without collections retain
+  the legacy filesystem flow.
+- Treat packed indexes and shards as immutable inputs and expose them through a
+  facade rather than writing converted data.
 
 ## Security rules
 
@@ -124,6 +171,8 @@ screenshots under the gitignored Playwright test-results folder.
   `~/.ssh/config`; TIMED owns a separate known-hosts file.
 - Restrict every filesystem operation to configured data roots and test path
   traversal and escaping symlinks.
+- Open packed indexes, tar shards, and metadata read-only. Never write into a
+  source dataset directory.
 - Do not commit real image data. Only metadata inventory and `CONVERSION.md` may
   be copied from Arrhenius.
 
@@ -136,7 +185,7 @@ change to walk Connect -> Data -> View, capture relevant screenshots, and inspec
 the browser console. Prefer headed Chromium for Viv; if WebGL is blank in
 headless mode, add a checked-in MCP configuration with working SwiftShader flags.
 
-## Real data
+## TIMED real data
 
 `docs/data/arrhenius-inventory.json` and `CONVERSION.md` are authoritative. The
 eight plate-named `.zarr` directories are plain TIMED collection folders, not
@@ -168,6 +217,30 @@ six timepoints, three channels, 512 by 512 pixels, chunks `(1, 1, 128, 128)`,
 and one whole-array shard per field. It also creates single-resolution native
 `test_image_v04.zarr` (Zarr v2) and `test_image_v05.zarr` (Zarr v3). The output
 is deterministic and gitignored.
+
+## Cell Health / idr0080 real data
+
+The Cell Health collection points to `idr0080-raw.index.parquet` beside nine tar
+shards. It contains three experiments (A549, ES2, and HCC44), three plates per
+cell line, all 384 wells, nine sites per well, and five single-timepoint stains:
+DNA, ER, RNA, AGP, and Mito. The real index has 155,520 rows for 31,104 fields.
+Each source plane is an uncompressed 2160 by 2160 `uint16` TIFF inside its plate
+shard; the facade presents each field as `(5, 2160, 2160)` with 1080 by 1080
+spatial chunks.
+
+The exact real and fixture profiles are pinned in code. Real idr0080 uses fixed
+cell-line contrast windows, the RxRx stain colours, DNA/ER/AGP active by
+default, and the calibrated pixel size above. Well metadata comes from
+`metadata/metadata_idr0080.csv`; a missing metadata file makes metadata
+unavailable without blocking image browsing. Other valid packed indexes use a
+conservative inferred profile with numeric channel labels and automatic
+contrast.
+
+Cell Health plate switching preserves the selected well. **Same gene** and
+**Controls** highlight the active plate grid and are mutually exclusive. The
+server retains the packed matches endpoint for direct API use and tests, but
+the current UI does not call it. Segmentation masks and QC are Phase 2 and must
+not be folded into Phase 1 behavior.
 
 ## Known gotchas
 

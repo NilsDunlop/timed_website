@@ -506,3 +506,38 @@ grayscale preference.
 TIMED deliberately omits the field, preserving its existing response and
 viewer controls. Other native or packed datasets get the same legacy behaviour
 unless their data server explicitly opts them in.
+
+## 2026-10-27: freeze the accepted Phase 1 release boundary
+
+Phase 1 closes on the real-data A1 result rather than on another display or
+performance redesign. On Arrhenius, TIMED remained the preselected, unchanged
+workflow; Cell Health A549 `SQ00014610` A01 site 1 matched the inspection
+preview; and the independent ES2 `SQ00014613` A01 site 1 grayscale crop matched
+Cell Health v2.0 exactly. The latter is the acceptance evidence for plate,
+well, site, orientation, and channel order. The requested cross-cell-line MCL1
+comparison and EMPTY control loaded together and stayed synchronized.
+
+The accepted field-opening timing is about 4–5 seconds on the operator's work
+network and about 2 seconds at home. Disconnect reached `disconnected` in about
+2 seconds. Those results are comparable to loading a TIMED trajectory, so the
+optional performance fallbacks are not part of Phase 1 and must not be enabled
+for R1.
+
+The final dataset workflow is the Connect-owned choice recorded above: Data
+follows the active collection and restores that collection's last plate and
+well after viewer return, Data navigation, or reload. The A1 run exercised the
+choice between Cell Health and TIMED and confirmed that restoration behavior.
+Profiles without collections remain on the legacy filesystem workflow.
+
+The release boundary keeps the grayscale declaration and calibration rules
+source-specific. Cell Health opts into shared Color/Grayscale viewing; the
+switch is present only when every loaded source opts in. TIMED and undeclared
+sources retain their original colour controls with no switch. Independently,
+each panel derives a scale bar from its own metadata: TIMED uses 0.3 µm/px,
+Cell Health uses `0.29898804047838085` µm/px, and uncalibrated sources show no
+bar. These Phase 1 rules also apply to comparison panels and are not deferred
+to the Phase 2 segmentation work.
+
+A1 and the source-calibration evidence are complete. R1 prepares the release
+documents and version `0.4.0` on `feature/idr0080`; merging and tagging remain
+operator-controlled steps after review.
