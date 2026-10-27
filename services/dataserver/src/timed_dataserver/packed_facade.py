@@ -209,6 +209,7 @@ def _image_summary(
             )
         ],
         channels=_summary_channels(profile, experiment),
+        grayscale_available=profile.grayscale_available,
         ome_zarr_version="0.5",
         zarr_format=3,
     )

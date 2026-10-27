@@ -486,3 +486,23 @@ Every image panel derives its scale bar from its own source metadata. This also
 applies in comparison mode, where panels can have different calibrations. A
 panel with no valid pixel size has no scale bar. Phase 2 may reuse the same
 metadata for physical area units, but does not own the scale-bar feature.
+
+## 2026-10-27: gate Color and Grayscale on a server declaration
+
+The earlier decision that made the Display switch universal is superseded only
+in its scope. `ImageSummary` gains an optional `grayscale_available` field that
+the data server emits as `true` only for datasets that declare the capability.
+Missing and `false` mean unavailable. `PackedDatasetProfile` defaults the field
+to `False`; the real and fixture Cell Health profiles set it to `True`.
+
+The viewer shows the **Display** radio group only when every loaded source
+declares `grayscale_available: true`, because one mode still applies to all
+panels. Cell Health-to-Cell Health comparisons therefore retain the shared
+Color/Grayscale switch. If any source does not declare it, the viewer renders
+the original colour composite, channel visibility controls and full contrast
+list with no Display or grayscale-channel switch, regardless of any stored
+grayscale preference.
+
+TIMED deliberately omits the field, preserving its existing response and
+viewer controls. Other native or packed datasets get the same legacy behaviour
+unless their data server explicitly opts them in.

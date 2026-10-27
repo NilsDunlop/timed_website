@@ -482,6 +482,10 @@
             "title": "Channels",
             "type": "array"
           },
+          "grayscale_available": {
+            "title": "Grayscale Available",
+            "type": "boolean"
+          },
           "kind": {
             "const": "image",
             "default": "image",

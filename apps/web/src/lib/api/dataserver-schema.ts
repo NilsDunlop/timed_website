@@ -316,6 +316,8 @@ export interface components {
             axes: components["schemas"]["AxisSummary"][];
             /** Channels */
             channels: components["schemas"]["ChannelSummary"][];
+            /** Grayscale Available */
+            grayscale_available?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}

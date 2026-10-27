@@ -60,6 +60,11 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
     timeout: 60_000,
   });
+  await expect(
+    page
+      .locator("#image-controls")
+      .getByRole("radiogroup", { name: "Display", exact: true }),
+  ).toHaveCount(0);
   const canvas = page.locator(".canvas-frame canvas").first();
   await expect(canvas).toBeVisible();
   const firstFrame = await pixelSignature(page, canvas);

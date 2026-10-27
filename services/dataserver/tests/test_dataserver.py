@@ -670,6 +670,7 @@ def test_native_image_summaries(
     assert response.status_code == 200, response.text
     summary = response.json()
     assert summary["kind"] == "image"
+    assert "grayscale_available" not in summary
     assert summary["ome_zarr_version"] == version
     assert summary["zarr_format"] == zarr_format
     assert [axis["name"] for axis in summary["axes"]] == ["t", "c", "y", "x"]
@@ -758,6 +759,7 @@ def test_native_plate_and_well_metadata_are_read_lazily(
     assert summary["acquisitions"] == [{"id": 7, "name": "hourly"}]
     assert summary["wells"] == [{"row": "A", "column": "1", "path": "A/1"}]
     assert summary["first_image"]["path"] == "A/1/0"
+    assert "grayscale_available" not in summary["first_image"]
     assert summary["first_image"]["levels"][0]["chunks"] == [1, 1, 16, 16]
     assert well_response.status_code == 200
     assert well_response.json()["fields"] == [{"path": "A/1/0", "acquisition": 7}]

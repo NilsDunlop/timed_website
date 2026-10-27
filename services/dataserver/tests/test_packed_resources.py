@@ -183,6 +183,7 @@ def _expected_summary() -> dict[str, Any]:
                 }
             ],
             "channels": _summary_channels("A549"),
+            "grayscale_available": True,
             "ome_zarr_version": "0.5",
             "zarr_format": 3,
         },

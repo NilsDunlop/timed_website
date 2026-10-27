@@ -81,6 +81,12 @@ test("starts a local server, renders time data, and stops it", async ({
   );
   const openSelected = page.getByTestId("open-selected");
   await expect(openSelected).toHaveText("Open trajectory");
+  await page.evaluate(() =>
+    window.sessionStorage.setItem(
+      "timed.viewer.display.v1",
+      JSON.stringify({ mode: "grayscale", grayscaleChannelName: "505 nm" }),
+    ),
+  );
   await openSelected.click();
 
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
@@ -93,8 +99,8 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(
     page
       .locator("#image-controls")
-      .getByRole("radio", { name: "Color", exact: true }),
-  ).toBeChecked();
+      .getByRole("radiogroup", { name: "Display", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("heading", {
       level: 1,

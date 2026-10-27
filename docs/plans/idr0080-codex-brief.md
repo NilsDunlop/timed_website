@@ -38,15 +38,18 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
   plate and well visited there.
 - **Browsing.** idr0080 is browsed by cell line (A549, ES2, HCC44), then plate, then well, then site (nine per well). Gene, guide and well type come from the metadata CSV.
 - **Viewing.** All five stains are available, with a DNA/ER/AGP composite by default and contrast fixed per cell line.
-- **Display modes.** The viewer switches between a **Color** composite and one
-  channel at a time in **Grayscale**.
+- **Display modes.** Cell Health declares support for a **Color** composite and
+  one channel at a time in **Grayscale**. The switch appears only when every
+  loaded source declares that capability; TIMED and sources without the
+  declaration retain the original channel controls with no switch.
 - **Comparing.** Keep the selected well while switching plates, highlight the
   same gene or controls on the active plate, and compare up to four fields side
   by side.
 - **Scale bars.** Each viewer panel shows its own scale bar when that source
   has a pixel size; sources without one show no scale bar.
 - **TIMED defaults unchanged.** TIMED keeps its pixels, contrast, channels,
-  time controls, and workflow; S1 adds only its calibrated scale bar.
+  original channel controls with no Display switch, time controls, and
+  workflow; S1 adds only its calibrated scale bar.
 
 **Phase 2 (`feature/idr0080-masks`, release 0.5.0): segmentation and QC review.**
 
@@ -67,10 +70,10 @@ You are Codex, developing in the `timed_website` repository (the TIMED imaging p
 ## 2. Ground rules
 
 - **TIMED defaults stay identical**: same pixels, contrast, channel defaults,
-  time controls and workflow. Regression tests committed first (B0) prove it
-  on every later commit. S1 adds only the scale bar from TIMED's documented
-  pixel size. The QC screen shows a short "no QC data" message for TIMED
-  plates.
+  original channel controls with no Display switch, time controls and
+  workflow. Regression tests committed first (B0) prove it on every later
+  commit. S1 adds only the scale bar from TIMED's documented pixel size. The
+  QC screen shows a short "no QC data" message for TIMED plates.
 - **Old profiles see the old page.** Profiles without `collections` get exactly today's Data page, so the existing suites run unchanged.
 - **Blind QC.** The website must not read, store or show CellPrompter's exclusion decisions, or anything derived from them. These are the `*_mad_exclusions.json` records, everything else under `profiles/`, and `run_ledger.jsonl`.
   - The only QC source is the per-field measurement table in each mask store (section 5.2).
@@ -286,7 +289,9 @@ Cache the result by path, modification time and size. Mask indexes (they have `k
 
 - Write the idr0080 profile as a constant in `packed_profiles.py`, matched on the index file name **and** its row count (155,520).
 - It holds everything in Appendix B, and a pin test fails loudly on any transcription error.
-- Any other detected index gets a generic profile: numeric channel labels, inferred plate format, auto-contrast and no metadata.
+- `PackedDatasetProfile.grayscale_available` defaults to `False`; set it to
+  `True` for both the real and fixture Cell Health profiles.
+- Any other detected index gets a generic profile: numeric channel labels, inferred plate format, auto-contrast, no metadata and no grayscale declaration.
 
 ### 4.4 Metadata
 
@@ -308,11 +313,13 @@ Cache the result by path, modification time and size. Mask indexes (they have `k
 Optional model additions:
 
 - `ChannelSummary.active`, also parsed from OMERO for native stores;
+- `ImageSummary.grayscale_available`, omitted unless it is `true`;
 - `WellMetadataSummary.details` (a list of `{label, value}`);
 - `PlateMetadataResponse.labels` and `PlateMetadataResponse.category_colors`;
 - `FilesystemEntry.detail`.
 
-Tests that assert exact TIMED response bodies gain the new optional keys and nothing else.
+Tests that assert exact TIMED response bodies gain only the applicable optional
+keys above and nothing else; `grayscale_available` remains absent.
 
 ### 4.5 Viewer and plate view
 
@@ -321,8 +328,11 @@ Tests that assert exact TIMED response bodies gain the new optional keys and not
   - In the same commit, make TIMED's facade (`_bare_image_summary`) declare `end` 65,535, which is what TIMED has always displayed.
   - Native OME-Zarr windows, such as the test images' 100–8,000, now apply as declared; update tests that asserted the old maximum.
 - **Default visibility.** Set each channel's visibility from OMERO `active ?? true`.
-- **Color and Grayscale modes.**
-  - Put a radio group labelled **Display** at the top of the channel controls.
+- **Server-declared Color and Grayscale modes.**
+  - The data server emits `ImageSummary.grayscale_available: true` only when
+    the dataset declares this capability. Missing and `false` mean unavailable.
+  - Put a radio group labelled **Display** at the top of the channel controls
+    only when every loaded source declares `grayscale_available: true`.
     Its **Color** and **Grayscale** options form a responsive, equal-width
     segmented control: they sit side by side when space permits and stack when
     the control becomes narrow.
@@ -336,9 +346,14 @@ Tests that assert exact TIMED response bodies gain the new optional keys and not
     selecting another channel switches both the grayscale image and the sliders.
   - Switching modes preserves the Color visibility state. Contrast
     controls remain available in both modes, and the chosen mode persists while
-    moving between fields.
-  - The mode applies to every source and to all panels in comparison mode. Do
-    not add split view or per-channel Solo buttons.
+    moving between fields that support it.
+  - When any loaded source omits the declaration or sets it to `false`, render
+    the original colour composite, channel visibility controls and full list of
+    contrast sliders, with no Display or grayscale-channel switch. A stored
+    grayscale preference must not change that effective display.
+  - One supported mode applies to all panels in comparison mode. Cell
+    Health-to-Cell Health comparisons retain the switch because every source
+    declares it. Do not add split view or per-channel Solo buttons.
 - **Single timepoint.** When `timeCount <= 1`, hide the `t x / y` status item and title the controls "Channels". The plate view says "Open field" and "Compare *N* fields"; TIMED keeps "Open trajectory".
 - **Labels.** `ViewerSourceFacts`, the filters, the legend and `PlateMetadataPanel` take their slot names from `metadata.labels`.
 - **Metadata panel.**
@@ -698,7 +713,10 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
 - Virtual listing and path safety (`..`, unknown experiment or plate, symlinked index outside the roots).
 - The registry key and persistence across restarts.
 - Summary and wells.
-- Facade metadata (validated with `ome-zarr-models`): per-cell-line windows, `active` flags, codec.
+- Facade metadata (validated with `ome-zarr-models`): per-cell-line windows,
+  `active` flags, codec, and `grayscale_available: true` for the real and
+  fixture Cell Health profiles. TIMED and profiles using the default omit the
+  field.
 - Chunk content: every chunk decodes to the matching slice of the source TIFF.
 - Field loading: one contiguous read per field, and single-flight under concurrent requests.
 - Errors: 404s for bad keys; ETag and 304; header mismatch, out-of-bounds member and dtype mismatch each fail cleanly.
@@ -725,10 +743,14 @@ Extend `scripts/make_test_data.py` to write `test-data/packed/idr0080-like/`. Wr
   ER is shown in white and only ER's contrast sliders are present. Move to
   another field and confirm Grayscale remains selected. Return to Color
   and confirm its composite state and full channel-control list are restored;
-  repeat the mode check in comparison mode.
+  repeat the mode check in a Cell Health comparison, where every source
+  declares the capability.
 - From the viewer, use the Data navigation link and confirm the same plate and
   well are open; confirm the same place after a reload.
 - Change the Connect-page choice to TIMED and confirm the Data page shows TIMED.
+  Open a TIMED field and confirm its original colour-composite controls are
+  shown with no Display or grayscale-channel switch. Cover an omitted
+  `grayscale_available` response as the same unavailable case.
 - Confirm a profile without collections retains the existing page.
 - Select C01, toggle **Same gene** and **Controls**, and confirm the expected
   wells are highlighted on the active grid and only one toggle can be active.

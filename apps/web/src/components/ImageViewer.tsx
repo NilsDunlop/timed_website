@@ -661,7 +661,14 @@ export default function ImageViewer() {
       ? Math.min(...imageSources.map((imageSource) => axisSize(imageSource, "z")))
       : 1;
   const channelCount = channels.length;
-  const displayMode = displayPreference.mode;
+  const grayscaleAvailable =
+    viewerSources.length > 0 &&
+    viewerSources.every(
+      (viewerSource) => viewerSource.image.grayscale_available === true,
+    );
+  const displayMode = grayscaleAvailable
+    ? displayPreference.mode
+    : "fluorescence";
   const grayscaleChannelIndex = preferredGrayscaleChannelIndex(
     channels.map((channel) => channel.name),
     displayPreference.grayscaleChannelName,
@@ -1127,54 +1134,56 @@ export default function ImageViewer() {
             <h2>{timeCount <= 1 ? "Channels" : "Time and channels"}</h2>
           </div>
 
-          <fieldset className="viewer-mode-control">
-            <legend id="viewer-display-legend">Display</legend>
-            <div
-              className="viewer-mode-options"
-              role="radiogroup"
-              aria-labelledby="viewer-display-legend"
-            >
-              <label>
-                <input
-                  type="radio"
-                  name="viewer-display-mode"
-                  value="fluorescence"
-                  checked={displayMode === "fluorescence"}
-                  onChange={() => chooseDisplayMode("fluorescence")}
-                />
-                <span>Color</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="viewer-display-mode"
-                  value="grayscale"
-                  checked={displayMode === "grayscale"}
-                  onChange={() => chooseDisplayMode("grayscale")}
-                />
-                <span>Grayscale</span>
-              </label>
-            </div>
-          </fieldset>
-
-        {displayMode === "grayscale" && channels.length > 0 && (
-          <fieldset className="grayscale-channel-control">
-            <legend>Grayscale channel</legend>
-            <div className="grayscale-channel-options">
-              {channels.map((channel, index) => (
-                <label key={channel.name + String(index)}>
+          {grayscaleAvailable && (
+            <fieldset className="viewer-mode-control">
+              <legend id="viewer-display-legend">Display</legend>
+              <div
+                className="viewer-mode-options"
+                role="radiogroup"
+                aria-labelledby="viewer-display-legend"
+              >
+                <label>
                   <input
                     type="radio"
-                    name="grayscale-channel"
-                    checked={grayscaleChannelIndex === index}
-                    onChange={() => chooseGrayscaleChannel(index)}
+                    name="viewer-display-mode"
+                    value="fluorescence"
+                    checked={displayMode === "fluorescence"}
+                    onChange={() => chooseDisplayMode("fluorescence")}
                   />
-                  <span>{channel.name}</span>
+                  <span>Color</span>
                 </label>
-              ))}
-            </div>
-          </fieldset>
-        )}
+                <label>
+                  <input
+                    type="radio"
+                    name="viewer-display-mode"
+                    value="grayscale"
+                    checked={displayMode === "grayscale"}
+                    onChange={() => chooseDisplayMode("grayscale")}
+                  />
+                  <span>Grayscale</span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+
+          {displayMode === "grayscale" && channels.length > 0 && (
+            <fieldset className="grayscale-channel-control">
+              <legend>Grayscale channel</legend>
+              <div className="grayscale-channel-options">
+                {channels.map((channel, index) => (
+                  <label key={channel.name + String(index)}>
+                    <input
+                      type="radio"
+                      name="grayscale-channel"
+                      checked={grayscaleChannelIndex === index}
+                      onChange={() => chooseGrayscaleChannel(index)}
+                    />
+                    <span>{channel.name}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
 
         {timeCount > 1 && (
           <div className="viewer-time-control">

@@ -11,6 +11,10 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _omit_excluded_default(schema: dict[str, object]) -> None:
+    schema.pop("default", None)
+
+
 class Capabilities(ApiModel):
     gpu: bool = False
     plate_metadata: bool = False
@@ -99,6 +103,11 @@ class ImageSummary(ApiModel):
     axes: list[AxisSummary]
     levels: list[ResolutionLevel]
     channels: list[ChannelSummary]
+    grayscale_available: bool = Field(
+        default=False,
+        exclude_if=lambda value: not value,
+        json_schema_extra=_omit_excluded_default,
+    )
     ome_zarr_version: str
     zarr_format: Literal[2, 3]
 

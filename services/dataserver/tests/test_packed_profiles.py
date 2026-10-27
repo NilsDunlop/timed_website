@@ -107,6 +107,7 @@ def test_idr0080_fixture_profile_identity_and_geometry_are_pinned() -> None:
     assert profile.member_prefix == "idr0080/raw/"
     assert profile.metadata_path == "metadata/metadata_idr0080.csv"
     assert profile.pixel_size_um == 0.29898804047838085
+    assert profile.grayscale_available is True
     assert profile.auto_contrast is False
     assert (
         profile.codec.cname,
@@ -184,6 +185,7 @@ def test_real_idr0080_profile_identity_geometry_and_codec_are_exactly_pinned() -
     assert profile.metadata_path == "metadata/metadata_idr0080.csv"
     assert profile.display_name == "Cell Health"
     assert profile.pixel_size_um == 0.29898804047838085
+    assert profile.grayscale_available is True
     assert profile.member_prefix == "idr0080/raw/"
     assert profile.plate_name(14618) == "SQ00014618"
     assert (
@@ -328,6 +330,7 @@ def test_generic_profile_probe_and_catalogue_inference_are_exact(tmp_path: Path)
     assert profile.row_count == 6
     assert profile.geometry.image_shape == (48, 80)
     assert profile.geometry.chunk_shape == (48, 80)
+    assert profile.grayscale_available is False
     assert profile.geometry.sites == (1, 2, 9)
     assert profile.geometry.plate_rows == tuple(
         chr(ord("A") + index) for index in range(26)

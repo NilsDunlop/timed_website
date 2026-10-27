@@ -77,6 +77,7 @@ def test_plate_summary_uses_profile_geometry_and_sparse_catalogue_wells(
     assert image is not None
     assert image.name == "A01_s1"
     assert image.path == "A01_s1.zarr"
+    assert image.grayscale_available is True
     assert [axis.model_dump() for axis in image.axes] == [
         {"name": "c", "type": "channel", "unit": None},
         {"name": "y", "type": "space", "unit": "micrometer"},

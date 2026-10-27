@@ -510,6 +510,7 @@ def test_unknown_packed_index_uses_cached_generic_profile(
     assert [entry["name"] for entry in listing.json()["entries"]] == ["14610", "14611"]
     assert linked.json()["name"] == "14610"
     assert summary.status_code == 200, summary.text
+    assert "grayscale_available" not in summary.json()["first_image"]
     channels = summary.json()["first_image"]["channels"]
     assert [(channel["name"], channel["color"], channel["window"]) for channel in channels] == [
         (str(index), None, None) for index in range(1, 6)
