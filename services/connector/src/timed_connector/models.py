@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import posixpath
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,6 +21,14 @@ class SlurmProfile(ApiModel):
     mem: str
 
 
+class CollectionConfig(ApiModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
+    title: str
+    description: str | None = None
+    path: str
+    default: bool = False
+
+
 class Profile(ApiModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
     name: str
@@ -33,6 +43,7 @@ class Profile(ApiModel):
     remote_state_dir: str = "~/.timed"
     auto_install_uv: bool = True
     module_loads: list[str] = Field(default_factory=list)
+    collections: list[CollectionConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_kind_fields(self) -> Profile:
@@ -48,7 +59,43 @@ class Profile(ApiModel):
             ]
             if missing:
                 raise ValueError(f"Slurm profile is missing: {', '.join(missing)}")
+
+        collection_ids = [collection.id for collection in self.collections]
+        duplicate_ids = sorted(
+            collection_id
+            for collection_id in set(collection_ids)
+            if collection_ids.count(collection_id) > 1
+        )
+        if duplicate_ids:
+            raise ValueError(
+                "Collection ids must be unique; duplicated: " + ", ".join(duplicate_ids)
+            )
+
+        if sum(collection.default for collection in self.collections) > 1:
+            raise ValueError("At most one collection may be the default")
+
+        if self.kind == "slurm":
+            roots = [PurePosixPath(posixpath.normpath(root)) for root in self.data_roots]
+            for collection in self.collections:
+                collection_path = PurePosixPath(posixpath.normpath(collection.path))
+                if not any(collection_path.is_relative_to(root) for root in roots):
+                    raise ValueError(
+                        f"Collection {collection.id!r} path must be inside a data root: "
+                        f"{collection.path}"
+                    )
+        else:
+            self.collections = [
+                collection.model_copy(update={"path": str(_normalized_local_path(collection.path))})
+                for collection in self.collections
+            ]
         return self
+
+
+def _normalized_local_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path.resolve(strict=False)
 
 
 class ProfilesDocument(ApiModel):

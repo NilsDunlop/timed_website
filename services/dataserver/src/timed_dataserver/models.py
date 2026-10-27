@@ -11,9 +11,14 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _omit_excluded_default(schema: dict[str, object]) -> None:
+    schema.pop("default", None)
+
+
 class Capabilities(ApiModel):
     gpu: bool = False
     plate_metadata: bool = False
+    packed_datasets: bool = False
 
 
 class HandshakeResponse(ApiModel):
@@ -37,6 +42,7 @@ class FilesystemEntry(ApiModel):
     path: str
     kind: Literal["dir", "file"]
     ome_zarr: OmeZarrInfo | None = None
+    detail: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class FilesystemListResponse(ApiModel):
@@ -78,6 +84,7 @@ class ChannelSummary(ApiModel):
     name: str
     color: str | None = None
     window: WindowSummary | None = None
+    active: bool | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ResolutionLevel(ApiModel):
@@ -96,6 +103,11 @@ class ImageSummary(ApiModel):
     axes: list[AxisSummary]
     levels: list[ResolutionLevel]
     channels: list[ChannelSummary]
+    grayscale_available: bool = Field(
+        default=False,
+        exclude_if=lambda value: not value,
+        json_schema_extra=_omit_excluded_default,
+    )
     ome_zarr_version: str
     zarr_format: Literal[2, 3]
 
@@ -171,6 +183,17 @@ class PlateExperimentSummary(ApiModel):
     acquisition: PlateAcquisitionSummary | None = None
 
 
+class MetadataDetailSummary(ApiModel):
+    label: str
+    value: str
+
+
+class PlateMetadataLabels(ApiModel):
+    compound: str
+    moa: str
+    control: str
+
+
 class WellMetadataSummary(ApiModel):
     well: str
     well_type: str | None = None
@@ -181,9 +204,38 @@ class WellMetadataSummary(ApiModel):
     target: str | None = None
     pathway: str | None = None
     mechanism_of_action: str | None = None
+    details: list[MetadataDetailSummary] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class PlateMetadataResponse(ApiModel):
     available: bool
     plate: PlateExperimentSummary | None = None
     wells: list[WellMetadataSummary] = Field(default_factory=list)
+    labels: PlateMetadataLabels | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    category_colors: dict[str, str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+
+MatchMode = Literal["well", "gene", "control"]
+
+
+class DatasetMatchSummary(ApiModel):
+    path: str
+    plate_label: str
+    cell_line: str
+    well: str
+    guide: str
+    is_control: bool
+    well_type: str | None
+
+
+class DatasetMatchesResponse(ApiModel):
+    matches: list[DatasetMatchSummary]

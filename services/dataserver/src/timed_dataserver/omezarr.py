@@ -37,7 +37,7 @@ class StoreDescriptor:
     """The small amount of metadata needed to classify a store."""
 
     info: OmeZarrInfo
-    layout: Literal["native", "timed-collection"]
+    layout: Literal["native", "timed-collection", "packed"]
     metadata_prefix: str = ""
 
 
@@ -255,6 +255,7 @@ def _channels(omero: Any) -> list[ChannelSummary]:
                 name=str(value.get("label", f"Channel {index + 1}")),
                 color=str(value["color"]) if value.get("color") is not None else None,
                 window=window,
+                active=value.get("active") if isinstance(value.get("active"), bool) else None,
             )
         )
     return result
@@ -346,7 +347,7 @@ def _bare_image_summary(store: Path, field: Path) -> ImageSummary:
             ChannelSummary(
                 name=f"{wavelength} nm",
                 color=colors[index % len(colors)],
-                window=WindowSummary(min=0, max=65535, start=100, end=8000),
+                window=WindowSummary(min=0, max=65535, start=100, end=65535),
             )
             for index, wavelength in enumerate(wavelengths)
         ]
@@ -405,9 +406,7 @@ def _native_well_fields(store: Path, well_path: str) -> WellFieldsResponse:
     return WellFieldsResponse(well_path=well_path, fields=fields)
 
 
-def well_fields(
-    store: Path, descriptor: StoreDescriptor, well_path: str
-) -> WellFieldsResponse:
+def well_fields(store: Path, descriptor: StoreDescriptor, well_path: str) -> WellFieldsResponse:
     if descriptor.layout == "native":
         prefix = descriptor.metadata_prefix
         native_path = str(PurePosixPath(prefix) / well_path) if prefix else well_path
@@ -428,9 +427,7 @@ def well_fields(
 
 def _native_plate_summary(store: Path, descriptor: StoreDescriptor) -> PlateSummary:
     plate_root = (
-        _metadata_child(store, descriptor.metadata_prefix)
-        if descriptor.metadata_prefix
-        else store
+        _metadata_child(store, descriptor.metadata_prefix) if descriptor.metadata_prefix else store
     )
     zarr_format, attributes = _group_metadata(plate_root)
     plate = attributes.get("plate")

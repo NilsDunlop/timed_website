@@ -191,6 +191,49 @@ const { title } = Astro.props;
     flex: 1 1 22rem;
   }
 
+  .dataset-selector-panel {
+    grid-template-columns: minmax(14rem, 22rem) minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .dataset-selector-control,
+  .entry-filter {
+    display: grid;
+    gap: 0.35rem;
+    font-weight: 700;
+  }
+
+  .dataset-description {
+    margin: 0 0 0.55rem;
+    color: #4d5c50;
+  }
+
+  .data-page-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .data-page-heading h1 {
+    margin-bottom: 0.35rem;
+  }
+
+  .data-page-heading .lede {
+    margin-bottom: 0;
+  }
+
+  .change-dataset-link {
+    flex: none;
+    margin-top: 0.35rem;
+    font-size: 0.9rem;
+  }
+
+  .entry-filter {
+    max-width: 28rem;
+  }
+
   .subpanel {
     padding: 1rem;
     border: 1px solid #d5ddd4;
@@ -399,11 +442,43 @@ const { title } = Astro.props;
   }
 
   .well {
+    position: relative;
     min-width: 3rem;
     padding: 0.45rem;
     border-color: color-mix(in srgb, var(--well-color, #284b31) 65%, #284b31);
     color: #172019;
     background: color-mix(in srgb, var(--well-color, #dce8dd) 28%, white);
+  }
+
+  .well-badge {
+    position: absolute;
+    top: -0.35rem;
+    right: -0.35rem;
+    display: grid;
+    min-width: 1.15rem;
+    min-height: 1.15rem;
+    padding: 0.1rem 0.25rem;
+    place-items: center;
+    border-radius: 999px;
+    color: white;
+    background: #284b31;
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  .well-markers {
+    position: absolute;
+    right: 0.2rem;
+    bottom: 0.2rem;
+    display: flex;
+    gap: 0.12rem;
+  }
+
+  .well-markers i {
+    width: 0.35rem;
+    height: 0.35rem;
+    border-radius: 50%;
+    background: var(--well-marker-color, #284b31);
   }
 
   .well.selected {
@@ -686,6 +761,82 @@ const { title } = Astro.props;
     border-top: 0;
   }
 
+  .perturbation-matches h3,
+  .perturbation-match-group h4,
+  .perturbation-match-results p {
+    margin: 0;
+  }
+
+  .perturbation-match-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+
+  .perturbation-match-results {
+    gap: 0.8rem;
+  }
+
+  .perturbation-match-group {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .perturbation-match-group h4 {
+    color: #536058;
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .perturbation-match-list {
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid #dbe2da;
+    list-style: none;
+  }
+
+  .perturbation-match-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid #dbe2da;
+  }
+
+  .perturbation-match-identity {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.65rem;
+  }
+
+  .perturbation-match-identity strong {
+    min-width: 5rem;
+  }
+
+  .perturbation-match-identity span:not(.perturbation-control-badge) {
+    color: #5e6960;
+    font-size: 0.88rem;
+  }
+
+  .perturbation-control-badge {
+    padding: 0.15rem 0.4rem;
+    border: 1px dashed #7b8490;
+    border-radius: 999px;
+    color: #505861;
+    background: #edf0f2;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .perturbation-match-limit {
+    color: #6b3f20;
+    font-size: 0.88rem;
+  }
+
   .well-metadata-grid {
     grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   }
@@ -821,6 +972,119 @@ const { title } = Astro.props;
     width: 0.8rem;
     height: 0.8rem;
     border-radius: 50%;
+  }
+
+  .viewer-mode-control,
+  .grayscale-channel-control {
+    display: grid;
+    gap: 0.55rem;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0.8rem;
+    border: 1px solid #d5ddd4;
+  }
+
+  .viewer-mode-control {
+    container-name: viewer-mode;
+    container-type: inline-size;
+  }
+
+  .viewer-mode-control legend,
+  .grayscale-channel-control legend {
+    padding: 0 0.25rem;
+    font-weight: 700;
+  }
+
+  .viewer-mode-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .grayscale-channel-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0.8rem;
+  }
+
+  .grayscale-channel-options label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .viewer-mode-options label {
+    position: relative;
+    z-index: 0;
+    display: flex;
+    min-width: 0;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid #b7c6b9;
+    background: #fff;
+    cursor: pointer;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .viewer-mode-options label:first-child {
+    border-radius: 0.35rem 0 0 0.35rem;
+  }
+
+  .viewer-mode-options label:last-child {
+    margin-left: -1px;
+    border-radius: 0 0.35rem 0.35rem 0;
+  }
+
+  .viewer-mode-options label:hover {
+    background: #eef5ed;
+  }
+
+  .viewer-mode-options label:has(input:checked) {
+    z-index: 1;
+    border-color: #315f3b;
+    color: #fff;
+    background: #315f3b;
+  }
+
+  .viewer-mode-options label:has(input:focus-visible) {
+    z-index: 2;
+    outline: 0.18rem solid #245b33;
+    outline-offset: 0.12rem;
+    box-shadow: inset 0 0 0 0.12rem #fff;
+  }
+
+  .viewer-mode-options input[type="radio"] {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    border: 0;
+    cursor: pointer;
+  }
+
+  @container viewer-mode (max-width: 12rem) {
+    .viewer-mode-options {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .viewer-mode-options label:first-child {
+      border-radius: 0.35rem 0.35rem 0 0;
+    }
+
+    .viewer-mode-options label:last-child {
+      margin-top: -1px;
+      margin-left: 0;
+      border-radius: 0 0 0.35rem 0.35rem;
+    }
   }
 
   .viewer-stage h1 {
@@ -1089,6 +1353,14 @@ const { title } = Astro.props;
       grid-template-columns: 1fr;
     }
 
+    .dataset-selector-panel {
+      grid-template-columns: 1fr;
+    }
+
+    .data-page-heading {
+      display: grid;
+    }
+
     .comparison-field-grid,
     .comparison-view-grid,
     .comparison-metadata-grid {
@@ -1113,6 +1385,11 @@ const { title } = Astro.props;
 
     .viewer-source-facts:not(.viewer-source-facts-compact) > div {
       flex: 1 1 6rem;
+    }
+
+    .perturbation-match-row {
+      align-items: start;
+      flex-direction: column;
     }
 
     .canvas-frame {

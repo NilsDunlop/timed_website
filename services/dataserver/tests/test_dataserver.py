@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.cli import main, serve
+from timed_dataserver.omezarr import _channels
 
 from scripts.make_test_data import generate_test_data
 
@@ -22,7 +23,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 @pytest.fixture(scope="module")
 def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("dataserver-data")
-    generate_test_data(root)
+    generate_test_data(root, include_packed=False)
     (root / "ordinary").mkdir()
     (root / "notes.txt").write_text("not a dataset\n", encoding="utf-8")
     return root
@@ -56,6 +57,16 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
+def _omit_channel_window_ends(channels: object) -> None:
+    assert isinstance(channels, list)
+    for channel in channels:
+        assert isinstance(channel, dict)
+        window = channel.get("window")
+        assert isinstance(window, dict)
+        assert "end" in window
+        del window["end"]
+
+
 @pytest.mark.parametrize(
     ("headers", "expected"),
     [
@@ -86,7 +97,11 @@ def test_handshake_and_listing_detect_every_fixture(
         assert payload["api_version"] == "1.0"
         assert payload["environment"] == "local"
         assert payload["data_roots"] == [str(data_root.resolve())]
-        assert payload["capabilities"] == {"gpu": False, "plate_metadata": True}
+        assert payload["capabilities"] == {
+            "gpu": False,
+            "plate_metadata": True,
+            "packed_datasets": True,
+        }
 
         roots = client.get("/api/fs/list", headers=AUTH)
         assert roots.status_code == 200
@@ -94,20 +109,89 @@ def test_handshake_and_listing_detect_every_fixture(
 
         listing = client.get("/api/fs/list", headers=AUTH, params={"path": str(data_root)})
         assert listing.status_code == 200
-        entries = {entry["name"]: entry for entry in listing.json()["entries"]}
-        assert entries["test_plate.zarr"]["ome_zarr"] == {
-            "kind": "plate",
-            "version": "0.5",
-            "zarr_format": 3,
+        assert listing.json() == {
+            "path": str(data_root.resolve()),
+            "entries": [
+                {
+                    "name": "metadata",
+                    "path": str((data_root / "metadata").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": None,
+                },
+                {
+                    "name": "notes.txt",
+                    "path": str((data_root / "notes.txt").resolve()),
+                    "kind": "file",
+                    "ome_zarr": None,
+                },
+                {
+                    "name": "ordinary",
+                    "path": str((data_root / "ordinary").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": None,
+                },
+                {
+                    "name": "test_image_v04.zarr",
+                    "path": str((data_root / "test_image_v04.zarr").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": {
+                        "kind": "image",
+                        "version": "0.4",
+                        "zarr_format": 2,
+                    },
+                },
+                {
+                    "name": "test_image_v05.zarr",
+                    "path": str((data_root / "test_image_v05.zarr").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": {
+                        "kind": "image",
+                        "version": "0.5",
+                        "zarr_format": 3,
+                    },
+                },
+                {
+                    "name": "test_plate.zarr",
+                    "path": str((data_root / "test_plate.zarr").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": {
+                        "kind": "plate",
+                        "version": "0.5",
+                        "zarr_format": 3,
+                    },
+                },
+                {
+                    "name": "test_plate_2.zarr",
+                    "path": str((data_root / "test_plate_2.zarr").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": {
+                        "kind": "plate",
+                        "version": "0.5",
+                        "zarr_format": 3,
+                    },
+                },
+                {
+                    "name": "test_plate_3.zarr",
+                    "path": str((data_root / "test_plate_3.zarr").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": {
+                        "kind": "plate",
+                        "version": "0.5",
+                        "zarr_format": 3,
+                    },
+                },
+                {
+                    "name": "test_plate_4.zarr",
+                    "path": str((data_root / "test_plate_4.zarr").resolve()),
+                    "kind": "dir",
+                    "ome_zarr": {
+                        "kind": "plate",
+                        "version": "0.5",
+                        "zarr_format": 3,
+                    },
+                },
+            ],
         }
-        assert entries["test_image_v04.zarr"]["ome_zarr"]["kind"] == "image"
-        assert entries["test_image_v04.zarr"]["ome_zarr"]["version"] == "0.4"
-        assert entries["test_image_v04.zarr"]["ome_zarr"]["zarr_format"] == 2
-        assert entries["test_image_v05.zarr"]["ome_zarr"]["kind"] == "image"
-        assert entries["test_image_v05.zarr"]["ome_zarr"]["version"] == "0.5"
-        assert entries["test_image_v05.zarr"]["ome_zarr"]["zarr_format"] == 3
-        assert entries["ordinary"]["ome_zarr"] is None
-        assert entries["notes.txt"]["kind"] == "file"
 
         inside = client.get(
             "/api/fs/list",
@@ -167,6 +251,24 @@ def test_registry_link_list_unlink_persists_across_apps(data_root: Path, tmp_pat
         assert third_client.get("/api/datasets", headers=AUTH).json() == {"datasets": []}
 
 
+def test_matches_route_returns_not_found_for_non_packed_dataset(
+    client_factory: Callable[[Path | None], TestClient],
+    data_root: Path,
+) -> None:
+    with client_factory() as client:
+        record = _link(client, data_root / "test_image_v04.zarr")
+        response = client.get(
+            f"/api/datasets/{record['id']}/matches",
+            headers=AUTH,
+            params={"well": "A01", "by": "well"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Dataset matches are available only for packed plates"
+    }
+
+
 def test_collection_plate_well_summary_and_ome_facade(
     client_factory: Callable[[Path | None], TestClient], data_root: Path
 ) -> None:
@@ -177,24 +279,67 @@ def test_collection_plate_well_summary_and_ome_facade(
         response = client.get(f"/api/datasets/{dataset_id}/summary", headers=AUTH)
         assert response.status_code == 200, response.text
         summary = response.json()
-        assert summary["kind"] == "plate"
-        assert summary["rows"] == ["A", "B"]
-        assert summary["columns"] == ["1", "2"]
-        assert {(well["row"], well["column"]) for well in summary["wells"]} == {
-            ("A", "1"),
-            ("A", "2"),
-            ("B", "1"),
+        _omit_channel_window_ends(summary["first_image"]["channels"])
+        assert summary == {
+            "kind": "plate",
+            "name": "test_plate.zarr",
+            "path": "",
+            "rows": ["A", "B"],
+            "columns": ["1", "2"],
+            "acquisitions": [],
+            "wells": [
+                {"row": "A", "column": "1", "path": "A01"},
+                {"row": "A", "column": "2", "path": "A02"},
+                {"row": "B", "column": "1", "path": "B01"},
+            ],
+            "first_image": {
+                "kind": "image",
+                "name": "A01_s1",
+                "path": "A01_s1.zarr",
+                "axes": [
+                    {"name": "t", "type": "time", "unit": "hour"},
+                    {"name": "c", "type": "channel", "unit": None},
+                    {"name": "y", "type": "space", "unit": "micrometer"},
+                    {"name": "x", "type": "space", "unit": "micrometer"},
+                ],
+                "levels": [
+                    {
+                        "path": "s0",
+                        "shape": [6, 3, 512, 512],
+                        "chunks": [1, 1, 128, 128],
+                        "shard_shape": [6, 3, 512, 512],
+                        "dtype": "uint16",
+                        "coordinate_transformations": [
+                            {
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 0.3, 0.3],
+                            }
+                        ],
+                    }
+                ],
+                "channels": [
+                    {
+                        "name": "405 nm",
+                        "color": "0000FF",
+                        "window": {"min": 0.0, "max": 65535.0, "start": 100.0},
+                    },
+                    {
+                        "name": "505 nm",
+                        "color": "00FF00",
+                        "window": {"min": 0.0, "max": 65535.0, "start": 100.0},
+                    },
+                    {
+                        "name": "625 nm",
+                        "color": "FF0000",
+                        "window": {"min": 0.0, "max": 65535.0, "start": 100.0},
+                    },
+                ],
+                "ome_zarr_version": "0.5",
+                "zarr_format": 3,
+            },
+            "ome_zarr_version": "0.5",
+            "zarr_format": 3,
         }
-        image = summary["first_image"]
-        assert [axis["name"] for axis in image["axes"]] == ["t", "c", "y", "x"]
-        assert image["levels"][0]["shape"] == [6, 3, 512, 512]
-        assert image["levels"][0]["chunks"] == [1, 1, 128, 128]
-        assert image["levels"][0]["shard_shape"] == [6, 3, 512, 512]
-        assert [channel["name"] for channel in image["channels"]] == [
-            "405 nm",
-            "505 nm",
-            "625 nm",
-        ]
 
         well = client.get(
             f"/api/datasets/{dataset_id}/wells/A01",
@@ -208,11 +353,58 @@ def test_collection_plate_well_summary_and_ome_facade(
 
         group_metadata = client.get(f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json", headers=AUTH)
         assert group_metadata.status_code == 200
-        assert group_metadata.json()["node_type"] == "group"
-        assert group_metadata.json()["attributes"]["ome"]["version"] == "0.5"
-        facade_axes = group_metadata.json()["attributes"]["ome"]["multiscales"][0]["axes"]
-        assert facade_axes[0] == {"name": "t", "type": "time", "unit": "hour"}
-        assert facade_axes[1] == {"name": "c", "type": "channel"}
+        facade_metadata = group_metadata.json()
+        _omit_channel_window_ends(facade_metadata["attributes"]["ome"]["omero"]["channels"])
+        assert facade_metadata == {
+            "attributes": {
+                "ome": {
+                    "version": "0.5",
+                    "multiscales": [
+                        {
+                            "name": "A01_s1",
+                            "axes": [
+                                {"name": "t", "type": "time", "unit": "hour"},
+                                {"name": "c", "type": "channel"},
+                                {"name": "y", "type": "space", "unit": "micrometer"},
+                                {"name": "x", "type": "space", "unit": "micrometer"},
+                            ],
+                            "datasets": [
+                                {
+                                    "path": "s0",
+                                    "coordinateTransformations": [
+                                        {
+                                            "type": "scale",
+                                            "scale": [1.0, 1.0, 0.3, 0.3],
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                    "omero": {
+                        "channels": [
+                            {
+                                "label": "405 nm",
+                                "color": "0000FF",
+                                "window": {"min": 0.0, "max": 65535.0, "start": 100.0},
+                            },
+                            {
+                                "label": "505 nm",
+                                "color": "00FF00",
+                                "window": {"min": 0.0, "max": 65535.0, "start": 100.0},
+                            },
+                            {
+                                "label": "625 nm",
+                                "color": "FF0000",
+                                "window": {"min": 0.0, "max": 65535.0, "start": 100.0},
+                            },
+                        ]
+                    },
+                }
+            },
+            "zarr_format": 3,
+            "node_type": "group",
+        }
         assert group_metadata.headers["cache-control"] == "private, max-age=3600"
         metadata_etag = group_metadata.headers["etag"]
         not_modified_metadata = client.get(
@@ -225,8 +417,58 @@ def test_collection_plate_well_summary_and_ome_facade(
 
         array_metadata = client.get(f"/zarr/{dataset_id}/A01_s1.zarr/s0/zarr.json", headers=AUTH)
         assert array_metadata.status_code == 200
-        assert array_metadata.json()["node_type"] == "array"
-        assert array_metadata.json()["dimension_names"] == ["t", "c", "y", "x"]
+        assert array_metadata.json() == {
+            "shape": [6, 3, 512, 512],
+            "data_type": "uint16",
+            "chunk_grid": {
+                "name": "regular",
+                "configuration": {"chunk_shape": [6, 3, 512, 512]},
+            },
+            "chunk_key_encoding": {
+                "name": "default",
+                "configuration": {"separator": "/"},
+            },
+            "fill_value": 0,
+            "codecs": [
+                {
+                    "name": "sharding_indexed",
+                    "configuration": {
+                        "chunk_shape": [1, 1, 128, 128],
+                        "codecs": [
+                            {"name": "bytes", "configuration": {"endian": "little"}},
+                            {
+                                "name": "blosc",
+                                "configuration": {
+                                    "typesize": 2,
+                                    "cname": "zstd",
+                                    "clevel": 5,
+                                    "shuffle": "shuffle",
+                                    "blocksize": 0,
+                                },
+                            },
+                        ],
+                        "index_codecs": [
+                            {"name": "bytes", "configuration": {"endian": "little"}},
+                            {"name": "crc32c"},
+                        ],
+                        "index_location": "end",
+                    },
+                }
+            ],
+            "attributes": {
+                "timed": {
+                    "well": "A01",
+                    "site": 1,
+                    "axes": ["t", "c", "y", "x"],
+                    "channels_nm": [405, 505, 625],
+                    "t_indices": [0, 1, 2, 3, 4, 5],
+                }
+            },
+            "zarr_format": 3,
+            "node_type": "array",
+            "storage_transformers": [],
+            "dimension_names": ["t", "c", "y", "x"],
+        }
 
         ranged = client.get(
             f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/0/0/0/0",
@@ -295,6 +537,28 @@ def test_collection_plate_well_summary_and_ome_facade(
         assert missing.status_code == 404
 
 
+def test_timed_facade_declares_the_legacy_window_end(
+    client_factory: Callable[[Path | None], TestClient],
+    data_root: Path,
+) -> None:
+    with client_factory() as client:
+        record = _link(client, data_root / "test_plate.zarr")
+        dataset_id = record["id"]
+        summary = client.get(f"/api/datasets/{dataset_id}/summary", headers=AUTH).json()
+        group = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json",
+            headers=AUTH,
+        ).json()
+
+    assert [
+        channel["window"]["end"] for channel in summary["first_image"]["channels"]
+    ] == [65_535.0] * 3
+    assert [
+        channel["window"]["end"]
+        for channel in group["attributes"]["ome"]["omero"]["channels"]
+    ] == [65_535.0] * 3
+
+
 def test_collection_plate_metadata_joins_wells_and_acquisition(
     client_factory: Callable[[Path | None], TestClient],
     data_root: Path,
@@ -313,6 +577,7 @@ def test_collection_plate_metadata_joins_wells_and_acquisition(
 
     assert response.status_code == 200, response.text
     metadata = response.json()
+    assert set(metadata) == {"available", "plate", "wells"}
     assert metadata["available"] is True
     assert metadata["plate"] == {
         "plate_id": "S1.1",
@@ -405,6 +670,7 @@ def test_native_image_summaries(
     assert response.status_code == 200, response.text
     summary = response.json()
     assert summary["kind"] == "image"
+    assert "grayscale_available" not in summary
     assert summary["ome_zarr_version"] == version
     assert summary["zarr_format"] == zarr_format
     assert [axis["name"] for axis in summary["axes"]] == ["t", "c", "y", "x"]
@@ -413,6 +679,20 @@ def test_native_image_summaries(
     assert (summary["levels"][0]["shard_shape"] is not None) is sharded
     assert summary["channels"][0]["color"] == "0000FF"
     assert summary["channels"][0]["window"]["end"] == 8000
+
+
+def test_native_omero_channel_active_flags_are_preserved() -> None:
+    channels = _channels(
+        {
+            "channels": [
+                {"label": "DNA", "active": True},
+                {"label": "RNA", "active": False},
+                {"label": "Invalid", "active": "false"},
+            ]
+        }
+    )
+
+    assert [channel.active for channel in channels] == [True, False, None]
 
 
 def test_native_plate_and_well_metadata_are_read_lazily(
@@ -479,6 +759,7 @@ def test_native_plate_and_well_metadata_are_read_lazily(
     assert summary["acquisitions"] == [{"id": 7, "name": "hourly"}]
     assert summary["wells"] == [{"row": "A", "column": "1", "path": "A/1"}]
     assert summary["first_image"]["path"] == "A/1/0"
+    assert "grayscale_available" not in summary["first_image"]
     assert summary["first_image"]["levels"][0]["chunks"] == [1, 1, 16, 16]
     assert well_response.status_code == 200
     assert well_response.json()["fields"] == [{"path": "A/1/0", "acquisition": 7}]
@@ -540,5 +821,38 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "/api/handshake" in document["paths"]
     assert "/api/datasets/{dataset_id}/summary" in document["paths"]
     assert "/api/datasets/{dataset_id}/metadata" in document["paths"]
+    assert "/api/datasets/{dataset_id}/matches" in document["paths"]
     assert "/zarr/{dataset_id}/{resource_path}" in document["paths"]
     assert "openapi-placeholder" not in output
+
+
+def test_packed_cache_budget_must_be_positive(data_root: Path, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="greater than zero"):
+        create_app(
+            ServerSettings(
+                data_roots=(data_root,),
+                state_dir=tmp_path / "state",
+                environment="local",
+                packed_cache_mb=0,
+            ),
+            TOKEN,
+        )
+
+    with pytest.raises(SystemExit, match="--packed-cache-mb must be greater than zero"):
+        main(
+            [
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+                "--data-root",
+                str(data_root),
+                "--connection-file",
+                str(tmp_path / "connection.json"),
+                "--environment",
+                "local",
+                "--packed-cache-mb",
+                "0",
+            ]
+        )

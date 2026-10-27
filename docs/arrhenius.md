@@ -75,6 +75,78 @@ passwords, verification codes, key passphrases, or data-server tokens here.
   cache. Completed prefetches become foreground cache hits; an in-flight
   prefetch has a short handoff window instead of being cancelled and restarted.
 
+## A1 browser checklist
+
+1. Confirm TIMED is preselected and unchanged from the TIMED-only release.
+2. Choose **Cell Health**, then open A549, `SQ00014610`, well `A01`, site 1,
+   and compare it with the inspection previews.
+3. Compare `A02` (MCL1) on `SQ00014611` (A549), `SQ00014614` (ES2), and
+   `SQ00014616` (HCC44), plus the `A01` EMPTY control on `SQ00014611`.
+4. For the channel sanity check, open `SQ00014613` (ES2), well `A01` (EMPTY),
+   site 1. Crop to pixels 216-432 in x and y, then use **Grayscale** mode to
+   compare each channel with Cell Health v2.0's
+   [`1.generate-profiles/figures/example_images/greyscale_channel.png`](https://github.com/broadinstitute/cell-health/blob/cd91bd0daacef2b5ea25dcceb62482bb664d9de1/1.generate-profiles/figures/example_images/greyscale_channel.png).
+5. Disconnect after viewing images and confirm it reaches a final state within
+   a few seconds.
+6. Record field-opening timings in this document.
+7. Choose Cell Health and TIMED from the Connect page. Confirm that the Data
+   page follows the active choice and that returning from the viewer, using the
+   Data navigation link, and reloading restore the last Cell Health plate and
+   well.
+
+## A1 findings (complete)
+
+- TIMED was preselected and unchanged from the TIMED-only release, including
+  its original channel controls and absence of a Display switch.
+- A549 `SQ00014610`, well `A01`, site 1 matched the inspection screenshot.
+- The independent grayscale check on ES2 `SQ00014613`, well `A01`, site 1,
+  cropped to pixels 216-432 in x and y, matched Cell Health's
+  `greyscale_channel.png` exactly. This confirms the plate, well, site,
+  orientation, and channel order. Cell Health supplied the declared
+  Color/Grayscale capability used for this check.
+- The comparison of A02 (MCL1) on A549 `SQ00014611`, ES2 `SQ00014614`, and
+  HCC44 `SQ00014616`, plus the A01 EMPTY control on `SQ00014611`, loaded
+  quickly, stayed synchronized, and returned to the Data page successfully.
+- Disconnecting after viewing images took about 2 seconds and ended in the
+  `disconnected` state.
+- A field opened in about 4-5 seconds on the operator's work network and about
+  2 seconds at home, comparable to loading a TIMED trajectory. This result is
+  accepted; do not try the performance fallbacks.
+- The revised dataset flow worked: the Connect-page choice switched between
+  Cell Health and TIMED, the Data page followed the active choice, and viewer
+  return, Data navigation, and reload restored the last Cell Health plate and
+  well.
+- All A1 checks are complete.
+
+## Phase 1 scale calibration
+
+- TIMED uses its documented calibration of 0.3 µm/px.
+- The Phenix `Index.idx.xml` files for all nine plates, `SQ00014610` through
+  `SQ00014618`, report identical X and Y resolutions of
+  `2.9898804047838085E-07` m at 20×.
+- Cell Health therefore uses the full converted value
+  `0.29898804047838085` µm/px. Metadata and calculations retain that precision;
+  only display text may round it.
+- The viewer derives a scale bar independently for each panel, including each
+  comparison panel. A source without a valid pixel size shows no scale bar.
+
+## Phase 1 release-readiness record
+
+- The operator-dependent A1 gate completed on 2026-10-27 against the real
+  Arrhenius data.
+- The real-data preview, independent grayscale reference, cross-cell-line
+  comparison, dataset switching and restoration, and terminal disconnect state
+  all met the Phase 1 acceptance criteria recorded above.
+- The observed field-opening times are accepted. The performance fallbacks are
+  intentionally not part of the release configuration.
+- The grayscale switch remains a declared Cell Health capability and is shown
+  only when every loaded source declares it. TIMED and sources without that
+  declaration keep the original controls with no switch.
+- The scale-bar inputs are complete: 0.3 µm/px for TIMED and the acquisition-
+  verified `0.29898804047838085` µm/px for all nine Cell Health plates.
+- This record establishes the Arrhenius acceptance evidence. The release branch
+  prepares version `0.4.0`; the merge and `v0.4.0` tag remain operator steps.
+
 ## Troubleshooting
 
 - Job pending indefinitely: verify the account and partition.

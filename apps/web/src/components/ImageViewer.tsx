@@ -1,6 +1,5 @@
 import {
   DETAIL_VIEW_ID,
-  DetailView,
   getChannelStats,
   getDefaultInitialViewState,
   loadOmeZarr,
@@ -8,11 +7,12 @@ import {
   PictureInPictureViewer,
   VivViewer,
 } from "@hms-dbmi/viv";
-import { SCALEBAR_VIEW_ID, ScaleBarView } from "@vivjs/views";
+import { SCALEBAR_VIEW_ID } from "@vivjs/views";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { components } from "../lib/api/dataserver-schema";
 import { apiErrorMessage, dataServerClient } from "../lib/api/client";
+import { viewerReturnHref } from "../lib/collectionNavigation";
 import {
   cacheImageLoader,
   type CacheableImageSource,
@@ -26,11 +26,25 @@ import {
   timeJumpOptions,
 } from "../lib/timeNavigation";
 import { FrameReadinessTracker } from "../lib/frameReadiness";
+import {
+  channelLabelsMatch,
+  imageChannelLabels,
+} from "../lib/imageSummary";
 import { V3FetchStore } from "../lib/v3FetchStore";
+import {
+  defaultViewerDisplayPreference,
+  preferredGrayscaleChannelIndex,
+  readViewerDisplayPreference,
+  writeViewerDisplayPreference,
+  type ViewerDisplayMode,
+  type ViewerDisplayPreference,
+} from "../lib/viewerDisplay";
+import { createViewerViewConfiguration } from "../lib/viewerViews";
 import { viewerDebug } from "../lib/viewerDebug";
 import PlateMetadataPanel, {
   doseLabel,
   findWellMetadata,
+  metadataLabels,
   type PlateMetadata,
   wellIdFromPath,
 } from "./PlateMetadataPanel";
@@ -73,8 +87,9 @@ type ViewerSourceState = {
 };
 
 type ViewerSourceIdentity = {
+  compoundLabel: string;
   compound: string;
-  concentration: string;
+  concentration: string | null;
   well: string;
   site: string;
   plate: string;
@@ -117,10 +132,16 @@ function siteIdFromPath(path: string): string | undefined {
 function viewerSourceIdentity(source: ViewerSourceState): ViewerSourceIdentity {
   const wellId = wellIdFromPath(source.path);
   const well = findWellMetadata(source.metadata, wellId);
+  const labels = metadataLabels(source.metadata);
   return {
+    compoundLabel: labels.compound,
     compound:
-      well?.compound?.trim() || (well?.is_control ? "Control" : "Not specified"),
-    concentration: doseLabel(well?.dose_um),
+      well?.compound?.trim() ||
+      (well?.is_control ? labels.control : "Not specified"),
+    concentration:
+      source.metadata?.labels && well?.dose_um == null
+        ? null
+        : doseLabel(well?.dose_um),
     well: wellId ?? "Not specified",
     site: siteIdFromPath(source.path) ?? "Not specified",
     plate: source.metadata?.plate?.plate_id?.trim() || "Not specified",
@@ -143,13 +164,15 @@ function ViewerSourceFacts({
       data-testid="viewer-source-facts"
     >
       <div className="viewer-source-compound">
-        <dt>Compound</dt>
+        <dt>{identity.compoundLabel}</dt>
         <dd>{identity.compound}</dd>
       </div>
-      <div>
-        <dt>Concentration</dt>
-        <dd>{identity.concentration}</dd>
-      </div>
+      {identity.concentration != null && (
+        <div>
+          <dt>Concentration</dt>
+          <dd>{identity.concentration}</dd>
+        </div>
+      )}
       <div>
         <dt>Well</dt>
         <dd>{identity.well}</dd>
@@ -219,8 +242,10 @@ async function channelStates(
     let start = metadata?.window?.start;
     let end = metadata?.window?.end;
     let domain: [number, number] = [minimum, maximum];
+    const declaredContrast: [number, number] | null =
+      start != null && end != null ? [start, end] : null;
 
-    if (start == null || end == null) {
+    if (declaredContrast == null) {
       try {
         const raster = await source.getRaster({
           selection: selectionFor(source, index, 0, 0),
@@ -237,9 +262,9 @@ async function channelStates(
     states.push({
       name: metadata?.name ?? "Channel " + String(index + 1),
       color: parseColor(metadata?.color, index),
-      visible: true,
+      visible: metadata?.active ?? true,
       domain,
-      contrast: [start ?? domain[0], domain[1]],
+      contrast: declaredContrast ?? [start ?? domain[0], domain[1]],
     });
   }
   return states;
@@ -247,6 +272,7 @@ async function channelStates(
 
 type VivCanvasProps = {
   loader: Loader;
+  image: ImageSummary;
   channels: ChannelState[];
   selections: Record<string, number>[];
   viewState: CameraViewState | null;
@@ -258,6 +284,7 @@ type VivCanvasProps = {
 
 const VivCanvas = memo(function VivCanvas({
   loader,
+  image,
   channels,
   selections,
   viewState,
@@ -289,76 +316,71 @@ const VivCanvas = memo(function VivCanvas({
     return () => observer.disconnect();
   }, [onResize]);
 
-  const viewer = loader.length > 1 ? (
-    <PictureInPictureViewer
-      loader={loader}
-      contrastLimits={channels.map((channel) => channel.contrast)}
-      colors={channels.map((channel) => channel.color)}
-      channelsVisible={channels.map((channel) => channel.visible)}
-      selections={selections}
-      overview={{}}
-      overviewOn
-      height={dimensions.height}
-      width={dimensions.width}
-      viewStates={viewState ? [viewState] : undefined}
-      onViewStateChange={onViewStateChange}
-      onViewportLoad={onReady}
-    />
-  ) : (
-    <VivViewer
-      views={[
-        new DetailView({
-          id: DETAIL_VIEW_ID,
-          height: dimensions.height,
-          width: dimensions.width,
-        }),
-        new ScaleBarView({
-          id: SCALEBAR_VIEW_ID,
-          height: dimensions.height,
-          width: dimensions.width,
-          loader,
-          imageViewId: DETAIL_VIEW_ID,
-        }),
-      ]}
-      layerProps={[
-        {
-          loader,
-          contrastLimits: channels.map((channel) => channel.contrast),
-          colors: channels.map((channel) => channel.color),
-          channelsVisible: channels.map((channel) => channel.visible),
-          selections,
-          excludeBackground: true,
-          maxRequests,
-          onViewportLoad: onReady,
-        },
-        {
-          loader,
-          contrastLimits: channels.map((channel) => channel.contrast),
-          colors: channels.map((channel) => channel.color),
-          channelsVisible: channels.map((channel) => channel.visible),
-          selections,
-          excludeBackground: true,
-          maxRequests,
-          onViewportLoad: onReady,
-        },
-      ]}
-      viewStates={[
-        viewState ?? {
-          ...getDefaultInitialViewState(loader, dimensions, 0.5),
-          id: DETAIL_VIEW_ID,
-        },
-        {
-          id: SCALEBAR_VIEW_ID,
-          zoom: 0,
-          target: [dimensions.width / 2, dimensions.height / 2, 0],
-        },
-      ]}
-      onViewStateChange={onViewStateChange}
-    />
-  );
+  const viewConfiguration = createViewerViewConfiguration({
+    loader,
+    image,
+    dimensions,
+  });
+  const singleResolutionLayerConfig = {
+    loader,
+    contrastLimits: channels.map((channel) => channel.contrast),
+    colors: channels.map((channel) => channel.color),
+    channelsVisible: channels.map((channel) => channel.visible),
+    selections,
+    excludeBackground: true,
+    maxRequests,
+    onViewportLoad: onReady,
+  };
+  const viewer =
+    viewConfiguration.kind === "picture-in-picture" ? (
+      <PictureInPictureViewer
+        loader={loader}
+        contrastLimits={channels.map((channel) => channel.contrast)}
+        colors={channels.map((channel) => channel.color)}
+        channelsVisible={channels.map((channel) => channel.visible)}
+        selections={selections}
+        overview={viewConfiguration.overview}
+        overviewOn
+        snapScaleBar={viewConfiguration.snapScaleBar}
+        height={dimensions.height}
+        width={dimensions.width}
+        viewStates={viewState ? [viewState] : undefined}
+        onViewStateChange={onViewStateChange}
+        onViewportLoad={onReady}
+      />
+    ) : (
+      <VivViewer
+        views={viewConfiguration.views}
+        layerProps={viewConfiguration.views.map(
+          () => singleResolutionLayerConfig,
+        )}
+        viewStates={[
+          viewState ?? {
+            ...getDefaultInitialViewState(loader, dimensions, 0.5),
+            id: DETAIL_VIEW_ID,
+          },
+          ...(viewConfiguration.hasPhysicalPixelSize
+            ? [
+                {
+                  id: SCALEBAR_VIEW_ID,
+                  zoom: 0,
+                  target: [dimensions.width / 2, dimensions.height / 2, 0],
+                },
+              ]
+            : []),
+        ]}
+        onViewStateChange={onViewStateChange}
+      />
+    );
 
   return (
-    <div className="canvas-frame" ref={containerRef}>
+    <div
+      className="canvas-frame"
+      data-scale-bar={
+        viewConfiguration.hasPhysicalPixelSize ? "true" : "false"
+      }
+      ref={containerRef}
+    >
       {viewer}
     </div>
   );
@@ -371,6 +393,11 @@ export default function ImageViewer() {
   });
   const [viewerSources, setViewerSources] = useState<ViewerSourceState[]>([]);
   const [channels, setChannels] = useState<ChannelState[]>([]);
+  const [displayPreference, setDisplayPreference] =
+    useState<ViewerDisplayPreference>(() => {
+      if (typeof window === "undefined") return defaultViewerDisplayPreference;
+      return readViewerDisplayPreference(window.sessionStorage);
+    });
   const [requestedTime, setRequestedTime] = useState(0);
   const [renderTime, setRenderTime] = useState(0);
   const [displayedTime, setDisplayedTime] = useState<number | null>(null);
@@ -471,6 +498,24 @@ export default function ImageViewer() {
             metadata: details.metadata,
           };
         });
+        const expectedChannelLabels = configuredSources[0]
+          ? imageChannelLabels(configuredSources[0].image)
+          : undefined;
+        if (
+          expectedChannelLabels &&
+          configuredSources
+            .slice(1)
+            .some((source) =>
+              !channelLabelsMatch(
+                expectedChannelLabels,
+                imageChannelLabels(source.image),
+              ),
+            )
+        ) {
+          throw new Error(
+            "The selected fields have different channels and cannot be compared.",
+          );
+        }
 
         async function loadSource(source: {
           datasetId: string;
@@ -616,6 +661,29 @@ export default function ImageViewer() {
       ? Math.min(...imageSources.map((imageSource) => axisSize(imageSource, "z")))
       : 1;
   const channelCount = channels.length;
+  const grayscaleAvailable =
+    viewerSources.length > 0 &&
+    viewerSources.every(
+      (viewerSource) => viewerSource.image.grayscale_available === true,
+    );
+  const displayMode = grayscaleAvailable
+    ? displayPreference.mode
+    : "fluorescence";
+  const grayscaleChannelIndex = preferredGrayscaleChannelIndex(
+    channels.map((channel) => channel.name),
+    displayPreference.grayscaleChannelName,
+  );
+  const renderedChannels = useMemo(
+    () =>
+      displayMode === "fluorescence" || grayscaleChannelIndex == null
+        ? channels
+        : channels.map((channel, index) => ({
+            ...channel,
+            color: [255, 255, 255] as [number, number, number],
+            visible: index === grayscaleChannelIndex,
+          })),
+    [channels, displayMode, grayscaleChannelIndex],
+  );
   const readyKeys = useMemo(
     () => viewerSources.map((viewerSource) => viewerSource.readyKey),
     [viewerSources],
@@ -1016,6 +1084,13 @@ export default function ImageViewer() {
   );
   const jumpOption = jumpOptions[jumpIndex];
   const nextJumpOption = jumpOptions[(jumpIndex + 1) % jumpOptions.length];
+  const channelControlIndexes =
+    displayMode === "grayscale" && grayscaleChannelIndex != null
+      ? [grayscaleChannelIndex]
+      : channels.map((_channel, index) => index);
+  const backHref = useMemo(() => {
+    return viewerReturnHref(window.location.search);
+  }, []);
   const cycleTimeJump = () => {
     const nextFrames = nextJumpOption?.frames ?? 1;
     viewerDebug("time:jump-change", {
@@ -1026,6 +1101,26 @@ export default function ImageViewer() {
     });
     setJumpFrames(nextFrames);
   };
+  const persistDisplayPreference = (next: ViewerDisplayPreference) => {
+    setDisplayPreference(next);
+    writeViewerDisplayPreference(window.sessionStorage, next);
+  };
+  const chooseDisplayMode = (mode: ViewerDisplayMode) => {
+    const selectedName =
+      grayscaleChannelIndex == null
+        ? displayPreference.grayscaleChannelName
+        : (channels[grayscaleChannelIndex]?.name ?? null);
+    persistDisplayPreference({
+      mode,
+      grayscaleChannelName: selectedName,
+    });
+  };
+  const chooseGrayscaleChannel = (index: number) => {
+    persistDisplayPreference({
+      mode: "grayscale",
+      grayscaleChannelName: channels[index]?.name ?? null,
+    });
+  };
   return (
     <div
       className={
@@ -1034,10 +1129,61 @@ export default function ImageViewer() {
     >
       {controlsOpen && (
         <aside id="image-controls" className="panel viewer-controls stack">
-        <div>
-          <p className="eyebrow">Image controls</p>
-          <h2>Time and channels</h2>
-        </div>
+          <div>
+            <p className="eyebrow">Image controls</p>
+            <h2>{timeCount <= 1 ? "Channels" : "Time and channels"}</h2>
+          </div>
+
+          {grayscaleAvailable && (
+            <fieldset className="viewer-mode-control">
+              <legend id="viewer-display-legend">Display</legend>
+              <div
+                className="viewer-mode-options"
+                role="radiogroup"
+                aria-labelledby="viewer-display-legend"
+              >
+                <label>
+                  <input
+                    type="radio"
+                    name="viewer-display-mode"
+                    value="fluorescence"
+                    checked={displayMode === "fluorescence"}
+                    onChange={() => chooseDisplayMode("fluorescence")}
+                  />
+                  <span>Color</span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="viewer-display-mode"
+                    value="grayscale"
+                    checked={displayMode === "grayscale"}
+                    onChange={() => chooseDisplayMode("grayscale")}
+                  />
+                  <span>Grayscale</span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+
+          {displayMode === "grayscale" && channels.length > 0 && (
+            <fieldset className="grayscale-channel-control">
+              <legend>Grayscale channel</legend>
+              <div className="grayscale-channel-options">
+                {channels.map((channel, index) => (
+                  <label key={channel.name + String(index)}>
+                    <input
+                      type="radio"
+                      name="grayscale-channel"
+                      checked={grayscaleChannelIndex === index}
+                      onChange={() => chooseGrayscaleChannel(index)}
+                    />
+                    <span>{channel.name}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
 
         {timeCount > 1 && (
           <div className="viewer-time-control">
@@ -1142,9 +1288,15 @@ export default function ImageViewer() {
           </label>
         )}
 
-        <h3 className="viewer-channel-heading">Channels</h3>
+        {timeCount > 1 && (
+          <h3 className="viewer-channel-heading">
+            {displayMode === "grayscale" ? "Contrast" : "Channels"}
+          </h3>
+        )}
 
-        {channels.map((channel, index) => {
+        {channelControlIndexes.map((index) => {
+          const channel = channels[index];
+          if (!channel) return null;
           const step = Math.max(
             1,
             (channel.domain[1] - channel.domain[0]) / 1000,
@@ -1152,23 +1304,27 @@ export default function ImageViewer() {
           return (
             <fieldset key={channel.name + String(index)} className="channel-control">
               <legend>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={channel.visible}
-                    onChange={(event) =>
-                      updateChannel(index, { visible: event.target.checked })
-                    }
-                  />
-                  <span
-                    className="channel-swatch"
-                    style={{
-                      backgroundColor:
-                        "rgb(" + channel.color.join(",") + ")",
-                    }}
-                  />
-                  {channel.name}
-                </label>
+                {displayMode === "fluorescence" ? (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={channel.visible}
+                      onChange={(event) =>
+                        updateChannel(index, { visible: event.target.checked })
+                      }
+                    />
+                    <span
+                      className="channel-swatch"
+                      style={{
+                        backgroundColor:
+                          "rgb(" + channel.color.join(",") + ")",
+                      }}
+                    />
+                    {channel.name}
+                  </label>
+                ) : (
+                  channel.name
+                )}
               </legend>
               <label>
                 <span>Contrast minimum: {Math.round(channel.contrast[0])}</span>
@@ -1207,7 +1363,7 @@ export default function ImageViewer() {
             </fieldset>
           );
         })}
-        <a href="/data">← Back to data</a>
+        <a href={backHref}>← Back to data</a>
         </aside>
       )}
 
@@ -1305,6 +1461,7 @@ export default function ImageViewer() {
           </div>
 
           {loader &&
+            image &&
             channels.length > 0 &&
             (comparing ? (
               <div
@@ -1328,7 +1485,8 @@ export default function ImageViewer() {
                       </header>
                       <VivCanvas
                         loader={viewerSource.loader}
-                        channels={channels}
+                        image={viewerSource.image}
+                        channels={renderedChannels}
                         selections={selectionsBySource[index] ?? []}
                         viewState={viewState}
                         onViewStateChange={handleViewStateChange}
@@ -1345,7 +1503,8 @@ export default function ImageViewer() {
             ) : (
               <VivCanvas
                 loader={loader}
-                channels={channels}
+                image={image}
+                channels={renderedChannels}
                 selections={selections}
                 viewState={viewState}
                 onViewStateChange={handleViewStateChange}
@@ -1361,9 +1520,11 @@ export default function ImageViewer() {
             shape {firstLevel?.shape.join(" × ") ?? source?.shape.join(" × ") ?? "—"}
           </span>
           <span>dtype {firstLevel?.dtype ?? source?.dtype ?? "—"}</span>
-          <span data-testid="displayed-time">
+          {timeCount > 1 && (
+            <span data-testid="displayed-time">
             t {displayedTime == null ? "—" : displayedTime + 1} / {timeCount}
-          </span>
+            </span>
+          )}
         </p>
 
         {comparing ? (

@@ -20,6 +20,9 @@ test("starts a local server, renders time data, and stops it", async ({
 
   await page.goto("/");
   await page.getByLabel("Compute profile").selectOption("local");
+  await expect(
+    page.getByRole("combobox", { name: "Dataset" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByTestId("session-state")).toHaveText("connected", {
     timeout: 30_000,
@@ -27,6 +30,9 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(page.getByText(/^127\.0\.0\.1:\d+$/)).toBeVisible();
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Dataset" }),
+  ).toHaveCount(0);
   const root = page.getByRole("listitem").filter({ hasText: "test-data" });
   await root.getByRole("button", { name: "Open folder" }).click();
   const plate = page.getByRole("listitem").filter({ hasText: "test_plate.zarr" });
@@ -73,11 +79,28 @@ test("starts a local server, renders time data, and stops it", async ({
   await page.evaluate(() =>
     window.localStorage.setItem("timed.viewer.debug", "1"),
   );
-  await page.getByTestId("open-selected").click();
+  const openSelected = page.getByTestId("open-selected");
+  await expect(openSelected).toHaveText("Open trajectory");
+  await page.evaluate(() =>
+    window.sessionStorage.setItem(
+      "timed.viewer.display.v1",
+      JSON.stringify({ mode: "grayscale", grayscaleChannelName: "505 nm" }),
+    ),
+  );
+  await openSelected.click();
 
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
     timeout: 60_000,
   });
+  await expect(page.locator(".canvas-frame").first()).toHaveAttribute(
+    "data-scale-bar",
+    "true",
+  );
+  await expect(
+    page
+      .locator("#image-controls")
+      .getByRole("radiogroup", { name: "Display", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("heading", {
       level: 1,
@@ -112,9 +135,30 @@ test("starts a local server, renders time data, and stops it", async ({
   for (const details of await viewerMetadata.locator("details").all()) {
     await expect(details).not.toHaveAttribute("open", "");
   }
-  await expect(
-    page.getByRole("slider", { name: /contrast maximum/i }).first(),
-  ).toHaveValue("65535");
+  for (const channel of ["405 nm", "505 nm", "625 nm"]) {
+    const checkbox = page.getByRole("checkbox", {
+      name: channel,
+      exact: true,
+    });
+    const channelControl = page.locator(".channel-control").filter({
+      has: checkbox,
+    });
+    await expect(checkbox).toBeVisible();
+    await expect(
+      page.getByRole("slider", {
+        name: `${channel} contrast minimum`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("slider", {
+        name: `${channel} contrast maximum`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(channelControl).toContainText("Contrast minimum: 100");
+    await expect(channelControl).toContainText("Contrast maximum: 65535");
+  }
   expect(
     viewerDiagnostics.some((message) => message.includes("viewer:loader-ready")),
   ).toBe(true);
@@ -134,6 +178,8 @@ test("starts a local server, renders time data, and stops it", async ({
 
   const timeSlider = page.getByTestId("time-slider");
   const timeJump = page.getByTestId("time-jump");
+  await expect(timeSlider).toBeVisible();
+  await expect(timeJump).toBeVisible();
   const timeHelp = page.getByRole("button", {
     name: "Time navigation help",
   });
@@ -269,7 +315,7 @@ test("starts a local server, renders time data, and stops it", async ({
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Browse TIMED" }),
+    page.getByRole("heading", { name: "Browse datasets", exact: true }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Well B1" }).click();

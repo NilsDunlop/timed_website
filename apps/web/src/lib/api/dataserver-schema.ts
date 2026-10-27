@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dataset Matches */
+        get: operations["dataset_matches_api_datasets__dataset_id__matches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/{dataset_id}/metadata": {
         parameters: {
             query?: never;
@@ -174,6 +191,11 @@ export interface components {
              */
             gpu: boolean;
             /**
+             * Packed Datasets
+             * @default false
+             */
+            packed_datasets: boolean;
+            /**
              * Plate Metadata
              * @default false
              */
@@ -181,6 +203,8 @@ export interface components {
         };
         /** ChannelSummary */
         ChannelSummary: {
+            /** Active */
+            active?: boolean | null;
             /** Color */
             color?: string | null;
             /** Name */
@@ -198,6 +222,28 @@ export interface components {
         DatasetListResponse: {
             /** Datasets */
             datasets: components["schemas"]["DatasetRecord"][];
+        };
+        /** DatasetMatchSummary */
+        DatasetMatchSummary: {
+            /** Cell Line */
+            cell_line: string;
+            /** Guide */
+            guide: string;
+            /** Is Control */
+            is_control: boolean;
+            /** Path */
+            path: string;
+            /** Plate Label */
+            plate_label: string;
+            /** Well */
+            well: string;
+            /** Well Type */
+            well_type: string | null;
+        };
+        /** DatasetMatchesResponse */
+        DatasetMatchesResponse: {
+            /** Matches */
+            matches: components["schemas"]["DatasetMatchSummary"][];
         };
         /** DatasetRecord */
         DatasetRecord: {
@@ -220,6 +266,8 @@ export interface components {
         };
         /** FilesystemEntry */
         FilesystemEntry: {
+            /** Detail */
+            detail?: string | null;
             /**
              * Kind
              * @enum {string}
@@ -268,6 +316,8 @@ export interface components {
             axes: components["schemas"]["AxisSummary"][];
             /** Channels */
             channels: components["schemas"]["ChannelSummary"][];
+            /** Grayscale Available */
+            grayscale_available?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -286,6 +336,13 @@ export interface components {
              * @enum {integer}
              */
             zarr_format: 2 | 3;
+        };
+        /** MetadataDetailSummary */
+        MetadataDetailSummary: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /** OmeZarrInfo */
         OmeZarrInfo: {
@@ -355,10 +412,24 @@ export interface components {
             /** Seeding Density Cells Per Well */
             seeding_density_cells_per_well?: number | null;
         };
+        /** PlateMetadataLabels */
+        PlateMetadataLabels: {
+            /** Compound */
+            compound: string;
+            /** Control */
+            control: string;
+            /** Moa */
+            moa: string;
+        };
         /** PlateMetadataResponse */
         PlateMetadataResponse: {
             /** Available */
             available: boolean;
+            /** Category Colors */
+            category_colors?: {
+                [key: string]: string;
+            } | null;
+            labels?: components["schemas"]["PlateMetadataLabels"] | null;
             plate?: components["schemas"]["PlateExperimentSummary"] | null;
             /** Wells */
             wells?: components["schemas"]["WellMetadataSummary"][];
@@ -432,6 +503,8 @@ export interface components {
         WellMetadataSummary: {
             /** Compound */
             compound?: string | null;
+            /** Details */
+            details?: components["schemas"]["MetadataDetailSummary"][] | null;
             /** Dose Um */
             dose_um?: number | null;
             /**
@@ -551,6 +624,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dataset_matches_api_datasets__dataset_id__matches_get: {
+        parameters: {
+            query: {
+                well: string;
+                by: "well" | "gene" | "control";
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetMatchesResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -713,6 +820,8 @@ export interface operations {
             query?: never;
             header?: {
                 Range?: string | null;
+                "If-None-Match"?: string | null;
+                "If-Range"?: string | null;
             };
             path: {
                 dataset_id: string;
