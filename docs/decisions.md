@@ -572,3 +572,54 @@ The viewer listed DNA, ER, AGP, RNA, and Mito in packed slot order; ES2 AGP
 used 375–10,793 and showed Golgi and cell-edge signal, while RNA used
 108–5,778 and showed nucleolar signal. The first attempt had reused the old
 Slurm job, so it was discarded rather than treated as validation evidence.
+
+## 2026-10-28: ship the complete core QC view before its blinded UI
+
+Cell Health QC is split into two releases. Version 0.5.0 is the complete core
+review workflow and shows the full configured export. A later 0.5.1 pull
+request adds the user-facing blinded-mode switch. Part C segmentation remains
+separate at 0.6.0.
+
+The server boundary is designed for both modes now. Every QC endpoint accepts
+`blind=1`; that option removes all 24 columns marked hidden in the inspected
+export plus the additional Phase 1 and viewer attributes defined by the
+blinded contract before a response is built. The 0.5.0 browser does not set
+that option. Real hidden names and values remain absent from documentation,
+commits, fixtures, logs, and errors even though the unblinded core API may
+serve them at runtime.
+
+The export dictionary owns QC presentation. `site_review` rows define field
+sliders, `context` rows are shown and sortable without sliders, `panel` rows
+describe plate- or well-level views, and `retired` rows are never shown. Key
+and review rows retain their structural roles. The `worse` value is the slider
+direction. Unknown statuses, along with retired and dropped rows, are hidden
+and reported by the status endpoint; `pending_review` remains visible with a
+badge.
+
+One primary column per metric and channel creates a slider. Automatic gates
+show upstream registered markers and are never recomputed by TIMED. Review
+gates start from the exported flag bounds and report flagged counts. None gates
+start fully open and filter without flagging or feeding queues. Filter ranges
+combine with AND; active flag sliders additionally keep rows beyond at least
+one flag rule. Context values, including the export-defined attributes, remain
+available to sorting and categorical filters. Control identity continues to
+come from the Phase 1 EMPTY-control metadata.
+
+The core page combines the dictionary-labelled plate/channel overview with all
+nine 384-well PlateGrids, Sites and Wells tables, categorical filters, live
+overall and per-slider counts, and URL-restorable state. A well view opens at
+site 1 and retains a site stepper. Review-list order is authoritative; session
+queues may contain sites or wells. Plate/channel image bounds are plain linear
+windows, while their quantiles and reference-field counts are provenance.
+
+Annotations are the data server's only write. Field- and well-scoped records
+are append-only and include whether the request was blinded. The core view
+writes unblinded records. Rule proposals, their endpoint, their file, and their
+UI are removed from 0.5.0.
+
+The current local export predates the primary/flag-marker dictionary fields,
+triage dictionary rows, and blinded queue identifiers. Configuration, base
+loading and validation, the annotation store, and independent features can be
+built against it. Fixtures follow the next-export contract; the replacement
+real export is required before A2. After the 0.5.0 merge, blinded mode is the
+next PR, followed only later by Part C.
