@@ -223,7 +223,8 @@ is deterministic and gitignored.
 The Cell Health collection points to `idr0080-raw.index.parquet` beside nine tar
 shards. It contains three experiments (A549, ES2, and HCC44), three plates per
 cell line, all 384 wells, nine sites per well, and five single-timepoint stains:
-DNA, ER, RNA, AGP, and Mito. The real index has 155,520 rows for 31,104 fields.
+DNA, ER, AGP, RNA, and Mito in packed slot order. The real index has 155,520
+rows for 31,104 fields.
 Each source plane is an uncompressed 2160 by 2160 `uint16` TIFF inside its plate
 shard; the facade presents each field as `(5, 2160, 2160)` with 1080 by 1080
 spatial chunks.

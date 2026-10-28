@@ -104,9 +104,10 @@ well; explicit `collection` and `dataset` URL parameters remain deep links.
 Profiles without collections retain the original filesystem browser.
 
 Cell Health browses idr0080 by cell line, plate, well, and site, with gene,
-guide, control, and well-type metadata. Its five stains are DNA, ER, RNA, AGP,
-and Mito. Color mode starts with the DNA/ER/AGP composite; Grayscale presents
-one channel at a time. The Display switch is shown only when every loaded
+guide, control, and well-type metadata. In packed slot order, its five stains
+are DNA, ER, AGP, RNA, and Mito. Color mode starts with the DNA/ER/AGP
+composite; Grayscale presents one channel at a time. The Display switch is
+shown only when every loaded
 source declares that capability, so TIMED retains its original channel and time
 controls. Cell Health preserves a selected well across plates, can highlight
 the same gene or controls on the active plate, and uses the existing

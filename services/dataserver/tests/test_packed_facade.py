@@ -96,11 +96,11 @@ def test_plate_summary_uses_profile_geometry_and_sparse_catalogue_wells(
     assert [(channel.name, channel.color) for channel in image.channels] == [
         ("DNA", "1300F9"),
         ("ER", "2AFF1F"),
-        ("RNA", "2DFFFC"),
         ("AGP", "FF0019"),
+        ("RNA", "2DFFFC"),
         ("Mito", "FA00FD"),
     ]
-    assert [channel.active for channel in image.channels] == [True, True, False, True, False]
+    assert [channel.active for channel in image.channels] == [True, True, True, False, False]
     assert image.channels[0].window is not None
     assert image.channels[0].window.model_dump() == {
         "min": 0.0,
@@ -230,9 +230,9 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                             },
                         },
                         {
-                            "label": "RNA",
-                            "color": "2DFFFC",
-                            "active": False,
+                            "label": "AGP",
+                            "color": "FF0019",
+                            "active": True,
                             "window": {
                                 "min": 0,
                                 "max": 26_000,
@@ -241,9 +241,9 @@ def test_group_metadata_bytes_are_exact_and_include_appendix_b_omero() -> None:
                             },
                         },
                         {
-                            "label": "AGP",
-                            "color": "FF0019",
-                            "active": True,
+                            "label": "RNA",
+                            "color": "2DFFFC",
+                            "active": False,
                             "window": {
                                 "min": 0,
                                 "max": 14_000,

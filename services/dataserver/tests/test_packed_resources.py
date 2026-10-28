@@ -37,15 +37,15 @@ CHANNELS_BY_CELL_LINE = {
     "A549": [
         ("DNA", "1300F9", True, 27_000, 292, 11_552),
         ("ER", "2AFF1F", True, 45_000, 438, 17_554),
-        ("RNA", "2DFFFC", False, 26_000, 554, 9_283),
-        ("AGP", "FF0019", True, 14_000, 151, 5_035),
+        ("AGP", "FF0019", True, 26_000, 554, 9_283),
+        ("RNA", "2DFFFC", False, 14_000, 151, 5_035),
         ("Mito", "FA00FD", False, 15_000, 324, 4_066),
     ],
     "ES2": [
         ("DNA", "1300F9", True, 27_000, 234, 12_971),
         ("ER", "2AFF1F", True, 45_000, 309, 18_238),
-        ("RNA", "2DFFFC", False, 26_000, 375, 10_793),
-        ("AGP", "FF0019", True, 14_000, 108, 5_778),
+        ("AGP", "FF0019", True, 26_000, 375, 10_793),
+        ("RNA", "2DFFFC", False, 14_000, 108, 5_778),
         ("Mito", "FA00FD", False, 15_000, 334, 7_120),
     ],
 }
@@ -353,6 +353,58 @@ def test_every_fixture_chunk_decodes_to_the_source_tiff_slice(
                         chunk_x * 32 : (chunk_x + 1) * 32,
                     ]
                     np.testing.assert_array_equal(decoded[0], expected)
+
+
+def test_cell_health_stains_resolve_to_packed_slots_members_and_pixels(
+    packed_root: Path,
+    tmp_path: Path,
+) -> None:
+    expected_channels = (
+        ("DNA", 1, "_ch1.tiff"),
+        ("ER", 2, "_ch2.tiff"),
+        ("AGP", 3, "_ch3.tiff"),
+        ("RNA", 4, "_ch4.tiff"),
+        ("Mito", 5, "_ch5.tiff"),
+    )
+    codec = Blosc(
+        cname="zstd",
+        clevel=3,
+        shuffle=Blosc.SHUFFLE,
+        blocksize=0,
+        typesize=2,
+    )
+
+    with TestClient(create_app(_settings(packed_root, tmp_path / "state"), TOKEN)) as client:
+        dataset_id = _link(client, packed_root)["id"]
+        metadata_response = client.get(
+            f"/zarr/{dataset_id}/A01_s1.zarr/zarr.json",
+            headers=AUTH,
+        )
+        assert metadata_response.status_code == 200, metadata_response.text
+        metadata_channels = metadata_response.json()["attributes"]["ome"]["omero"]["channels"]
+
+        pixel_signatures: set[tuple[int, ...]] = set()
+        for facade_index, (stain, packed_slot, member_suffix) in enumerate(expected_channels):
+            assert metadata_channels[facade_index]["label"] == stain
+            row = _matching_row(packed_root, channel=packed_slot)
+            assert str(row["relpath"]).endswith(member_suffix)
+
+            response = client.get(
+                f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/{facade_index}/0/0",
+                headers=AUTH,
+            )
+            assert response.status_code == 200, response.text
+            decoded = np.frombuffer(codec.decode(response.content), dtype="<u2").reshape(
+                1, 32, 32
+            )[0]
+            expected = _source_plane(packed_root, row)[:32, :32]
+            np.testing.assert_array_equal(decoded, expected)
+
+            signature = tuple(int(pixel) for pixel in decoded[:2, :2].flat)
+            assert signature not in pixel_signatures
+            pixel_signatures.add(signature)
+
+        assert len(pixel_signatures) == len(expected_channels)
 
 
 @pytest.mark.parametrize(

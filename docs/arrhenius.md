@@ -101,9 +101,11 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 - A549 `SQ00014610`, well `A01`, site 1 matched the inspection screenshot.
 - The independent grayscale check on ES2 `SQ00014613`, well `A01`, site 1,
   cropped to pixels 216-432 in x and y, matched Cell Health's
-  `greyscale_channel.png` exactly. This confirms the plate, well, site,
-  orientation, and channel order. Cell Health supplied the declared
-  Color/Grayscale capability used for this check.
+  `greyscale_channel.png` visually. This confirms the plate, well, site,
+  orientation, and source imagery. It did not catch the AGP/RNA identity swap:
+  the viewer labels still came from the incorrect assumption that packed slot
+  equalled raw Phenix channel. Cell Health supplied the declared
+  Color/Grayscale capability used for the check.
 - The comparison of A02 (MCL1) on A549 `SQ00014611`, ES2 `SQ00014614`, and
   HCC44 `SQ00014616`, plus the A01 EMPTY control on `SQ00014611`, loaded
   quickly, stayed synchronized, and returned to the Data page successfully.
@@ -117,6 +119,28 @@ passwords, verification codes, key passphrases, or data-server tokens here.
   return, Data navigation, and reload restored the last Cell Health plate and
   well.
 - All A1 checks are complete.
+
+## Cell Health 0.4.1 channel-identity re-check
+
+Status: passed on Arrhenius on 2026-10-28.
+
+1. Reconnect with the corrected `0.4.1.dev0` data server and open Cell Health
+   ES2 `SQ00014613`, well `A01`, site 1.
+2. In **Grayscale**, select RNA. It should show bright nucleoli inside the
+   nuclei, matching the Cell Health reference panels.
+3. Select AGP. It should show bright Golgi patches beside the nuclei and along
+   the cell edges, matching the Cell Health reference panels.
+4. Return to the default Color view and confirm that AGP is shown in red.
+
+This re-check establishes stain identity. The original A1 grayscale check
+remains evidence for plate, well, site, orientation, and imagery only.
+
+The first attempt reused the pre-correction Slurm job and therefore still
+showed the old labels. After cancelling that job, a newly submitted job
+reported data-server `0.4.1.dev0`. The channel list then appeared in packed
+slot order (DNA, ER, AGP, RNA, Mito); ES2 AGP used 375–10,793 and showed the
+expected Golgi and cell-edge signal, while RNA used 108–5,778 and showed the
+expected nucleolar signal. The default Color view showed AGP in red.
 
 ## Phase 1 scale calibration
 
@@ -136,7 +160,9 @@ passwords, verification codes, key passphrases, or data-server tokens here.
   Arrhenius data.
 - The real-data preview, independent grayscale reference, cross-cell-line
   comparison, dataset switching and restoration, and terminal disconnect state
-  all met the Phase 1 acceptance criteria recorded above.
+  all met the Phase 1 acceptance criteria recorded above. The grayscale check
+  did not independently establish stain identity; the 0.4.1 re-check above is
+  the replacement evidence for the corrected AGP/RNA mapping.
 - The observed field-opening times are accepted. The performance fallbacks are
   intentionally not part of the release configuration.
 - The grayscale switch remains a declared Cell Health capability and is shown

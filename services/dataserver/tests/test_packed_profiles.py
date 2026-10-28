@@ -127,8 +127,8 @@ def test_idr0080_fixture_channels_and_windows_match_appendix_b() -> None:
     expected = (
         (1, "DNA", "1300F9", True, (27_000, 292, 11_552), (27_000, 234, 12_971)),
         (2, "ER", "2AFF1F", True, (45_000, 438, 17_554), (45_000, 309, 18_238)),
-        (3, "RNA", "2DFFFC", False, (26_000, 554, 9_283), (26_000, 375, 10_793)),
-        (4, "AGP", "FF0019", True, (14_000, 151, 5_035), (14_000, 108, 5_778)),
+        (3, "AGP", "FF0019", True, (26_000, 554, 9_283), (26_000, 375, 10_793)),
+        (4, "RNA", "2DFFFC", False, (14_000, 151, 5_035), (14_000, 108, 5_778)),
         (5, "Mito", "FA00FD", False, (15_000, 324, 4_066), (15_000, 334, 7_120)),
     )
 
@@ -228,9 +228,9 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         ),
         (
             3,
-            "RNA",
-            "2DFFFC",
-            False,
+            "AGP",
+            "FF0019",
+            True,
             (
                 ("A549", 0, 26_000, 554, 9_283),
                 ("ES2", 0, 26_000, 375, 10_793),
@@ -239,9 +239,9 @@ def test_real_idr0080_channels_and_all_appendix_b_windows_are_exactly_pinned() -
         ),
         (
             4,
-            "AGP",
-            "FF0019",
-            True,
+            "RNA",
+            "2DFFFC",
+            False,
             (
                 ("A549", 0, 14_000, 151, 5_035),
                 ("ES2", 0, 14_000, 108, 5_778),
