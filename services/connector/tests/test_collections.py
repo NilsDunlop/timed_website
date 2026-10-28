@@ -68,6 +68,9 @@ def test_collection_id_is_a_slug_and_optional_fields_have_defaults() -> None:
     collection = profile.collections[0]
     assert collection.description is None
     assert collection.default is False
+    assert collection.qc_available is False
+    assert collection.qc_export is None
+    assert collection.qc_annotations is None
 
     with pytest.raises(ValidationError, match="String should match pattern"):
         slurm_profile(collections=[{"id": "Not_A_Slug", "title": "Invalid", "path": "/data/root"}])
@@ -133,6 +136,123 @@ def test_slurm_collection_path_can_equal_or_descend_from_a_data_root() -> None:
     )
 
     assert [collection.id for collection in profile.collections] == ["root", "nested"]
+
+
+def test_qc_paths_are_paired_and_absolute_for_slurm() -> None:
+    base = {"id": "qc", "title": "QC", "path": "/data/root/index.parquet"}
+    with pytest.raises(ValidationError, match="must be configured together"):
+        slurm_profile(collections=[{**base, "qc_export": "/qc/export"}])
+
+    with pytest.raises(ValidationError, match="absolute POSIX path"):
+        slurm_profile(
+            collections=[
+                {
+                    **base,
+                    "qc_export": "qc/export",
+                    "qc_annotations": "/qc/annotations",
+                }
+            ]
+        )
+
+    profile = slurm_profile(
+        collections=[
+            {
+                **base,
+                "qc_export": "/qc/export",
+                "qc_annotations": "/qc/annotations",
+            }
+        ]
+    )
+    collection = profile.collections[0]
+    assert collection.qc_available is True
+    assert collection.qc_export == "/qc/export"
+    assert collection.qc_annotations == "/qc/annotations"
+
+    with pytest.raises(ValidationError, match="must not contain"):
+        slurm_profile(
+            collections=[
+                {
+                    **base,
+                    "qc_export": "/qc/export=ambiguous",
+                    "qc_annotations": "/qc/annotations",
+                }
+            ]
+        )
+
+
+def test_local_qc_paths_are_normalized_without_existence_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile = Profile.model_validate(
+        {
+            "id": "local",
+            "name": "Local",
+            "kind": "local",
+            "data_roots": [str(tmp_path)],
+            "collections": [
+                {
+                    "id": "qc",
+                    "title": "QC",
+                    "path": str(tmp_path / "future.index.parquet"),
+                    "qc_export": "future-export",
+                    "qc_annotations": "future-annotations",
+                }
+            ],
+        }
+    )
+
+    collection = profile.collections[0]
+    assert collection.qc_export == str((tmp_path / "future-export").resolve())
+    assert collection.qc_annotations == str((tmp_path / "future-annotations").resolve())
+
+    with pytest.raises(ValidationError, match="must not contain"):
+        Profile.model_validate(
+            {
+                "id": "local",
+                "name": "Local",
+                "kind": "local",
+                "data_roots": [str(tmp_path)],
+                "collections": [
+                    {
+                        "id": "qc",
+                        "title": "QC",
+                        "path": str(tmp_path / "future=index.parquet"),
+                        "qc_export": "future-export",
+                        "qc_annotations": "future-annotations",
+                    }
+                ],
+            }
+        )
+
+
+def test_local_qc_paths_reject_separator_introduced_by_normalization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    working_directory = tmp_path / "path=with-separator"
+    working_directory.mkdir()
+    monkeypatch.chdir(working_directory)
+
+    with pytest.raises(ValidationError, match="after local path normalization"):
+        Profile.model_validate(
+            {
+                "id": "local",
+                "name": "Local",
+                "kind": "local",
+                "data_roots": ["data"],
+                "collections": [
+                    {
+                        "id": "qc",
+                        "title": "QC",
+                        "path": "data/future.index.parquet",
+                        "qc_export": "future-export",
+                        "qc_annotations": "future-annotations",
+                    }
+                ],
+            }
+        )
 
 
 def test_local_collection_paths_are_resolved_existing_and_contained(
@@ -301,6 +421,8 @@ async def test_profiles_endpoint_exposes_typed_collections_without_secrets(
                 "description": "Live-cell imaging",
                 "path": "/data/root/timed",
                 "default": True,
+                "qc_export": "/private/qc/export",
+                "qc_annotations": "/private/qc/annotations",
             }
         ]
     )
@@ -322,8 +444,12 @@ async def test_profiles_endpoint_exposes_typed_collections_without_secrets(
             "description": "Live-cell imaging",
             "path": "/data/root/timed",
             "default": True,
+            "qc_available": True,
         }
     ]
     serialized = response.text.lower()
+    assert "qc_export" not in serialized
+    assert "qc_annotations" not in serialized
+    assert "/private/qc" not in serialized
     assert "password" not in serialized
     assert "token" not in serialized

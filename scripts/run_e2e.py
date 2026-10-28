@@ -121,6 +121,11 @@ def _profile(
     cluster_idr0080_index: str,
     local_idr0080_index: str,
     known_hosts: Path,
+    *,
+    cluster_qc_export: str,
+    local_qc_export: str,
+    cluster_qc_annotations: str,
+    local_qc_annotations: str,
 ) -> None:
     cluster_idr0080_root = cluster_idr0080_index.rsplit("/", 1)[0]
     local_idr0080_root = str(Path(local_idr0080_index).parent)
@@ -174,7 +179,12 @@ def _profile(
                 "data_roots": [cluster_data_root, cluster_idr0080_root],
                 "collections": [
                     {**timed_collection, "path": cluster_data_root},
-                    {**idr0080_collection, "path": cluster_idr0080_index},
+                    {
+                        **idr0080_collection,
+                        "path": cluster_idr0080_index,
+                        "qc_export": cluster_qc_export,
+                        "qc_annotations": cluster_qc_annotations,
+                    },
                 ],
             },
             {
@@ -184,7 +194,12 @@ def _profile(
                 "data_roots": [local_data_root, local_idr0080_root],
                 "collections": [
                     {**timed_collection, "path": local_data_root},
-                    {**idr0080_collection, "path": local_idr0080_index},
+                    {
+                        **idr0080_collection,
+                        "path": local_idr0080_index,
+                        "qc_export": local_qc_export,
+                        "qc_annotations": local_qc_annotations,
+                    },
                 ],
             },
         ]
@@ -312,6 +327,9 @@ def main() -> int:
     packed_source_index = packed_source / "idr0080-raw.index.parquet"
     if not real_local and not packed_source_index.is_file():
         raise RuntimeError("Run `make test-data` to create the packed browser fixture")
+    qc_export = TEST_DATA / "qc-export"
+    if not real_local and not qc_export.is_dir():
+        raise RuntimeError("Run `make test-data` to create the QC export fixture")
     required_ports = [arguments.connector_port]
     if not arguments.built_ui:
         required_ports.append(arguments.web_port)
@@ -327,6 +345,11 @@ def main() -> int:
     if not real_local:
         shutil.copytree(packed_source, packed_fixture)
     packed_index = packed_fixture / "idr0080-raw.index.parquet"
+    cluster_qc_annotations_path = runtime / "qc-annotations" / "cluster"
+    local_qc_annotations_path = runtime / "qc-annotations" / "local"
+    if not real_local:
+        cluster_qc_annotations_path.mkdir(parents=True)
+        local_qc_annotations_path.mkdir(parents=True)
     profiles = runtime / "profiles.yaml"
     known_hosts = runtime / "known_hosts"
     processes: list[subprocess.Popen[bytes]] = []
@@ -345,6 +368,8 @@ def main() -> int:
             repository_for_cluster = _wsl_path(REPOSITORY_ROOT)
             cluster_data_root = _wsl_path(TEST_DATA)
             cluster_idr0080_index = _wsl_path(packed_index)
+            cluster_qc_export = _wsl_path(qc_export)
+            cluster_qc_annotations = _wsl_path(cluster_qc_annotations_path)
             cluster_state = "/tmp/timed-e2e-" + run_id
             cluster_command = (
                 "cd "
@@ -361,6 +386,8 @@ def main() -> int:
             repository_for_cluster = str(REPOSITORY_ROOT)
             cluster_data_root = str(TEST_DATA.resolve())
             cluster_idr0080_index = str(packed_index.resolve())
+            cluster_qc_export = str(qc_export.resolve())
+            cluster_qc_annotations = str(cluster_qc_annotations_path.resolve())
             cluster_state = str(runtime / "cluster")
             cluster_environment = os.environ.copy()
             cluster_environment.update(
@@ -384,6 +411,10 @@ def main() -> int:
             cluster_idr0080_index,
             str(packed_index.resolve()),
             known_hosts,
+            cluster_qc_export=cluster_qc_export,
+            local_qc_export=str(qc_export.resolve()),
+            cluster_qc_annotations=cluster_qc_annotations,
+            local_qc_annotations=str(local_qc_annotations_path.resolve()),
         )
         services.append(("cluster", cluster_arguments, cluster_environment))
 

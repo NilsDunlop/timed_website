@@ -141,6 +141,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/qc/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Qc Status */
+        get: operations["qc_status_api_qc_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zarr/{dataset_id}/{resource_path}": {
         parameters: {
             query?: never;
@@ -200,6 +217,16 @@ export interface components {
              * @default false
              */
             plate_metadata: boolean;
+            /**
+             * Qc Annotations Writable
+             * @default false
+             */
+            qc_annotations_writable: boolean;
+            /**
+             * Qc Review
+             * @default false
+             */
+            qc_review: boolean;
         };
         /** ChannelSummary */
         ChannelSummary: {
@@ -461,6 +488,37 @@ export interface components {
              * @enum {integer}
              */
             zarr_format: 2 | 3;
+        };
+        /**
+         * QcStatusResponse
+         * @description Operational state for one configured QC export.
+         */
+        QcStatusResponse: {
+            /** Annotations Writable */
+            annotations_writable: boolean;
+            /** Available */
+            available: boolean;
+            /** Core Ready */
+            core_ready: boolean;
+            /** Error */
+            error?: string | null;
+            /** Export Id */
+            export_id?: string | null;
+            /** Export Readable */
+            export_readable: boolean;
+            /**
+             * Hash Check
+             * @enum {string}
+             */
+            hash_check: "unavailable" | "ok" | "error";
+            /** Missing Contract */
+            missing_contract?: string[];
+            /** Registry Hash */
+            registry_hash?: string | null;
+            /** Row Count */
+            row_count?: number | null;
+            /** Unknown Statuses */
+            unknown_statuses?: string[];
         };
         /** ResolutionLevel */
         ResolutionLevel: {
@@ -811,6 +869,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HandshakeResponse"];
+                };
+            };
+        };
+    };
+    qc_status_api_qc_status_get: {
+        parameters: {
+            query: {
+                path: string;
+                blind?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QcStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

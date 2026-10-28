@@ -100,6 +100,16 @@
             "default": false,
             "title": "Plate Metadata",
             "type": "boolean"
+          },
+          "qc_annotations_writable": {
+            "default": false,
+            "title": "Qc Annotations Writable",
+            "type": "boolean"
+          },
+          "qc_review": {
+            "default": false,
+            "title": "Qc Review",
+            "type": "boolean"
           }
         },
         "title": "Capabilities",
@@ -1013,6 +1023,104 @@
         "title": "PlateSummary",
         "type": "object"
       },
+      "QcStatusResponse": {
+        "additionalProperties": false,
+        "description": "Operational state for one configured QC export.",
+        "properties": {
+          "annotations_writable": {
+            "title": "Annotations Writable",
+            "type": "boolean"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "core_ready": {
+            "title": "Core Ready",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "export_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Id"
+          },
+          "export_readable": {
+            "title": "Export Readable",
+            "type": "boolean"
+          },
+          "hash_check": {
+            "enum": [
+              "unavailable",
+              "ok",
+              "error"
+            ],
+            "title": "Hash Check",
+            "type": "string"
+          },
+          "missing_contract": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Contract",
+            "type": "array"
+          },
+          "registry_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registry Hash"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "unknown_statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Statuses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "core_ready",
+          "export_readable",
+          "annotations_writable",
+          "hash_check"
+        ],
+        "title": "QcStatusResponse",
+        "type": "object"
+      },
       "ResolutionLevel": {
         "additionalProperties": false,
         "properties": {
@@ -1327,7 +1435,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.4.1"
+    "version": "0.5.0.dev0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1730,6 +1838,61 @@
           }
         ],
         "summary": "Handshake"
+      }
+    },
+    "/api/qc/status": {
+      "get": {
+        "operationId": "qc_status_api_qc_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Status"
       }
     },
     "/zarr/{dataset_id}/{resource_path}": {

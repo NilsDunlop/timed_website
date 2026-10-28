@@ -6,7 +6,7 @@ import posixpath
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class ApiModel(BaseModel):
@@ -27,6 +27,24 @@ class CollectionConfig(ApiModel):
     description: str | None = None
     path: str
     default: bool = False
+    qc_export: str | None = Field(default=None, min_length=1, exclude=True)
+    qc_annotations: str | None = Field(default=None, min_length=1, exclude=True)
+
+    @computed_field
+    @property
+    def qc_available(self) -> bool:
+        """Report QC availability without exposing configured server paths."""
+        return self.qc_export is not None
+
+    @model_validator(mode="after")
+    def qc_paths_are_paired(self) -> CollectionConfig:
+        if (self.qc_export is None) != (self.qc_annotations is None):
+            raise ValueError("Collection qc_export and qc_annotations must be configured together")
+        if self.qc_export is not None and any(
+            "=" in value for value in (self.path, self.qc_export, self.qc_annotations or "")
+        ):
+            raise ValueError("QC mapping paths must not contain '='")
+        return self
 
 
 class Profile(ApiModel):
@@ -83,11 +101,48 @@ class Profile(ApiModel):
                         f"Collection {collection.id!r} path must be inside a data root: "
                         f"{collection.path}"
                     )
+                for field_name, value in (
+                    ("qc_export", collection.qc_export),
+                    ("qc_annotations", collection.qc_annotations),
+                ):
+                    if value is None:
+                        continue
+                    if not PurePosixPath(posixpath.normpath(value)).is_absolute():
+                        raise ValueError(
+                            f"Collection {collection.id!r} {field_name} must be an "
+                            f"absolute POSIX path: {value}"
+                        )
         else:
             self.collections = [
-                collection.model_copy(update={"path": str(_normalized_local_path(collection.path))})
+                collection.model_copy(
+                    update={
+                        "path": str(_normalized_local_path(collection.path)),
+                        "qc_export": (
+                            str(_normalized_local_path(collection.qc_export))
+                            if collection.qc_export is not None
+                            else None
+                        ),
+                        "qc_annotations": (
+                            str(_normalized_local_path(collection.qc_annotations))
+                            if collection.qc_annotations is not None
+                            else None
+                        ),
+                    }
+                )
                 for collection in self.collections
             ]
+            for collection in self.collections:
+                if collection.qc_export is not None and any(
+                    "=" in value
+                    for value in (
+                        collection.path,
+                        collection.qc_export,
+                        collection.qc_annotations or "",
+                    )
+                ):
+                    raise ValueError(
+                        "QC mapping paths must not contain '=' after local path normalization"
+                    )
         return self
 
 

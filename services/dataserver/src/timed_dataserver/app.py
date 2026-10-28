@@ -36,6 +36,7 @@ from .models import (
     MatchMode,
     OmeZarrInfo,
     PlateMetadataResponse,
+    QcStatusResponse,
     WellFieldsResponse,
 )
 from .omezarr import (
@@ -79,6 +80,8 @@ from .packed_profiles import (
 )
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
 from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
+from .qc_config import QcPathConfig, resolve_qc_path_configs
+from .qc_export import QcExportStore
 from .registry import DatasetRegistry
 
 RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
@@ -100,6 +103,7 @@ class ServerSettings:
     environment: Literal["local", "hpc"]
     metadata_root: Path | None = None
     packed_cache_mb: int = 1024
+    qc_paths: tuple[QcPathConfig, ...] = ()
 
 
 def _forbidden(exc: Exception) -> HTTPException:
@@ -309,6 +313,13 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     if settings.packed_cache_mb <= 0:
         raise ValueError("Packed cache size must be greater than zero")
     guard = RootGuard(settings.data_roots)
+    qc_paths = resolve_qc_path_configs(settings.qc_paths, guard)
+    qc_private_roots = frozenset(
+        private_path
+        for config in qc_paths.values()
+        for private_path in (config.export_path, config.annotations_path)
+    )
+    qc_stores: dict[Path, tuple[object, QcExportStore]] = {}
     registry = DatasetRegistry(settings.state_dir)
     packed_catalogues = PackedCatalogueCache()
     packed_reader = PackedReader(cache_bytes=settings.packed_cache_mb * 1024 * 1024)
@@ -349,6 +360,27 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     app.state.packed_catalogues = packed_catalogues
     app.state.packed_reader = packed_reader
     app.state.packed_metadata = packed_metadata
+    app.state.qc_paths = qc_paths
+    app.state.qc_private_roots = qc_private_roots
+    app.state.qc_stores = qc_stores
+
+    def is_private_qc_path(path: Path) -> bool:
+        return any(path == root or path.is_relative_to(root) for root in qc_private_roots)
+
+    def is_raw_private_qc_path(raw: str) -> bool:
+        try:
+            supplied = Path(raw).expanduser()
+            candidates = (
+                (supplied,)
+                if supplied.is_absolute()
+                else tuple(root / supplied for root in guard.roots)
+            )
+            return any(
+                is_private_qc_path(candidate.resolve(strict=False))
+                for candidate in candidates
+            )
+        except (OSError, ValueError):
+            return False
 
     def infer_packed_profile(packed: PackedVirtualPath) -> PackedDatasetProfile:
         index_signature = packed.catalogue.signature
@@ -418,6 +450,41 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         except PackedIndexError as exc:
             raise _unprocessable(exc) from exc
 
+    async def configured_qc_store(
+        raw: str,
+    ) -> tuple[QcPathConfig, QcExportStore | None, str | None]:
+        try:
+            index_path = guard.resolve(raw)
+        except PathForbiddenError as exc:
+            raise _forbidden(exc) from exc
+        except PathNotFoundError as exc:
+            raise _not_found(str(exc)) from exc
+        config = qc_paths.get(index_path)
+        if config is None:
+            raise _not_found("No QC export is configured for this index")
+
+        try:
+            catalogue = await get_catalogue_in_thread(
+                index_path,
+                cache=packed_catalogues,
+            )
+            profile = profile_for_index(index_path.name, catalogue.row_count)
+            if profile is None:
+                profile = await anyio.to_thread.run_sync(
+                    infer_packed_profile,
+                    PackedVirtualPath(index_path=index_path, catalogue=catalogue),
+                )
+        except (OSError, PackedIndexError, PackedProfileError):
+            return config, None, "Configured QC index could not be loaded"
+
+        cached = qc_stores.get(index_path)
+        if cached is None or cached[0] != catalogue.signature:
+            store = QcExportStore(config.export_path, catalogue, profile)
+            qc_stores[index_path] = (catalogue.signature, store)
+        else:
+            store = cached[1]
+        return config, store, None
+
     async def displayed_dataset(record: DatasetRecord) -> DatasetRecord:
         try:
             packed = await packed_path(record.path)
@@ -471,7 +538,46 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             capabilities=Capabilities(
                 plate_metadata=metadata_catalog is not None,
                 packed_datasets=True,
+                qc_review=any(config.export_readable for config in qc_paths.values()),
+                qc_annotations_writable=any(
+                    config.annotations_writable for config in qc_paths.values()
+                ),
             ),
+        )
+
+    @app.get("/api/qc/status", response_model=QcStatusResponse)
+    async def qc_status(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+    ) -> QcStatusResponse:
+        config, store, index_error = await configured_qc_store(path)
+        export_readable, annotations_writable = await anyio.to_thread.run_sync(
+            lambda: (config.export_readable, config.annotations_writable)
+        )
+        if store is None:
+            return QcStatusResponse(
+                available=False,
+                core_ready=False,
+                export_readable=export_readable,
+                annotations_writable=annotations_writable,
+                hash_check="unavailable",
+                error=index_error,
+            )
+
+        await anyio.to_thread.run_sync(store.refresh)
+        store_status = store.status_for(blind=blind)
+        return QcStatusResponse(
+            available=store_status.available,
+            core_ready=store_status.core_ready,
+            export_readable=export_readable,
+            annotations_writable=annotations_writable,
+            export_id=store_status.export_id,
+            registry_hash=store_status.registry_hash,
+            row_count=store_status.row_count,
+            hash_check=store_status.hash_check,
+            missing_contract=list(store_status.missing_contract),
+            unknown_statuses=list(store_status.unknown_statuses),
+            error=store_status.error,
         )
 
     @app.get("/api/fs/list", response_model=FilesystemListResponse)
@@ -489,6 +595,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                     for root in guard.roots
                 ],
             )
+        if is_raw_private_qc_path(path):
+            raise _forbidden(PathForbiddenError("Configured QC folders are not browsable"))
         packed = await packed_path(path)
         if packed is not None:
             if packed.plate is not None:
@@ -537,6 +645,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             raise _forbidden(exc) from exc
         except PathNotFoundError as exc:
             raise _not_found(str(exc)) from exc
+        if is_private_qc_path(target):
+            raise _forbidden(PathForbiddenError("Configured QC folders are not browsable"))
         if not target.is_dir():
             raise HTTPException(status_code=400, detail="Only directories can be listed")
 
@@ -559,6 +669,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             try:
                 safe_child = guard.resolve(str(child))
             except (PathForbiddenError, PathNotFoundError):
+                continue
+            if is_private_qc_path(safe_child):
                 continue
             is_directory = safe_child.is_dir()
             packed_index = not is_directory and await anyio.to_thread.run_sync(

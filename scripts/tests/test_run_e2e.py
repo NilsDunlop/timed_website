@@ -11,6 +11,8 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
     timed_root = tmp_path / "timed"
     idr0080_root = tmp_path / "idr0080-like"
     idr0080_index = idr0080_root / "idr0080-raw.index.parquet"
+    qc_export = tmp_path / "qc-export"
+    local_qc_annotations = tmp_path / "local-qc-annotations"
     timed_root.mkdir()
     idr0080_root.mkdir()
     idr0080_index.touch()
@@ -22,6 +24,10 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
         "/cluster/idr0080-like/idr0080-raw.index.parquet",
         str(idr0080_index),
         known_hosts,
+        cluster_qc_export="/cluster/qc-export",
+        local_qc_export=str(qc_export),
+        cluster_qc_annotations="/cluster/qc-annotations",
+        local_qc_annotations=str(local_qc_annotations),
     )
 
     document = yaml.safe_load(profiles_path.read_text(encoding="utf-8"))
@@ -55,5 +61,15 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
             "title": "Cell Health",
             "description": "idr0080-like CRISPR Cell Painting test collection",
             "path": str(idr0080_index),
+            "qc_export": str(qc_export),
+            "qc_annotations": str(local_qc_annotations),
         },
     ]
+    assert profiles["test-cluster-datasets"]["collections"][1] == {
+        "id": "idr0080",
+        "title": "Cell Health",
+        "description": "idr0080-like CRISPR Cell Painting test collection",
+        "path": "/cluster/idr0080-like/idr0080-raw.index.parquet",
+        "qc_export": "/cluster/qc-export",
+        "qc_annotations": "/cluster/qc-annotations",
+    }

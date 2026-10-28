@@ -3,6 +3,7 @@
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import shutil
@@ -50,6 +51,8 @@ GENERATED_STORES = (
 )
 GENERATED_METADATA_DIRECTORY = "metadata"
 GENERATED_PACKED_DIRECTORY = "packed"
+GENERATED_QC_EXPORT_DIRECTORY = "qc-export"
+GENERATED_NEXT_QC_EXPORT_DIRECTORY = "qc-export-next"
 DEFAULT_INVENTORY = Path(__file__).parents[1] / "docs" / "data" / "arrhenius-inventory.json"
 
 PACKED_FIXTURE_DIRECTORY = "idr0080-like"
@@ -58,6 +61,7 @@ PACKED_HEIGHT = 64
 PACKED_WIDTH = 64
 PACKED_CHANNELS = tuple(range(1, 6))
 PACKED_SITES = (1, 2)
+PACKED_CHANNEL_LABELS = ("DNA", "ER", "AGP", "RNA", "Mito")
 PACKED_PLATES = (
     ("idr0080-A549", 14610, "A549"),
     ("idr0080-A549", 14611, "A549"),
@@ -511,6 +515,593 @@ def _write_packed_fixture(output: Path) -> Path:
     return root
 
 
+QC_EXPORT_FILES = (
+    "site_metrics.csv",
+    "columns.csv",
+    "channels.csv",
+    "review_list.csv",
+    "triage_plate_channel.csv",
+    "display_ranges.csv",
+)
+QC_DICTIONARY_FIELDS = (
+    "file",
+    "column",
+    "metric",
+    "version",
+    "channel",
+    "scale",
+    "worse",
+    "layer",
+    "gate",
+    "status",
+    "question",
+    "blind",
+    "primary",
+    "default_flag_lo",
+    "default_flag_hi",
+    "markers",
+)
+QC_REVIEW_HIDDEN_COLUMNS = tuple(f"fixture_hidden_review_{index:02d}" for index in range(1, 9))
+
+
+def _replace_qc_export_directory(output: Path, directory: str) -> Path:
+    target = output / directory
+    resolved_output = output.resolve()
+    resolved_target = target.resolve()
+    allowed = {GENERATED_QC_EXPORT_DIRECTORY, GENERATED_NEXT_QC_EXPORT_DIRECTORY}
+    if resolved_target.parent != resolved_output or target.name not in allowed:
+        raise ValueError(f"Refusing to replace unexpected path: {target}")
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    return target
+
+
+def _write_csv(
+    path: Path,
+    fieldnames: tuple[str, ...],
+    rows: list[dict[str, object]],
+) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="raise")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _dictionary_row(
+    file: str,
+    column: str,
+    *,
+    metric: str = "",
+    version: int | str = "",
+    channel: str = "",
+    scale: str = "",
+    worse: str = "",
+    layer: str,
+    gate: str = "",
+    status: str = "",
+    question: str,
+    blind: str = "show",
+    primary: bool = False,
+    default_flag_lo: float | str = "",
+    default_flag_hi: float | str = "",
+    markers: str = "",
+) -> dict[str, object]:
+    return {
+        "file": file,
+        "column": column,
+        "metric": metric,
+        "version": version,
+        "channel": channel,
+        "scale": scale,
+        "worse": worse,
+        "layer": layer,
+        "gate": gate,
+        "status": status,
+        "question": question,
+        "blind": blind,
+        "primary": primary,
+        "default_flag_lo": default_flag_lo,
+        "default_flag_hi": default_flag_hi,
+        "markers": markers,
+    }
+
+
+def _qc_site_dictionary(variant: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    keys = {
+        "experiment": "Packed experiment identifier.",
+        "cell_line": "Cell line for the packed experiment.",
+        "plate": "Numeric plate identifier.",
+        "plate_barcode": "Plate barcode.",
+        "well": "Canonical well address.",
+        "row": "Well row.",
+        "column": "Well column.",
+        "site": "Packed acquisition site.",
+        "site_position": "Position in the fixture site mosaic.",
+    }
+    rows.extend(
+        _dictionary_row(
+            "site_metrics.csv",
+            column,
+            layer="key",
+            question=question,
+        )
+        for column, question in keys.items()
+    )
+    rows.extend(
+        _dictionary_row(
+            "site_metrics.csv",
+            f"member_{channel}",
+            channel=channel,
+            layer="key",
+            question=f"Packed {channel} member name.",
+        )
+        for channel in PACKED_CHANNEL_LABELS
+    )
+    rows.extend(
+        (
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_context_count",
+                metric="fixture_context_count",
+                version=1,
+                worse="context",
+                layer="context",
+                question="Synthetic fixture count used as visible context.",
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_hidden_attribute",
+                layer="context",
+                status="fixture_hidden_future_status",
+                question="Synthetic attribute hidden by blinded responses.",
+                blind="hide",
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_protection_state",
+                layer="context",
+                question="Synthetic export-defined protection category.",
+                blind="hide",
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_focus__DNA__raw",
+                metric="fixture_focus",
+                version=2,
+                channel="DNA",
+                scale="raw",
+                worse="low",
+                layer="site_review",
+                gate="review",
+                status="pending_review",
+                question="Is the synthetic DNA field sharply focused?",
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_focus__DNA__control_z",
+                metric="fixture_focus",
+                version=2,
+                channel="DNA",
+                scale="control_z",
+                worse="low",
+                layer="site_review",
+                gate="review",
+                status="pending_review",
+                question="Is the synthetic DNA focus below the review bound?",
+                primary=True,
+                default_flag_lo=-2.0,
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_intensity__AGP__raw",
+                metric="fixture_intensity",
+                version=1,
+                channel="AGP",
+                scale="raw",
+                worse="high",
+                layer="site_review",
+                gate="none",
+                status="kept",
+                question="How bright is the synthetic AGP field?",
+                primary=True,
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_automatic__site__raw",
+                metric="fixture_automatic",
+                version=1,
+                channel="site",
+                scale="raw",
+                worse="high",
+                layer="site_review",
+                gate="automatic",
+                status="registered",
+                question="Did the registered synthetic rule flag this field?",
+                primary=True,
+                markers='[{"label":"registered","value":0.75}]',
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_retired__RNA__raw",
+                metric="fixture_retired",
+                version=1,
+                channel="RNA",
+                scale="raw",
+                worse="high",
+                layer="retired",
+                gate="none",
+                status="retired",
+                question="Synthetic retired metric.",
+                primary=True,
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_dropped__ER__raw",
+                metric="fixture_dropped",
+                version=1,
+                channel="ER",
+                scale="raw",
+                worse="low",
+                layer="site_review",
+                gate="none",
+                status="dropped",
+                question="Synthetic dropped metric.",
+                primary=True,
+            ),
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_future__Mito__raw",
+                metric="fixture_future",
+                version=1,
+                channel="Mito",
+                scale="raw",
+                worse="both",
+                layer="site_review",
+                gate="none",
+                status="fixture_future_status",
+                question="Synthetic metric with a deliberately unknown status.",
+                primary=True,
+            ),
+        )
+    )
+    if variant == "next":
+        rows.append(
+            _dictionary_row(
+                "site_metrics.csv",
+                "fixture_texture__ER__raw",
+                metric="fixture_texture",
+                version=3,
+                channel="ER",
+                scale="raw",
+                worse="both",
+                layer="site_review",
+                gate="review",
+                status="pending_review",
+                question="Is the synthetic ER texture outside the review interval?",
+                primary=True,
+                default_flag_lo=-1.5,
+                default_flag_hi=1.5,
+            )
+        )
+    return rows
+
+
+def _qc_review_dictionary() -> list[dict[str, object]]:
+    questions = {
+        "scope": "Review entry scope.",
+        "plate": "Review entry plate.",
+        "cell_line": "Review entry cell line.",
+        "well": "Review entry well.",
+        "site": "Review entry site.",
+        "channel": "Review entry channel.",
+        "metric": "Metric behind the review entry.",
+        "metric_version": "Metric definition version.",
+        "value": "Metric value behind the review entry.",
+        "unit": "Display unit for the metric value.",
+        "entry_id": "Stable blinded queue identity.",
+        "review_group": "Stable blinded queue group.",
+    }
+    rows = [
+        _dictionary_row(
+            "review_list.csv",
+            column,
+            layer="review",
+            question=question,
+        )
+        for column, question in questions.items()
+    ]
+    rows.extend(
+        _dictionary_row(
+            "review_list.csv",
+            column,
+            layer="review",
+            question="Synthetic queue attribute hidden by blinded responses.",
+            blind="hide",
+        )
+        for column in QC_REVIEW_HIDDEN_COLUMNS
+    )
+    return rows
+
+
+def _qc_triage_dictionary() -> list[dict[str, object]]:
+    return [
+        _dictionary_row(
+            "triage_plate_channel.csv",
+            "plate",
+            layer="key",
+            question="Numeric plate identifier.",
+        ),
+        _dictionary_row(
+            "triage_plate_channel.csv",
+            "channel",
+            layer="key",
+            question="Stain or field-level site summary.",
+        ),
+        _dictionary_row(
+            "triage_plate_channel.csv",
+            "fixture_triage_share",
+            metric="fixture_triage_share",
+            version=1,
+            scale="ratio",
+            worse="high",
+            layer="panel",
+            gate="review",
+            status="pending_review",
+            question="Synthetic share of fields selected for review.",
+            primary=True,
+            default_flag_hi=0.25,
+        ),
+        _dictionary_row(
+            "triage_plate_channel.csv",
+            "fixture_automatic_share",
+            metric="fixture_automatic_share",
+            version=1,
+            scale="ratio",
+            worse="high",
+            layer="panel",
+            gate="automatic",
+            status="registered",
+            question="Synthetic share flagged by a registered rule.",
+            primary=True,
+            markers='[{"label":"registered","value":0.2}]',
+        ),
+        _dictionary_row(
+            "triage_plate_channel.csv",
+            "fixture_panel_flag",
+            metric="fixture_panel_flag",
+            version=1,
+            worse="high",
+            layer="panel",
+            gate="none",
+            status="kept",
+            question="Synthetic plate-panel flag.",
+            primary=True,
+        ),
+        _dictionary_row(
+            "triage_plate_channel.csv",
+            "fixture_hidden_triage_note",
+            layer="panel",
+            question="Synthetic triage note hidden by blinded responses.",
+            blind="hide",
+        ),
+    ]
+
+
+def _qc_site_rows(variant: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for plate_index, (experiment, plate, cell_line) in enumerate(PACKED_PLATES):
+        for well_index, well in enumerate(PACKED_WELLS):
+            for site in PACKED_SITES:
+                row_number = ord(well.address[0]) - ord("A") + 1
+                seed = plate_index * 100 + well_index * 10 + site
+                row: dict[str, object] = {
+                    "experiment": experiment,
+                    "cell_line": cell_line,
+                    "plate": plate,
+                    "plate_barcode": f"SQ000{plate}",
+                    "well": well.address,
+                    "row": well.address[0],
+                    "column": int(well.address[1:]),
+                    "site": site,
+                    "site_position": f"{row_number}:{site}",
+                    "fixture_context_count": 20 + seed,
+                    "fixture_hidden_attribute": f"fixture-category-{well_index % 3}",
+                    "fixture_protection_state": (
+                        "synthetic-state-a" if well_index % 2 else "synthetic-state-b"
+                    ),
+                    "fixture_focus__DNA__raw": round(0.8 + seed / 100.0, 3),
+                    "fixture_focus__DNA__control_z": round(-2.5 + seed / 90.0, 3),
+                    "fixture_intensity__AGP__raw": 500 + seed * 13,
+                    "fixture_automatic__site__raw": round((seed % 9) / 8.0, 3),
+                    "fixture_retired__RNA__raw": round(seed / 7.0, 3),
+                    "fixture_dropped__ER__raw": round(seed / 8.0, 3),
+                    "fixture_future__Mito__raw": round(seed / 9.0, 3),
+                }
+                for slot, channel in enumerate(PACKED_CHANNEL_LABELS, start=1):
+                    relpath = _packed_relpath(plate, well.address, site, slot)
+                    row[f"member_{channel}"] = f"idr0080/raw/{relpath}"
+                if variant == "next":
+                    row["fixture_texture__ER__raw"] = round(-2.0 + seed / 80.0, 3)
+                rows.append(row)
+    return rows
+
+
+def _qc_review_rows(site_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for row in site_rows:
+        plate = int(row["plate"])
+        well = str(row["well"])
+        site = int(row["site"])
+        group = f"fixture:{plate}:{well}"
+        rows.append(
+            {
+                "scope": "field",
+                "plate": plate,
+                "cell_line": row["cell_line"],
+                "well": well,
+                "site": site,
+                "channel": "DNA",
+                "metric": "fixture_focus",
+                "metric_version": 2,
+                "value": row["fixture_focus__DNA__control_z"],
+                "unit": "z",
+                "entry_id": f"fixture-field:{plate}:{well}:{site}",
+                "review_group": group,
+                **{
+                    column: f"fixture-field-value-{index:02d}-{site}"
+                    for index, column in enumerate(QC_REVIEW_HIDDEN_COLUMNS, start=1)
+                },
+            }
+        )
+        if site == PACKED_SITES[0]:
+            rows.append(
+                {
+                    "scope": "well",
+                    "plate": plate,
+                    "cell_line": row["cell_line"],
+                    "well": well,
+                    "site": "",
+                    "channel": "AGP",
+                    "metric": "fixture_intensity",
+                    "metric_version": 1,
+                    "value": row["fixture_intensity__AGP__raw"],
+                    "unit": "intensity",
+                    "entry_id": f"fixture-well:{plate}:{well}",
+                    "review_group": group,
+                    **{
+                        column: f"fixture-well-value-{index:02d}"
+                        for index, column in enumerate(QC_REVIEW_HIDDEN_COLUMNS, start=1)
+                    },
+                }
+            )
+    return rows
+
+
+def _qc_triage_rows() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for plate_index, (_experiment, plate, _cell_line) in enumerate(PACKED_PLATES):
+        for channel_index, channel in enumerate((*PACKED_CHANNEL_LABELS, "site")):
+            score = (plate_index + channel_index + 1) / 20
+            rows.append(
+                {
+                    "plate": plate,
+                    "channel": channel,
+                    "fixture_triage_share": round(score, 3),
+                    "fixture_automatic_share": round(score / 2, 3),
+                    "fixture_panel_flag": score > 0.25,
+                    "fixture_hidden_triage_note": f"fixture-triage-{plate_index}-{channel_index}",
+                }
+            )
+    return rows
+
+
+def _qc_display_range_rows() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for plate_index, (_experiment, plate, _cell_line) in enumerate(PACKED_PLATES):
+        for slot, channel in enumerate(PACKED_CHANNEL_LABELS, start=1):
+            rows.append(
+                {
+                    "plate": plate,
+                    "plate_barcode": f"SQ000{plate}",
+                    "channel": channel,
+                    "display_lo": 100 + plate_index * 10 + slot,
+                    "display_hi": 5_000 + plate_index * 100 + slot * 250,
+                    "display_mode": "fixed per plate x channel",
+                    "quantile_lo": 0.01,
+                    "quantile_hi": 0.995,
+                    "reference_fields": len(PACKED_WELLS) * len(PACKED_SITES),
+                }
+            )
+    return rows
+
+
+def _qc_channel_rows() -> list[dict[str, object]]:
+    phenix_channels = (1, 2, 4, 3, 5)
+    exposures = (0.02, 0.02, 0.02, 0.01, 0.02)
+    rows: list[dict[str, object]] = []
+    for slot, (channel, phenix_channel, exposure) in enumerate(
+        zip(PACKED_CHANNEL_LABELS, phenix_channels, exposures, strict=True),
+        start=1,
+    ):
+        rows.append(
+            {
+                "channel": channel,
+                "stain": channel,
+                "dye": f"fixture-dye-{slot}",
+                "dye_source": "synthetic fixture",
+                "target": f"fixture-target-{slot}",
+                "packed_slot": slot,
+                "phenix_channel_id": phenix_channel,
+                "packed_member_suffix": f"_ch{slot}.tiff",
+                "phenix_channel_name": f"fixture-channel-{phenix_channel}",
+                "idr_file_token": f"fixture-token-{phenix_channel}",
+                "excitation_nm": 350.0 + slot * 50,
+                "emission_nm": 400.0 + slot * 50,
+                "exposure_s": exposure,
+                "identity_evidence": "Synthetic fixture identity mapping.",
+            }
+        )
+    return rows
+
+
+def _write_qc_export_fixture(
+    output: Path,
+    *,
+    directory: str = GENERATED_QC_EXPORT_DIRECTORY,
+    variant: str = "primary",
+) -> Path:
+    if variant not in {"primary", "next"}:
+        raise ValueError(f"Unknown QC fixture variant: {variant}")
+    root = _replace_qc_export_directory(output, directory)
+    site_rows = _qc_site_rows(variant)
+    dictionary_rows = [
+        *_qc_site_dictionary(variant),
+        *_qc_review_dictionary(),
+        *_qc_triage_dictionary(),
+    ]
+    payloads = {
+        "site_metrics.csv": (tuple(site_rows[0]), site_rows),
+        "columns.csv": (QC_DICTIONARY_FIELDS, dictionary_rows),
+        "channels.csv": (tuple(_qc_channel_rows()[0]), _qc_channel_rows()),
+        "review_list.csv": (
+            tuple(_qc_review_rows(site_rows)[0]),
+            _qc_review_rows(site_rows),
+        ),
+        "triage_plate_channel.csv": (
+            tuple(_qc_triage_rows()[0]),
+            _qc_triage_rows(),
+        ),
+        "display_ranges.csv": (
+            tuple(_qc_display_range_rows()[0]),
+            _qc_display_range_rows(),
+        ),
+    }
+    for filename, (fieldnames, rows) in payloads.items():
+        _write_csv(root / filename, fieldnames, rows)
+
+    hashes = {
+        filename: hashlib.sha256((root / filename).read_bytes()).hexdigest()
+        for filename in QC_EXPORT_FILES
+    }
+    registry_payload = "".join(f"{name}:{hashes[name]}\n" for name in QC_EXPORT_FILES)
+    version = {
+        "id": f"fixture-qc-{variant}-20261029",
+        "label": f"Deterministic QC fixture ({variant})",
+        "created_utc": "2026-10-29T12:00:00Z",
+        "definitions_version": 4 if variant == "next" else 3,
+        "fields": len(site_rows),
+        "registry_sha256": hashlib.sha256(registry_payload.encode()).hexdigest(),
+        "files": hashes,
+    }
+    (root / "version.json").write_text(
+        json.dumps(version, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return root
+
+
 def _write_bare_field(
     path: Path, data: np.ndarray, well: str, site: int, profile: DataProfile
 ) -> None:
@@ -811,6 +1402,12 @@ def generate_test_data(
     _write_ome_image(image_v05, first_field, profile, "0.5")
     if include_packed:
         _write_packed_fixture(output)
+        _write_qc_export_fixture(output)
+        _write_qc_export_fixture(
+            output,
+            directory=GENERATED_NEXT_QC_EXPORT_DIRECTORY,
+            variant="next",
+        )
 
 
 def _parser() -> argparse.ArgumentParser:

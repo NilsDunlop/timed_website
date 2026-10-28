@@ -17,6 +17,7 @@ import uvicorn
 
 from . import API_VERSION, __version__
 from .app import ServerSettings, create_app
+from .qc_config import QcConfigurationError, parse_qc_path_configs
 from .registry import atomic_json_write
 
 
@@ -47,6 +48,20 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=1024,
         help="decoded packed-field cache size in MiB (default: 1024)",
+    )
+    serve_parser.add_argument(
+        "--qc-export",
+        action="append",
+        default=[],
+        metavar="INDEX=FOLDER",
+        help="QC export folder keyed by a packed index path; may be repeated",
+    )
+    serve_parser.add_argument(
+        "--qc-annotations",
+        action="append",
+        default=[],
+        metavar="INDEX=FOLDER",
+        help="QC annotations folder keyed by a packed index path; may be repeated",
     )
 
     subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
@@ -141,17 +156,23 @@ def export_openapi() -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Dispatch the CLI."""
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
     if args.command == "export-openapi":
         export_openapi()
         return 0
 
+    try:
+        qc_paths = parse_qc_path_configs(args.qc_export, args.qc_annotations)
+    except QcConfigurationError as exc:
+        parser.error(str(exc))
     settings = ServerSettings(
         data_roots=tuple(args.data_root),
         state_dir=args.state_dir,
         environment=args.environment,
         metadata_root=args.metadata_root,
         packed_cache_mb=args.packed_cache_mb,
+        qc_paths=qc_paths,
     )
     if settings.packed_cache_mb <= 0:
         raise SystemExit("--packed-cache-mb must be greater than zero")

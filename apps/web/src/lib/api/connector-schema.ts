@@ -106,6 +106,11 @@ export interface components {
             id: string;
             /** Path */
             path: string;
+            /**
+             * Qc Available
+             * @description Report QC availability without exposing configured server paths.
+             */
+            readonly qc_available: boolean;
             /** Title */
             title: string;
         };

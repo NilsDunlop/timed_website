@@ -280,6 +280,15 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
         data_roots=["/data/with space"],
         metadata_root="/metadata/with space",
         module_loads=["Python/3.12"],
+        collections=[
+            {
+                "id": "cell-health",
+                "title": "Cell Health",
+                "path": "/data/with space/cell-health.index.parquet",
+                "qc_export": "/qc export/with space",
+                "qc_annotations": "/qc annotations/with space",
+            }
+        ],
     )
     script = render_job_script(
         profile,
@@ -292,6 +301,8 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
     assert "module load Python/3.12" in script
     assert "'/data/with space'" in script
     assert "'/metadata/with space'" in script
+    assert "'/data/with space/cell-health.index.parquet=/qc export/with space'" in script
+    assert "'/data/with space/cell-health.index.parquet=/qc annotations/with space'" in script
     assert '"${TIMED_NODE_HOST:-$(hostname)}"' in script
     assert "${SLURM_JOB_ID}.json" in script
     assert parse_job_id("1234;cluster\n") == "1234"
@@ -319,21 +330,31 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
             "description": "Live-cell time-lapse · 8 plates · 48 h, hourly · 3 channels",
             "path": "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr",
             "default": True,
+            "qc_available": False,
         },
         {
             "id": "idr0080",
             "title": "Cell Health",
             "description": (
-                "idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - "
-                "9 plates - 5 channels"
+                "idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - 9 plates - 5 channels"
             ),
             "path": (
                 "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/"
                 "idr0080/idr0080-raw.index.parquet"
             ),
             "default": False,
+            "qc_available": True,
         },
     ]
+
+    cell_health = profile.collections[1]
+    assert cell_health.qc_export == (
+        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/"
+        "qc_metrics_compute/website_export"
+    )
+    assert cell_health.qc_annotations == (
+        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations"
+    )
 
     script = render_job_script(
         profile,
@@ -342,6 +363,25 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     )
     assert "#SBATCH --account=naiss2026-3-679-cpu" in script
     assert "#SBATCH --partition=cpu" in script
+    assert f"--qc-export {cell_health.path}={cell_health.qc_export}" in script
+    assert f"--qc-annotations {cell_health.path}={cell_health.qc_annotations}" in script
+
+
+def test_example_fixture_profiles_enable_qc_with_isolated_annotations() -> None:
+    repository_root = Path(__file__).parents[3]
+    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+
+    cluster_collection = store.get("test-cluster-datasets").collections[1]
+    assert cluster_collection.qc_export == "/absolute/path/to/repo/test-data/qc-export"
+    assert cluster_collection.qc_annotations == ("/absolute/path/to/repo/.timed/qc-annotations")
+
+    local_collection = store.get("local-datasets").collections[1]
+    assert local_collection.qc_export == str(
+        (repository_root / "test-data" / "qc-export").resolve()
+    )
+    assert local_collection.qc_annotations == str(
+        (repository_root / ".timed" / "qc-annotations").resolve()
+    )
 
 
 def test_first_plate_skips_entries_without_ome_zarr_metadata() -> None:
@@ -369,6 +409,10 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert document["info"]["title"] == "TIMED connector"
     assert "/connector/session" in document["paths"]
     assert "/connector/connect" in document["paths"]
+    collection_schema = document["components"]["schemas"]["CollectionConfig"]
+    assert "qc_available" in collection_schema["properties"]
+    assert "qc_export" not in collection_schema["properties"]
+    assert "qc_annotations" not in collection_schema["properties"]
 
 
 @pytest.mark.asyncio
@@ -549,6 +593,64 @@ async def test_disconnect_timeout_reaches_error_and_continues_cleanup(
     assert backend.forward_closed == 1
     with pytest.raises(SessionError, match="No data server is connected"):
         session.proxy_target()
+
+
+@pytest.mark.asyncio
+async def test_local_backend_forwards_qc_paths_without_prechecking_them(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    index = data_root / "cell-health.index.parquet"
+    index.touch()
+    qc_export = tmp_path / "future-export"
+    qc_annotations = tmp_path / "future-annotations"
+    profile = Profile.model_validate(
+        {
+            "id": "local",
+            "name": "This computer",
+            "kind": "local",
+            "data_roots": [str(data_root)],
+            "collections": [
+                {
+                    "id": "cell-health",
+                    "title": "Cell Health",
+                    "path": str(index),
+                    "qc_export": str(qc_export),
+                    "qc_annotations": str(qc_annotations),
+                }
+            ],
+        }
+    )
+    arguments: list[str] = []
+
+    class CompletedProcess:
+        stdout = None
+        returncode = 0
+
+    async def create_subprocess_exec(*values: str, **options: object) -> Any:
+        arguments.extend(values)
+        assert options["stdout"] == asyncio.subprocess.PIPE
+        return CompletedProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+    backend = LocalBackend(
+        state_dir=tmp_path / "state",
+        runtime_parent=tmp_path / "runtime",
+    )
+    context = await backend.start(profile, lambda line: None)
+    try:
+        export_position = arguments.index("--qc-export")
+        annotations_position = arguments.index("--qc-annotations")
+        assert arguments[export_position + 1] == (f"{index.resolve()}={qc_export.resolve()}")
+        assert arguments[annotations_position + 1] == (
+            f"{index.resolve()}={qc_annotations.resolve()}"
+        )
+        assert not qc_export.exists()
+        assert not qc_annotations.exists()
+    finally:
+        await backend.close(context)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,8 @@ class Capabilities(ApiModel):
     gpu: bool = False
     plate_metadata: bool = False
     packed_datasets: bool = False
+    qc_review: bool = False
+    qc_annotations_writable: bool = False
 
 
 class HandshakeResponse(ApiModel):
@@ -29,6 +31,22 @@ class HandshakeResponse(ApiModel):
     data_roots: list[str]
     python_version: str
     capabilities: Capabilities
+
+
+class QcStatusResponse(ApiModel):
+    """Operational state for one configured QC export."""
+
+    available: bool
+    core_ready: bool
+    export_readable: bool
+    annotations_writable: bool
+    export_id: str | None = None
+    registry_hash: str | None = None
+    row_count: int | None = None
+    hash_check: Literal["unavailable", "ok", "error"]
+    missing_contract: list[str] = Field(default_factory=list)
+    unknown_statuses: list[str] = Field(default_factory=list)
+    error: str | None = None
 
 
 class OmeZarrInfo(ApiModel):
