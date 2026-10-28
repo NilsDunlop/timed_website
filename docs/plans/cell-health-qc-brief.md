@@ -1,0 +1,410 @@
+# Codex brief: Cell Health QC review
+
+**Version 1.** Phase 1 (viewing Cell Health, 0.4.0) is merged. This brief replaces everything about Phase 2 in `docs/plans/idr0080-codex-brief.md`: its sections on masks, QC, the QC screen and the review queue, with their milestones and tests. That brief still holds for the mask-store contract (its Appendix D).
+
+| Part | Branch | Version | What |
+| --- | --- | --- | --- |
+| A | `fix/cell-health-channels` | 0.4.1 | Correct the Cell Health channel identity. Done by a separate prompt before this brief; section 3 is for reference |
+| B | `feature/qc-review` | 0.5.0 | Connect the QC metrics export: core QC page, field and well review, queues and annotations |
+| B.1 | separate branch after Part B merges | 0.5.1 | Add the blinded QC interface on top of the server-side blind response mode designed in Part B |
+| C | `feature/segmentation-outlines` | 0.6.0 | Nucleus, cell and cytoplasm outlines from CellPrompter's mask stores |
+
+## 0. Working agreement
+
+- **Read first:** `CLAUDE.md`, `docs/decisions.md` and this brief. For Part C, also read the old brief's section 5.1 and Appendix D.
+- **Input:** `docs/data/qc-export/`, a local copy of the current QC export (`version.json` id `2e009e837cd1`). It is gitignored and must never be committed. It contains hidden columns, so never print real hidden names or values into commits, docs, tests or replies; refer to them only by count.
+- **Never** connect to Arrhenius, submit Slurm jobs, or touch real data. Steps marked **Operator** are done by the operator: stop there and wait.
+- **Stop and ask** when the export, the repository and this brief disagree, or when a value in the export's dictionary has a meaning this brief does not define.
+- **Each part:**
+  1. Branch from the latest `main`.
+  2. While testing on Arrhenius, use the development version (`0.5.0.devN`, `0.6.0.devN`). Set the release version in the final commit.
+  3. Run the full baseline, commit and push.
+  4. Give the operator a PR title and description. `gh` is unavailable: the operator opens the PR and merges it with a merge commit.
+  5. Create no tags.
+- **Decisions** go in `docs/decisions.md`.
+
+## 1. Ground rules
+
+- **TIMED unchanged.** QC appears only for datasets with a configured QC export.
+- **One write, nowhere else.** The data server stays read-only for all data. Its only write is appending annotation records to the configured annotations folder (section 4.8). It never writes into the export, the image data, the mask stores or any data root.
+- **Nothing hard-coded.**
+  - Metrics, with their labels, scales, directions, layers and questions, come from the export's `columns.csv`. The code keeps no metric list.
+  - Channel identity comes from `channels.csv`.
+  - Paths come from the connector profile.
+- **Core first, blinded mode next.**
+  - CellPrompter's exclusion records stay unread.
+  - The 0.5.0 core QC view intentionally shows every export column and every configured attribute. Core requests omit the `blind` query parameter.
+  - Every QC endpoint nevertheless accepts `blind=1` in 0.5.0. The server then removes every export column marked hidden and the additional attributes listed in section 4.11 before serialising a response. This server-side response mode is the foundation for the separate 0.5.1 blinded-interface PR.
+  - Real hidden columns remain confidential in repository history: refer to them only by count in commits, tests, docs and replies.
+- **Isolated.** The website reads only the export's files. It never reads or imports the code that produced them, nor CellPrompter's code.
+- **The website excludes nothing.** Annotations are review records. No data or exclusion list changes in the website.
+
+## 2. Channel identity
+
+The export's `channels.csv` gives each stain's packed slot and its original Phenix/IDR channel. The evidence: high-pass correlation with the raw Phenix channels is at least 0.98 for the matching channel and at most 0.69 for any other, over 21 sites.
+
+| Stain | Packed slot (member suffix) | Phenix / IDR channel | Dye | Exposure |
+| --- | --- | --- | --- | --- |
+| DNA | 1 (`_ch1.tiff`) | 1 (`-ch1`) | Hoechst 33342 | 0.02 s |
+| ER | 2 (`_ch2.tiff`) | 2 (`-ch2`) | Concanavalin A, Alexa Fluor 488 | 0.02 s |
+| AGP | 3 (`_ch3.tiff`) | 4 (`-ch4`) | Phalloidin Alexa Fluor 568 + WGA Alexa Fluor 555 | 0.02 s |
+| RNA | 4 (`_ch4.tiff`) | 3 (`-ch3`) | SYTO 14 | 0.01 s |
+| Mito | 5 (`_ch5.tiff`) | 5 (`-ch5`) | MitoTracker Deep Red | 0.02 s |
+
+The packed slots follow stain order, not Phenix numbering. Always map channels by name: through `channels.csv` where an export exists, and through the code profile otherwise. The two must agree (section 4.3).
+
+## 3. Part A: channel identity fix (0.4.1), for reference
+
+Done by a separate prompt before this brief:
+
+- Slot 3 is labelled AGP and slot 4 RNA. Colours and default visibility follow the stain.
+- The contrast windows stay with their slots.
+- Channels are listed in slot order: DNA, ER, AGP, RNA, Mito.
+- Docs and decisions are corrected.
+
+If Part A is not on `main`, stop and ask.
+
+## 4. Part B: QC review from the export (0.5.0)
+
+### 4.1 The export
+
+The export is at `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_metrics_compute/website_export/`. Each re-export replaces the whole folder.
+
+| File | Contents and use |
+| --- | --- |
+| `site_metrics.csv` | One row per field (31,104): plate, barcode, well, site; every main metric's raw value and shown scale; the context columns; and each channel's packed member name |
+| `columns.csv` | The column dictionary: metric, channel, scale, `worse` direction, layer, gate, status, one-sentence question, `blind`, and the primary/marker/default-bound fields in the next export |
+| `channels.csv` | Channel identity in both numberings (section 2) |
+| `review_list.csv` | The review queue (158 entries in the current export). It has eight hidden columns; the next export adds entry id and review group |
+| `triage_plate_channel.csv` | The plate × channel overview |
+| `display_ranges.csv` | The fixed display range per plate × channel, with its display mode |
+| `version.json` | The export id (now `2e009e837cd1`), the registry hash and the file hashes |
+
+**First step of Part B: document the export.**
+
+1. Add `docs/data/qc-export/` to `.gitignore` if Part A has not.
+2. From the local copy, write `docs/data/QC_EXPORT.md`. It describes every file's columns and types, and the values used in `columns.csv`'s `channel`, `scale`, `direction`, `layer`, `gate`, `status` and `blind`. It also covers the context columns, the triage and display-range layouts, and the structure of `version.json`.
+3. For hidden columns, record only how many there are, never their names or values.
+4. Stop and ask about anything whose meaning is still unclear after
+   `QC_EXPORT.md` and the recorded Part B decisions, or if the next export does
+   not match this contract.
+
+**Keys.**
+
+- plate: 14610–14618, with barcode `SQ000<plate>`;
+- well: A01–P24;
+- site: 1–9, the Phenix field id, equal to the packed site.
+
+Metric columns are named `<metric>__<channel>__<scale>`. The channel is a stain name, or `site` for field-level metrics.
+
+**What is shown.** The dictionary controls the UI without a metric list in code:
+
+- `site_review` rows are per-field metrics. One slider is created for each metric and channel from the row marked `primary=true`; the raw value appears beside the primary scale.
+- `context` rows are shown and sortable but have no sliders.
+- `panel` rows describe plate- or well-level views.
+- `key` and `review` retain their identifier and review-list roles.
+- `retired` rows are never shown. Rows with status `retired`, `dropped`, or an unrecognised value are hidden; unrecognised values are listed in QC status. `pending_review` is shown with a badge.
+
+A metric added or retired in the export appears or disappears on reload, with no code change.
+
+The next export adds `primary`, `default_flag_lo`, `default_flag_hi` and
+`markers` to `columns.csv`; dictionary rows for
+`triage_plate_channel.csv`; and `entry_id` plus `review_group` to
+`review_list.csv`. Until that export is available, build configuration,
+loading, validation, the annotation store, and code independent of those
+columns against the current export. Fixtures follow the next-export contract.
+
+### 4.2 Configuration
+
+On the Cell Health collection in the connector profile, add two paths and update `config/profiles.example.yaml`:
+
+```yaml
+      - id: idr0080
+        title: Cell Health
+        # … unchanged …
+        qc_export: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_metrics_compute/website_export
+        qc_annotations: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations
+```
+
+- **Passing them on.** The connector validates both paths (absolute for Slurm profiles) and passes them to the data server as `--qc-export <index path>=<export folder>` and `--qc-annotations <index path>=<annotations folder>`. They are keyed by the collection's real index path, so the data server still needs no collection concept.
+- **Startup checks.** The export folder must be readable. The annotations folder must exist and be writable; the server never creates it. The server reports both in the handshake capabilities (`qc_review`, `qc_annotations_writable`) and in the QC status endpoint.
+- **Not browsable.** Neither folder is a data root, and neither can be listed.
+- **Switching exports.** Switching to another export folder with the same structure is a profile change only.
+
+### 4.3 Loading an export (data server, new module `qc_export.py`)
+
+- **Hash check.** Read `version.json` and verify each listed file's SHA-256 before using it. A mismatch means the folder is being replaced: keep serving the previous valid export, retry shortly, and report it in the status.
+- **Parsing and reloading.**
+  - Parse with `pyarrow.csv` and hold the loaded export in memory, keyed by export id.
+  - On each QC request, check `version.json`'s modification time and size. Load a changed export in a worker thread, and switch to it in one step once it validates.
+- **Validation.** Refuse an export, with a clear message in the status and on the QC page, unless:
+  - there is exactly one row per (plate, well, site), every row's field exists in the packed catalogue, and every catalogue field has a row;
+  - every metric column in `site_metrics.csv` has a dictionary row, and every dictionary row describing a data column has that column;
+  - each channel's packed member name equals the index member for that field and the slot `channels.csv` gives;
+  - `channels.csv` agrees with the Cell Health code profile (stain to slot). If it does not, disable QC and say why.
+- **Blind response shaping.** Load and validate every export column for the core view. Keep the blind classification with the in-memory schema. For `blind=1`, project out every hidden column and the attributes listed in section 4.11 before constructing the response; never depend on the browser to redact data.
+
+### 4.4 Endpoints
+
+All take `path=<the collection's index path>`, validated through `RootGuard`,
+and return 404 when no export is configured for that index. Every endpoint also
+accepts `blind=1`. Without it, the 0.5.0 core view receives every export column
+and configured attribute. With it, the data server removes hidden columns and
+the attributes listed in section 4.11 before serialising the response. JSON
+responses under `/api/qc/` are gzip-compressed (image routes stay
+uncompressed) and carry ETags based on the export id and response mode.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/qc/status` | Availability, export id, registry hash, file-hash check, row count, whether annotations are writable, and any export errors |
+| `GET /api/qc/dictionary` | Applicable dictionary rows with labels, primary scale, direction, layer, gate, status, questions, markers and default flag bounds |
+| `GET /api/qc/fields` | A columnar site table with keys, Phase 1 metadata, export attributes, context values, site-review values and annotation state |
+| `GET /api/qc/field?plate=&well=&site=` | One site's primary and raw metrics, context, attributes, questions and annotation state |
+| `GET /api/qc/triage` | The plate × channel overview |
+| `GET /api/qc/display-ranges` | Range and display mode per plate × channel |
+| `GET /api/qc/review-list` | The review queue in file order; `blind=1` returns only the blinded contract in section 4.11 |
+| `GET /api/qc/annotations` | Current field- and well-scope annotations from all files in the folder |
+| `POST /api/qc/annotations` | Append an annotation or a retraction (section 4.8) |
+
+### 4.5 QC page
+
+A page `qc.astro` with a `QcBrowser` island, linked as "QC" in the
+navigation when the active dataset has QC. TIMED and other datasets without QC
+show no link. The page uses the active dataset from Connect and has no dataset
+selector of its own. The core page makes unblinded requests.
+
+- **Header:** the dataset name, export id and shortened registry hash. If the
+  export changes while the page is open, show "New export available" with a
+  Reload button.
+- **Plate overview:** `triage_plate_channel.csv` as plates by channels,
+  including `site`. Labels, questions and legend semantics come from its
+  dictionary rows. Clicking a cell limits everything below it to that plate
+  and channel.
+- **Plate maps:** all nine 384-well plates appear as small shared `PlateGrid`
+  maps in a 3 × 3 layout. Each well is shaded by the number of its nine sites
+  flagged under the current sliders. Hover lists flagged sites and their
+  values; clicking opens the well.
+- **Sliders:** exactly one per site-review metric and channel, chosen by
+  `primary=true`, grouped by channel and searchable. Each shows its dictionary
+  label and question, primary scale and `worse` direction, gate and status,
+  histogram, raw value, and a two-thumb control where applicable.
+  - `automatic` was decided upstream by a registered rule. The website never
+    recomputes or changes it. Registered thresholds from `markers` are shown on
+    the slider.
+  - `review` is a flag slider initialised from `default_flag_lo` and
+    `default_flag_hi`; a blank bound makes it one-sided. A site is flagged when
+    it lies beyond the slider, and the slider shows its own flagged-site count.
+  - `none` is a filter slider, initially fully open. It never flags a site or
+    feeds a queue.
+  - `worse` is `low`, `high` or `both`, with `both` producing a two-sided
+    direction.
+  - `pending_review` is shown as a badge. Retired, dropped and unrecognised
+    statuses are hidden; QC status lists unrecognised values.
+- **Combining sliders:** the table contains sites inside every filter range. If
+  any flag slider is active, it contains only sites beyond at least one active
+  flag slider.
+- **Categorical filters:** cell line, plate, well type and controls, gene, D62
+  state, protection and annotation status (not reviewed, reviewed, or a
+  specific label).
+- **Live counts:** fields, wells, controls and protection counts, both overall
+  and per flag slider.
+- **Tables:** a **Wells | Sites** toggle changes the virtualised, sortable
+  table.
+  - Sites include plate, well, site, gene, well type, controls, every context
+    column, every attribute including D62 state and protection, slider values
+    and annotation status.
+  - Wells include one row per well with flagged-site count, the worst value
+    among its sites for each active slider, gene, well type, D62 and protection
+    summaries, and annotation status.
+- **Actions:** "Review these" opens the current site or well rows as a session
+  queue (section 4.7).
+- **State in the URL:** slider bounds, categorical filters, plate and channel
+  scope, Wells/Sites mode and sorting, so reloads and shared links restore the
+  view.
+- **Speed:** filtering runs in the browser and must update in under 100 ms for
+  31,104 sites.
+
+### 4.6 Field view
+
+The existing viewer with a QC panel, opened from the QC page or a queue
+(`qc=1`). A site opens directly. A well opens at site 1 with a site stepper.
+
+- **Display ranges.** Each channel uses its plate × channel low/high range from
+  `display_ranges.csv` as a plain linear mapping, labelled "QC display range ·
+  export <id>". Provenance shows its quantiles and reference-field count. A
+  toggle switches back to dataset-default windows.
+- **Metrics panel.** Site metrics are grouped by channel, with field-level rows
+  under "Site". Each shows its dictionary label, primary-scale value with the
+  raw value beside it, direction and one-sentence question. Context and every
+  attribute appear in the same panel.
+- **Annotation form:**
+  - scope is the current field or whole well; channel is All or one stain;
+  - label, confidence (low, medium or high), and an optional note, then Save;
+  - current annotations show time, export id and mode, each with Retract.
+- **Keys:** `[` and `]` move to the previous and next queue entry.
+
+### 4.7 Review queues
+
+- **Review list.** "Review queue" opens the first entry of `review_list.csv`
+  in file order. A field entry opens its site. A well entry opens site 1 and
+  retains the site stepper. The viewer shows the QC panel and a review bar:
+  "Review 3 of N", Previous, Next and Back to QC. It also shows how many
+  entries already have an annotation.
+- **Session queue.** "Review these" does the same for the current Sites or Wells
+  table rows, stored in `sessionStorage`.
+
+### 4.8 Annotations: the one write
+
+- **Files.** The server writes only into the configured annotations folder,
+  which the operator creates. Per reviewer it writes
+  `annotations_<reviewer>.jsonl`.
+- **Reviewer.** The reviewer is the user running the data server (`nilsdu`), reduced to `[A-Za-z0-9_-]`. No part of a file path comes from a request.
+- **Append only.**
+  - Open with `O_WRONLY | O_APPEND | O_CREAT` and write each record as one line in a single `write`, followed by `fsync`.
+  - Never truncate, rewrite, rename or delete.
+  - A per-file lock in the server serialises writes.
+- **Annotation record:** `schema_version` 1, `record` "annotation", `id`
+  (UUID), `time` (UTC, ISO 8601), `reviewer`, `export_id`, `registry_hash`,
+  `scope` (`field` or `well`), `plate`, `barcode`, `well`, nullable `site`,
+  `channel` (a stain name or "all"), `label`, `confidence`, `note`, `blinded`
+  and `app_version`. Core-view writes have `blinded=false`; the server derives
+  the value from request mode.
+- **Retraction:** `record` "retraction", carrying the `id` it retracts. The
+  latest unretracted record per reviewer, scope, field or well, and channel is
+  current.
+- **Labels:** ok, blurred, partial_blur, saturated, debris, dark_or_bubble, uneven_illumination, dim_or_staining, noisy, misregistered, sparse_biological, known_fixed_shadow, other, unsure.
+- **Validation.** The label must be in the list, the channel a name in
+  `channels.csv` or "all", and the field or well must exist in the export.
+  Field scope requires a site; well scope does not accept one. Confidence must
+  be one of the three values, and the note at most 2,000 characters. Anything
+  else returns 422 and writes nothing.
+- **Reading.** Read every `*.jsonl` file in the folder. Skip malformed lines, but count them and report them in the status.
+- **Requests** go through the connector like the existing POST routes, with the same client header.
+
+### 4.9 Tests
+
+**Fixture export.** Extend `scripts/make_test_data.py` to write `test-data/qc-export/`, following the real structure in `QC_EXPORT.md` and covering the idr0080-like fixture plates. It includes:
+
+- site-review, context, panel, key, review and retired rows, plus dropped and
+  unrecognised statuses;
+- primary scales, automatic markers, and one- and two-sided default flag bounds;
+- hidden columns, including eight hidden review-list columns;
+- dictionary-described triage values and plain-linear display ranges;
+- field- and well-scope review entries with entry ids and review groups;
+- a `channels.csv` with AGP in slot 3 and RNA in slot 4;
+- a `version.json` with correct hashes.
+
+Add a second fixture export with a different metric set.
+
+**Server tests:**
+
+- **What is shown.** Core responses contain all export columns. UI metrics and
+  attributes follow layer, primary, gate and status dynamically. Retiring or
+  adding a row in a copy changes the result on reload.
+- **Blind response mode.** Scan every endpoint's `blind=1` JSON and prove that
+  hidden columns and the section 4.11 attributes are absent. The corresponding
+  core response retains them.
+- **Gates.** Automatic markers are read but never recomputed; review defaults
+  can be one- or two-sided; none-gated filters never flag or queue a site.
+- **Validation.** Keys, coverage and member names are checked, and `channels.csv` is compared with the profile.
+- **Replacement.** A hash mismatch keeps the previous export, and replacing the folder during a run switches cleanly.
+- **Annotations:**
+  - writing is append-only, with earlier bytes unchanged;
+  - validation errors write nothing;
+  - retraction and the current-record rule work;
+  - malformed lines are skipped;
+  - nothing is written outside the folder;
+  - a missing or read-only folder is handled.
+- **Switching exports.** Pointing the profile at the second export changes what is shown, with no code change.
+
+**End-to-end tests:**
+
+- the QC link appears only for Cell Health;
+- filters are built from primary dictionary rows, with automatic markers and
+  review defaults;
+- moving a slider updates overall and per-slider counts to known fixture values;
+- a triage click filters the table;
+- all nine plate maps and the Sites/Wells tables follow the current filters;
+- categorical filters, sorting and URL restoration work;
+- the field view shows primary and raw metrics, context, attributes and QC
+  display-range provenance;
+- both site and well queues move forward and back, including keyboard keys;
+- saving and retracting field- and well-scope annotations works;
+- every QC endpoint redacts its fixture-hidden data under `blind=1`;
+- TIMED is unchanged.
+
+**Real-export check.** An opt-in test loads `docs/data/qc-export/` without images and checks its structure, the dictionary, hidden columns and counts.
+
+### 4.10 Arrhenius check (A2) and pull request
+
+**Operator, before A2:** create the annotations folder:
+
+```bash
+mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations
+```
+
+**Operator, A2:**
+
+Before connecting, disconnect with job cancellation enabled and start a fresh
+Slurm job. Do not reuse an existing job. Confirm the handshake reports the
+expected 0.5.0 development version.
+
+1. The QC page shows the export id from the new `version.json`.
+2. The triage overview, all nine plate maps, dictionary-driven sliders,
+   categorical filters, Sites/Wells toggle and live counts behave as expected.
+3. A triage cell narrows the overview, maps and table to its plate and channel.
+4. Site and well views show metrics with questions, context, attributes and
+   plain-linear QC display ranges with the right channel names. A well starts
+   at site 1 and steps through its sites.
+5. Both queues preserve order and move with buttons and `[` / `]`.
+6. Annotate fields and wells and retract one annotation. On Arrhenius, inspect
+   the annotation file and check the records, unblinded mode and export id.
+   Reload and see the current annotations in the website.
+7. Record QC page load and slider response timings in `docs/arrhenius.md`.
+
+Then set version 0.5.0 and give the operator the PR text.
+
+### 4.11 Blinded mode after Part B (0.5.1)
+
+Build the user-facing blinded mode only after 0.5.0 is merged, in its own PR.
+
+- Add a switch on the QC page and viewer, off by default. When enabled, every
+  QC request uses `blind=1`.
+- The server removes all export columns marked hidden plus Phase 1 perturbation
+  identity, well type and control attributes, D62 state, protection, reference
+  membership, position risk, automatic-rule markers and viewer header facts.
+- Blinded counts include only fields and wells.
+- The blinded review queue exposes only `entry_id` and `review_group` plus the
+  data required to open the image. A channel entry opens that stain in
+  grayscale; a site entry opens the colour composite. The thumbnail shows the
+  whole field; selecting a spot opens native 1:1 resolution.
+- Annotations created through blinded requests record `blinded=true`.
+
+## 5. Part C: segmentation outlines (0.6.0)
+
+Build it as specified in the old brief's section 5.1 (mask stores and outlines) and Appendix D (the verified contract), with these changes:
+
+- **No `qc.parquet`.** The segmentation panel's counts ("731 nuclei · 616 cells") come from the masks themselves: labels run from 1 to N, as verified.
+- **QC field view.** The QC field view gets the outline toggles too.
+- **Milestones:** M1 (server) and M2 (viewer), with the old brief's mask fixtures and tests.
+- **Operator check.** On plate 14610, well A01, site 1:
+  - 731 nucleus outlines and 616 cell outlines align with the image;
+  - the stock model is offered only on 14610;
+  - outline timings are recorded.
+
+Then set version 0.6.0 and give the operator the PR text.
+
+## 6. Order of work
+
+1. **Part A** (separate prompt): operator check, PR, merge.
+2. **Part B:**
+   1. Write `QC_EXPORT.md`, and stop if anything is unclear.
+   2. Configuration and loading.
+   3. Endpoints and the server-side `blind=1` response contract.
+   4. Overview, plate maps, Sites/Wells tables and filters.
+   5. Review in the viewer.
+   6. Queues and annotations.
+   7. Operator check (A2), version 0.5.0, PR and merge.
+3. **Blinded mode (0.5.1):** after Part B merges, add the QC/viewer switch and
+   blinded image-review interaction in a separate PR.
+4. **Part C:** operator check, PR, merge.
