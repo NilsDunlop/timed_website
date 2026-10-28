@@ -411,8 +411,8 @@ the underlying virtual path.
 
 The composite palette comes from the `RGB_MAP` in Recursion's official
 [`rxrx1-utils` image helper](https://github.com/recursionpharma/rxrx1-utils/blob/31e6f9b826c6de84f531cd2b4f67bfc158036d7d/rxrx/io.py#L17-L42).
-Matching those channel colours by stain gives DNA `1300F9`, ER `2AFF1F`, RNA
-`2DFFFC`, AGP `FF0019`, and Mito `FA00FD`. RxRx's separate PM channel uses
+Matching those channel colours by stain gives DNA `1300F9`, ER `2AFF1F`, AGP
+`FF0019`, RNA `2DFFFC`, and Mito `FA00FD`. RxRx's separate PM channel uses
 `FEFF28`; TIMED records that value for later but IDR0080 does not expose a
 separate PM channel.
 
@@ -449,9 +449,10 @@ between fields. One mode applies to all viewer panels, including comparisons
 and every source type. Split view and per-channel Solo buttons remain out of
 scope.
 
-The completed A1 Grayscale comparison matched Cell Health's reference exactly.
-That independent result confirms the plate, well, site, orientation, and
-channel order while leaving the fixed cross-well contrast windows intact.
+The completed A1 Grayscale comparison matched Cell Health's reference visually.
+It confirmed the plate, well, site, orientation, and source imagery, but did
+not independently establish the packed-slot-to-stain mapping. The later 0.4.1
+channel-identity correction records why the AGP/RNA swap escaped this check.
 
 ## 2026-10-27: use plate-grid highlights instead of Related fields
 
@@ -513,8 +514,9 @@ Phase 1 closes on the real-data A1 result rather than on another display or
 performance redesign. On Arrhenius, TIMED remained the preselected, unchanged
 workflow; Cell Health A549 `SQ00014610` A01 site 1 matched the inspection
 preview; and the independent ES2 `SQ00014613` A01 site 1 grayscale crop matched
-Cell Health v2.0 exactly. The latter is the acceptance evidence for plate,
-well, site, orientation, and channel order. The requested cross-cell-line MCL1
+Cell Health v2.0 visually. The latter is acceptance evidence for plate, well,
+site, orientation, and imagery, but not for the packed-slot-to-stain mapping.
+The requested cross-cell-line MCL1
 comparison and EMPTY control loaded together and stayed synchronized.
 
 The accepted field-opening timing is about 4–5 seconds on the operator's work
@@ -541,3 +543,32 @@ to the Phase 2 segmentation work.
 A1 and the source-calibration evidence are complete. R1 prepares the release
 documents and version `0.4.0` on `feature/idr0080`; merging and tagging remain
 operator-controlled steps after review.
+
+## 2026-10-28: correct packed Cell Health channel identity
+
+Cell Health's packed `channel` column is a packed-slot number, not the original
+Phenix / IDR channel number. The export's `channels.csv` resolves the identity
+by high-pass correlation over 21 sites: every packed plane correlates at least
+0.98 with its matching raw channel, and no more than 0.69 with any other raw
+channel. The resulting mapping is DNA slot 1 to Phenix 1, ER slot 2 to Phenix
+2, AGP slot 3 to Phenix 4, RNA slot 4 to Phenix 3, and Mito slot 5 to Phenix 5.
+
+Phase 1 assumed that packed slot and Phenix channel were the same. That was
+wrong because CellPrompter's records number the raw Phenix files rather than
+the repacked member suffixes. The mistake exchanged AGP and RNA labels while
+leaving the underlying planes intact. The A1 grayscale comparison therefore
+confirmed image content and geometry but did not catch the identity error.
+
+The code profile now lists packed slots as DNA, ER, AGP, RNA, and Mito. Colours
+and default visibility follow the corrected stains: AGP is red (`FF0019`) and
+active; RNA is cyan (`2DFFFC`) and inactive. Surveyed contrast windows remain
+attached to their packed slots, so slot 3 keeps 554–9,283 / 375–10,793 /
+497–12,756 with a 0–26,000 slider, while slot 4 keeps 151–5,035 / 108–5,778 /
+117–6,968 with a 0–14,000 slider. RNA's dimmer slot is consistent with its
+0.01 s exposure compared with AGP's 0.02 s exposure.
+
+The Arrhenius re-check passed on a newly submitted `0.4.1.dev0` Slurm job.
+The viewer listed DNA, ER, AGP, RNA, and Mito in packed slot order; ES2 AGP
+used 375–10,793 and showed Golgi and cell-edge signal, while RNA used
+108–5,778 and showed nucleolar signal. The first attempt had reused the old
+Slurm job, so it was discarded rather than treated as validation evidence.

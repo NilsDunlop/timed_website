@@ -189,8 +189,8 @@ export async function exerciseIdr0080Flow(page: Page) {
   const channels = [
     ["DNA", true, "292", "11552"],
     ["ER", true, "438", "17554"],
-    ["RNA", false, "554", "9283"],
-    ["AGP", true, "151", "5035"],
+    ["AGP", true, "554", "9283"],
+    ["RNA", false, "151", "5035"],
     ["Mito", false, "324", "4066"],
   ] as const;
   for (const [name, visible, start, end] of channels) {

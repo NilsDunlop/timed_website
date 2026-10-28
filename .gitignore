@@ -26,6 +26,7 @@ docs/data/previews/
 docs/data/packed-display-survey.json
 docs/data/idr0080-extras.json
 docs/data/idr0080-mask-contract.json
+docs/data/qc-export/
 
 # Local environment and editor files
 .env

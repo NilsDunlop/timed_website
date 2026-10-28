@@ -331,7 +331,7 @@ def make_packed_plane(
 def _packed_relpath(plate: int, well: str, site: int, channel: int) -> str:
     row = ord(well[0]) - ord("A") + 1
     column = int(well[1:])
-    filename = f"r{row:02d}c{column:02d}f{site:02d}p01-ch{channel}sk1fk1fl1.tiff"
+    filename = f"r{row:02d}c{column:02d}f{site:02d}_ch{channel}.tiff"
     return f"source/SQ000{plate}/Images/{filename}"
 
 

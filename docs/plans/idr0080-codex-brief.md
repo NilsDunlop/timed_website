@@ -208,7 +208,7 @@ A collection is a titled entry point into data the server can already open. Coll
 | Index experiment `idr0080-A549`, `-ES2`, `-HCC44` | User-facing groups labelled A549, ES2, and HCC44 in the plates panel ("3 plates"); experiment ids remain internal |
 | Plate 14610–14618 | A plate named `SQ000<plate>`, linked as "Cell Health · A549 · SQ00014610"; 384 wells, A–P × 1–24 |
 | Well and site 1–9 | Field `<well>_s<site>.zarr`, so the site picker and tray work unchanged |
-| Channels 1–5 | DNA, ER, RNA, AGP, Mito (Appendix B.1) |
+| Packed slots 1–5 | DNA, ER, AGP, RNA, Mito (Appendix B.1) |
 | `metadata_idr0080.csv` row | Well metadata (section 4.4) |
 
 ### 4.3 Packed adapter (data server)
@@ -623,7 +623,8 @@ Each milestone ends with its tests green, the existing suites green, and a push.
      and `SQ00014616` (HCC44), plus the `A01` EMPTY control on
      `SQ00014611`.
   4. Repeat the channel check in **Grayscale** mode as specified in
-     `docs/arrhenius.md`.
+     `docs/arrhenius.md`. This check confirmed the imagery and geometry, but
+     did not detect the later-corrected AGP/RNA label swap; see Appendix B.1.
   5. Disconnect after viewing images and confirm a final state within a few
      seconds.
   6. Record the accepted loading times in `docs/arrhenius.md`; do not try the
@@ -906,15 +907,21 @@ The stains are DNA, ER, AGP, RNA and Mito.
 
 ### B.1 Channels
 
-| Index channel | Stain | Colour | Shown by default |
-| --- | --- | --- | --- |
-| 1 | DNA | `1300F9` | yes |
-| 2 | ER | `2AFF1F` | yes |
-| 3 | RNA | `2DFFFC` | no |
-| 4 | AGP | `FF0019` | yes |
-| 5 | Mito | `FA00FD` | no |
+| Packed slot (member suffix) | Stain | Phenix / IDR channel | Colour | Shown by default |
+| --- | --- | --- | --- | --- |
+| 1 (`_ch1.tiff`) | DNA | 1 | `1300F9` | yes |
+| 2 (`_ch2.tiff`) | ER | 2 | `2AFF1F` | yes |
+| 3 (`_ch3.tiff`) | AGP | 4 | `FF0019` | yes |
+| 4 (`_ch4.tiff`) | RNA | 3 | `2DFFFC` | no |
+| 5 (`_ch5.tiff`) | Mito | 5 | `FA00FD` | no |
 
-The order comes from CellPrompter's records, which map the original source files `ch1…ch5` to these stains. "Shown by default: no" is encoded as OMERO's `"active": false`.
+The packed index's `channel` field is the packed slot, not the raw Phenix /
+IDR channel number. The export's `channels.csv` establishes the mapping above
+by high-pass correlation over 21 sites: every matching channel is at least
+0.98, while every non-matching channel is at most 0.69. CellPrompter's records
+number the raw Phenix files, so treating those numbers as packed slots caused
+the original AGP/RNA label swap. "Shown by default: no" is encoded as OMERO's
+`"active": false`.
 
 Composite colours follow the hue-separated `RGB_MAP` in Recursion's official
 [`rxrx1-utils` image helper](https://github.com/recursionpharma/rxrx1-utils/blob/31e6f9b826c6de84f531cd2b4f67bfc158036d7d/rxrx/io.py#L17-L42),
@@ -937,9 +944,13 @@ The default window is the pooled 1st to 99.9th percentile of 30 random fields pe
 | --- | --- | --- | --- | --- |
 | DNA | 292–11,552 | 234–12,971 | 254–13,104 | 0–27,000 |
 | ER | 438–17,554 | 309–18,238 | 318–22,196 | 0–45,000 |
-| RNA | 554–9,283 | 375–10,793 | 497–12,756 | 0–26,000 |
-| AGP | 151–5,035 | 108–5,778 | 117–6,968 | 0–14,000 |
+| AGP | 554–9,283 | 375–10,793 | 497–12,756 | 0–26,000 |
+| RNA | 151–5,035 | 108–5,778 | 117–6,968 | 0–14,000 |
 | Mito | 324–4,066 | 334–7,120 | 394–5,711 | 0–15,000 |
+
+The survey measured packed slots, so the windows remain attached to slots 3
+and 4 when their stain labels are corrected. RNA is the dimmer slot, consistent
+with its 0.01 s exposure compared with AGP's 0.02 s exposure.
 
 ### B.3 Chunk encoding
 

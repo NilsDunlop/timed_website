@@ -51,8 +51,8 @@ def test_idr0080_metadata_maps_plate_acquisition_labels_colors_and_wells(
     assert [channel.name for channel in response.plate.acquisition.channels] == [
         "DNA",
         "ER",
-        "RNA",
         "AGP",
+        "RNA",
         "Mito",
     ]
     assert response.labels is not None
