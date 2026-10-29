@@ -4,9 +4,32 @@
 
 .qc-review-bar {
   display: grid;
-  grid-template-columns: minmax(10rem, 1fr) auto auto;
+  grid-template-columns: minmax(9rem, auto) minmax(14rem, 1fr) auto auto;
   align-items: center;
   gap: 0.75rem 1rem;
+}
+
+.qc-review-reason,
+.qc-review-reason-card {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 0.22rem solid #b65b36;
+  background: #fff2ec;
+}
+
+.qc-review-reason span,
+.qc-review-reason-card span {
+  color: #765042;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.qc-review-reason strong,
+.qc-review-reason-card strong {
+  color: #572d20;
 }
 
 .qc-review-progress {
@@ -78,6 +101,16 @@
 .qc-field-section h4,
 .qc-field-section p {
   margin: 0;
+}
+
+.qc-field-disclosure > summary {
+  color: #315f3b;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.qc-field-disclosure-content {
+  margin-top: 0.75rem;
 }
 
 .qc-range-toggle {

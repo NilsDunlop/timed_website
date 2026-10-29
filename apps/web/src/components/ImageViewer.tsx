@@ -2052,6 +2052,7 @@ export default function ImageViewer() {
             index={qcQueue.index}
             total={qcQueue.queue?.entries.length ?? 0}
             annotated={annotatedQueueEntries}
+            reason={activeQueueEntry?.reason}
             backHref={qcQueue.backHref}
             busy={qcQueueBusy}
             warning={qcQueue.warning}
@@ -2221,6 +2222,7 @@ export default function ImageViewer() {
             annotationsWritable={qcContext.annotationsWritable}
             annotationSubmitting={qcAnnotationBusy}
             annotationDefaultChannel={activeQueueEntry?.channel ?? "all"}
+            reviewReason={activeQueueEntry?.reason}
             annotationError={qcAnnotationError}
             annotationStatus={qcAnnotationStatus}
             onSaveAnnotation={(value) => void saveQcAnnotation(value)}

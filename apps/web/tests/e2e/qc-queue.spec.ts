@@ -63,6 +63,7 @@ const field: QcQueueEntry = {
   well: "A01",
   site: 1,
   channel: "DNA",
+  reason: "Fixture focus · DNA",
 };
 const well: QcQueueEntry = {
   scope: "well",
@@ -114,7 +115,7 @@ function annotationRecord(overrides: Record<string, unknown> = {}) {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    app_version: "0.5.0.dev5",
+    app_version: "0.5.0.dev6",
     ...overrides,
   };
 }
@@ -308,7 +309,7 @@ test("parses current annotation records from supplied channel names", () => {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    appVersion: "0.5.0.dev5",
+    appVersion: "0.5.0.dev6",
   });
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), ["new-stain"])).not.toBeNull();
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), channels)).toBeNull();

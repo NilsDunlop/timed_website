@@ -39,6 +39,7 @@ import {
   applyQcFilters,
   buildQcModel,
   defaultQcFilterState,
+  qcFlaggedSlidersForRow,
   sortQcRows,
   sortQcWells,
   uniqueQcValues,
@@ -49,6 +50,7 @@ import {
   type QcSliderState,
   type QcWellSummary,
 } from "../lib/qcModel";
+import { qcDisplayLabel } from "../lib/qcViewer";
 import {
   parseQcUrlState,
   qcUrlSearch,
@@ -85,14 +87,8 @@ type CategoryDefinition = {
   column: string;
   label: string;
   values: readonly QcScalar[];
+  advanced: boolean;
 };
-
-function humanize(value: string): string {
-  return value
-    .replace(/__/g, " \u00b7 ")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
-}
 
 function displayScalar(value: QcScalar | readonly QcScalar[] | undefined): ReactNode {
   if (Array.isArray(value)) return value.map((item) => displayScalar(item)).join(", ");
@@ -104,12 +100,26 @@ function displayScalar(value: QcScalar | readonly QcScalar[] | undefined): React
   return value;
 }
 
+function flaggedReason(
+  model: QcModel,
+  state: QcFilterState,
+  rowIndex: number,
+): string {
+  return qcFlaggedSlidersForRow(model, state, rowIndex)
+    .map((slider) =>
+      slider.channel
+        ? `${qcDisplayLabel(slider.label)} · ${slider.channel}`
+        : qcDisplayLabel(slider.label),
+    )
+    .join(", ");
+}
+
 function dictionaryLabel(
   definitions: readonly QcColumnDefinition[],
   column: string,
 ): string {
   const label = definitions.find((definition) => definition.column === column)?.label;
-  return humanize(label || column);
+  return qcDisplayLabel(label || column);
 }
 
 function tableColumnLabel(
@@ -123,7 +133,7 @@ function tableColumnLabel(
     (candidate) => dictionaryLabel(definitions, candidate) === base,
   );
   return duplicates.length > 1 && definition?.scale
-    ? `${base} (${humanize(definition.scale)})`
+    ? `${base} (${qcDisplayLabel(definition.scale)})`
     : base;
 }
 
@@ -183,13 +193,14 @@ function categoryDefinitions(model: QcModel): CategoryDefinition[] {
         ? "Annotation status"
         : dictionaryLabel(model.dictionary, column),
       values,
+      advanced: !always,
     }];
   });
 }
 
 function annotationDisplay(state: QcAnnotationRowState): string {
   return state.reviewed
-    ? state.labels.map(humanize).join(", ") || "Reviewed"
+    ? state.labels.map(qcDisplayLabel).join(", ") || "Reviewed"
     : "Not reviewed";
 }
 
@@ -286,6 +297,20 @@ function reviewQueueEntry(
   const plateGroup = String(model.columns.experiment?.[matchingRow] ?? "");
   const barcode = String(model.columns.plate_barcode?.[matchingRow] ?? "");
   const requestedChannel = String(row.channel ?? "");
+  const requestedMetric = String(row.metric ?? "");
+  const reasonDefinition = model.dictionary.find(
+    (definition) =>
+      definition.file === "site_metrics.csv" &&
+      definition.metric === requestedMetric &&
+      (definition.channel === requestedChannel || requestedChannel === "site") &&
+      definition.primary,
+  ) ?? model.dictionary.find(
+    (definition) =>
+      definition.file === "site_metrics.csv" && definition.metric === requestedMetric,
+  );
+  const reasonLabel = qcDisplayLabel(
+    reasonDefinition?.label || requestedMetric || "Review queue",
+  );
   return {
     scope,
     plateGroup,
@@ -294,6 +319,10 @@ function reviewQueueEntry(
     well,
     site,
     channel: channels.includes(requestedChannel) ? requestedChannel : "all",
+    reason:
+      requestedChannel && requestedChannel !== "site"
+        ? `${reasonLabel} · ${requestedChannel}`
+        : reasonLabel,
   };
 }
 
@@ -379,6 +408,7 @@ export default function QcBrowser() {
   const [sortColumn, setSortColumn] = useState<string | null>("plate");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [sliderSearch, setSliderSearch] = useState("");
+  const [showTableDetails, setShowTableDetails] = useState(false);
   const [newExport, setNewExport] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -554,6 +584,7 @@ export default function QcBrowser() {
     setSortColumn(parsed.sortColumn ?? "plate");
     setSortDirection(parsed.sortDirection);
     setSliderSearch(parsed.sliderSearch);
+    setShowTableDetails(parsed.showDetails);
   }, []);
 
   useEffect(() => {
@@ -662,6 +693,7 @@ export default function QcBrowser() {
       sortColumn,
       sortDirection,
       sliderSearch,
+      showDetails: showTableDetails,
       sliders,
       categories: Object.fromEntries(
         Object.entries(categoryStates).map(([column, values]) => [
@@ -678,6 +710,7 @@ export default function QcBrowser() {
     selectedPlate,
     sliderSearch,
     sliderStates,
+    showTableDetails,
     sortColumn,
     sortDirection,
     tableMode,
@@ -712,22 +745,50 @@ export default function QcBrowser() {
       ) ?? [],
     [loaded, selectedChannel],
   );
+  useEffect(() => {
+    if (displayedSliders.length === 0) return;
+    if (displayedSliders.some((slider) => slider.column === sliderSearch)) return;
+    setSliderSearch(
+      displayedSliders.find((slider) => slider.gate === "review")?.column ??
+        displayedSliders[0]?.column ??
+        "",
+    );
+  }, [displayedSliders, sliderSearch]);
+  const essentialMetadataColumns = useMemo(
+    () =>
+      ["gene", "is_control", "annotation_status"].filter(
+        (column) => column in (loaded?.model.columns ?? {}),
+      ),
+    [loaded],
+  );
   const siteColumnIds = useMemo(() => {
     if (!loaded) return [];
     const requested = [
       "plate",
       "well",
       "site",
-      ...metadataColumns,
-      ...contextColumns,
-      ...displayedSliders.flatMap((slider) =>
-        slider.rawColumn && slider.rawColumn !== slider.column
-          ? [slider.column, slider.rawColumn]
-          : [slider.column],
-      ),
+      ...essentialMetadataColumns,
+      ...(showTableDetails
+        ? [
+            ...metadataColumns,
+            ...contextColumns,
+            ...displayedSliders.flatMap((slider) =>
+              slider.rawColumn && slider.rawColumn !== slider.column
+                ? [slider.column, slider.rawColumn]
+                : [slider.column],
+            ),
+          ]
+        : []),
     ];
     return [...new Set(requested)].filter((column) => column in loaded.model.columns);
-  }, [contextColumns, displayedSliders, loaded, metadataColumns]);
+  }, [
+    contextColumns,
+    displayedSliders,
+    essentialMetadataColumns,
+    loaded,
+    metadataColumns,
+    showTableDetails,
+  ]);
   const wellSummaryColumns = useMemo(() => {
     if (!loaded) return [];
     return [
@@ -754,11 +815,18 @@ export default function QcBrowser() {
         "plate",
         "well",
         "flaggedSiteCount",
-        ...wellSummaryColumns,
-        ...activeWellSliderColumns,
+        ...essentialMetadataColumns,
+        ...(showTableDetails
+          ? [...wellSummaryColumns, ...activeWellSliderColumns]
+          : []),
       ]),
     ],
-    [activeWellSliderColumns, wellSummaryColumns],
+    [
+      activeWellSliderColumns,
+      essentialMetadataColumns,
+      showTableDetails,
+      wellSummaryColumns,
+    ],
   );
 
   useEffect(() => {
@@ -841,6 +909,7 @@ export default function QcBrowser() {
         well: String(loaded.model.columns.well?.[rowIndex] ?? "").toUpperCase(),
         site: Number(loaded.model.columns.site?.[rowIndex]),
         channel: "all",
+        reason: flaggedReason(filteredModel ?? loaded.model, filterState, rowIndex) || "Current QC filters",
       }));
     }
     return wells.map((well) => {
@@ -853,9 +922,17 @@ export default function QcBrowser() {
         well: String(well.keyValues.well ?? "").toUpperCase(),
         site: 1,
         channel: "all",
+        reason:
+          [...new Set(
+            well.rowIndices
+              .map((rowIndex) =>
+                flaggedReason(filteredModel ?? loaded.model, filterState, rowIndex),
+              )
+              .filter(Boolean),
+          )].join(", ") || "Current QC filters",
       };
     });
-  }, [loaded, sortedSites, tableMode, wells]);
+  }, [filterState, filteredModel, loaded, sortedSites, tableMode, wells]);
 
   function updateSort(column: string) {
     if (sortColumn === column) {
@@ -951,6 +1028,44 @@ export default function QcBrowser() {
     );
   }
 
+  function categoryControl(category: CategoryDefinition): ReactNode {
+    return (
+      <label key={category.column}>
+        <span>{category.label}</span>
+        <select
+          multiple
+          aria-label={category.label}
+          value={
+            category.column === "plate" && selectedPlate !== null
+              ? [String(selectedPlate)]
+              : (categoryStates[category.column] ?? []).map(String)
+          }
+          onChange={(event) => {
+            const requested = [...event.target.selectedOptions].map(
+              (option) => option.value,
+            );
+            const values = requested
+              .map((value) => scalarFromUrl(category.values, value))
+              .filter((value): value is QcScalar => value !== undefined);
+            startTransition(() => {
+              if (category.column === "plate") setSelectedPlate(null);
+              setCategoryStates((current) => ({
+                ...current,
+                [category.column]: values,
+              }));
+            });
+          }}
+        >
+          {category.values.map((value) => (
+            <option key={`${typeof value}:${String(value)}`} value={String(value)}>
+              {displayScalar(value)}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
   if (!initialized) return <p className="muted">Loading QC review\u2026</p>;
   if (!loaded || !result) {
     return (
@@ -964,12 +1079,30 @@ export default function QcBrowser() {
     );
   }
 
-  const siteColumns: QcTableColumn<number>[] = siteColumnIds.map((column) => ({
+  const siteValueColumns: QcTableColumn<number>[] = siteColumnIds.map((column) => ({
     id: column,
     label: tableColumnLabel(loaded.model.dictionary, column, siteColumnIds),
     render: (rowIndex) => displayScalar(loaded.model.columns[column]?.[rowIndex]),
   }));
-  const wellColumns: QcTableColumn<QcWellSummary>[] = wellColumnIds.map(
+  const siteReasonColumn: QcTableColumn<number> = {
+    id: "flaggedBy",
+    label: "Flagged by",
+    sortable: false,
+    render: (rowIndex) => {
+      const reason = flaggedReason(filteredModel ?? loaded.model, filterState, rowIndex);
+      return reason || <span className="muted">Current filters</span>;
+    },
+  };
+  const siteReasonIndex = Math.max(
+    0,
+    siteValueColumns.findIndex((column) => column.id === "site") + 1,
+  );
+  const siteColumns: QcTableColumn<number>[] = [
+    ...siteValueColumns.slice(0, siteReasonIndex),
+    siteReasonColumn,
+    ...siteValueColumns.slice(siteReasonIndex),
+  ];
+  const wellValueColumns: QcTableColumn<QcWellSummary>[] = wellColumnIds.map(
     (column) => ({
       id: column,
       label:
@@ -984,6 +1117,28 @@ export default function QcBrowser() {
         ),
     }),
   );
+  const wellReasonColumn: QcTableColumn<QcWellSummary> = {
+    id: "flaggedBy",
+    label: "Flagged by",
+    sortable: false,
+    render: (well) =>
+      [...new Set(
+        well.rowIndices
+          .map((rowIndex) =>
+            flaggedReason(filteredModel ?? loaded.model, filterState, rowIndex),
+          )
+          .filter(Boolean),
+      )].join(", ") || <span className="muted">Current filters</span>,
+  };
+  const wellReasonIndex = Math.max(
+    0,
+    wellValueColumns.findIndex((column) => column.id === "flaggedSiteCount") + 1,
+  );
+  const wellColumns: QcTableColumn<QcWellSummary>[] = [
+    ...wellValueColumns.slice(0, wellReasonIndex),
+    wellReasonColumn,
+    ...wellValueColumns.slice(wellReasonIndex),
+  ];
 
   return (
     <div className="qc-browser stack">
@@ -991,7 +1146,7 @@ export default function QcBrowser() {
         <div>
           <p className="eyebrow">Quality control</p>
           <h1>{loaded.collection.title}</h1>
-          <p className="lede">Review the complete configured export with dictionary-defined metrics.</p>
+          <p className="lede">Review flagged images and record decisions.</p>
         </div>
         <div className="qc-page-actions">
           <button
@@ -1001,16 +1156,19 @@ export default function QcBrowser() {
           >
             Review queue
           </button>
-          <dl className="qc-export-identity">
-            <div>
-              <dt>Export</dt>
-              <dd>{loaded.status.export_id}</dd>
-            </div>
-            <div>
-              <dt>Registry</dt>
-              <dd>{loaded.status.registry_hash?.slice(0, 12)}</dd>
-            </div>
-          </dl>
+          <details className="qc-export-details">
+            <summary>Export details</summary>
+            <dl className="qc-export-identity">
+              <div>
+                <dt>Export</dt>
+                <dd>{loaded.status.export_id}</dd>
+              </div>
+              <div>
+                <dt>Registry</dt>
+                <dd>{loaded.status.registry_hash?.slice(0, 12)}</dd>
+              </div>
+            </dl>
+          </details>
         </div>
       </header>
 
@@ -1067,8 +1225,8 @@ export default function QcBrowser() {
           result={result}
           state={sliderStates}
           selectedChannel={selectedChannel}
-          search={sliderSearch}
-          onSearch={setSliderSearch}
+          selectedMetric={sliderSearch}
+          onSelectMetric={setSliderSearch}
           onChange={(column, state) =>
             startTransition(() =>
               setSliderStates((current) => ({ ...current, [column]: state })),
@@ -1100,49 +1258,16 @@ export default function QcBrowser() {
               )}
             </div>
             <div className="qc-category-filters">
-              {categories.map((category) => (
-                <label key={category.column}>
-                  <span>{category.label}</span>
-                  <select
-                    multiple
-                    aria-label={category.label}
-                    value={
-                      category.column === "plate" && selectedPlate !== null
-                        ? [String(selectedPlate)]
-                        : (categoryStates[category.column] ?? []).map(String)
-                    }
-                    onChange={(event) => {
-                      const requested = [...event.target.selectedOptions].map(
-                        (option) => option.value,
-                      );
-                      const values = requested
-                        .map((value) => scalarFromUrl(category.values, value))
-                        .filter((value): value is QcScalar => value !== undefined);
-                      startTransition(() => {
-                        if (category.column === "plate") {
-                          setSelectedPlate(null);
-                          setCategoryStates((current) => ({
-                            ...current,
-                            [category.column]: values,
-                          }));
-                        } else {
-                          setCategoryStates((current) => ({
-                            ...current,
-                            [category.column]: values,
-                          }));
-                        }
-                      });
-                    }}
-                  >
-                    {category.values.map((value) => (
-                      <option key={`${typeof value}:${String(value)}`} value={String(value)}>
-                        {displayScalar(value)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
+              {categories.filter((category) => !category.advanced).map(categoryControl)}
             </div>
+            {categories.some((category) => category.advanced) && (
+              <details className="qc-filter-details">
+                <summary>More filters</summary>
+                <div className="qc-category-filters">
+                  {categories.filter((category) => category.advanced).map(categoryControl)}
+                </div>
+              </details>
+            )}
             <dl className="qc-counts" data-testid="qc-counts">
               <div>
                 <dt>Fields</dt>
@@ -1205,6 +1330,17 @@ export default function QcBrowser() {
                 </button>
               </div>
             </div>
+            <details className="qc-table-details">
+              <summary>Additional table columns</summary>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showTableDetails}
+                  onChange={(event) => setShowTableDetails(event.target.checked)}
+                />
+                <span>Show context, attributes, and metric values</span>
+              </label>
+            </details>
             {tableMode === "sites" ? (
               <QcVirtualTable
                 ariaLabel="QC sites"

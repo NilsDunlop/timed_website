@@ -102,10 +102,17 @@ function finite(value: unknown): number | null {
 }
 
 export function qcDisplayLabel(value: string): string {
-  return value
+  const label = value
     .replace(/__/g, " · ")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+  if (/^D62:\s*Share Excluded Automatically$/i.test(label)) {
+    return "Automatic exclusion";
+  }
+  if (/^D62:\s*Share Flagged For Review$/i.test(label)) {
+    return "Flagged for review";
+  }
+  return label.replace(/^D62\b/i, "Automatic exclusion");
 }
 
 function applicable(row: Record<string, unknown>): boolean {

@@ -680,3 +680,33 @@ silently ignoring the seventh hash would have bypassed both its integrity
 check and its role in annotation validation. The replacement is now validated
 as one atomic seven-file snapshot. Private data remain described only by
 count: 55 hidden site columns and ten hidden review-list columns.
+
+## 2026-10-29: make QC review progressive and reason-first
+
+The QC export remains complete and dictionary-driven, but its full schema is
+not the default presentation. The core review screen now uses progressive
+disclosure: export identity, the plate overview, secondary categorical filters,
+additional table columns, image-display provenance, all metrics, context and
+attributes are available on demand instead of competing with the review task.
+No export column or endpoint was removed.
+
+The metric search is replaced by a channel-grouped dropdown with readable
+labels and one control card at a time. The plate overview similarly shows one
+selected measure across plates and channels and is collapsed by default. The
+Sites and Wells tables begin with identity, essential metadata, annotation
+state and a prominent **Flagged by** column; context, attributes and primary and
+raw metric values are behind **Additional table columns**. Core filters remain
+visible and secondary context is grouped under **More filters**.
+
+The export's D62-prefixed operator measures are translated at the UI boundary:
+"share excluded automatically" is shown as **Automatic exclusion** and "share
+flagged for review" as **Flagged for review**. This is a display alias only;
+dictionary identity, values and filtering semantics remain unchanged.
+
+Review-list entries derive their readable reason from the matching primary
+dictionary metric and channel. Session queues derive it from the active review
+rules that matched each site or well. The reason is carried into the viewer and
+shown before secondary details. Queue storage deduplicates repeated reason
+strings so a complete 31,104-field session queue remains within a conservative
+browser-storage quota while retaining the existing export, registry,
+collection and target validation.

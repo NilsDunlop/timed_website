@@ -471,6 +471,25 @@ function countsForRows(model: QcModel, rowIndices: readonly number[]): QcCounts 
   return { fields: rowIndices.length, wells: wells.size, controls, fieldsUnderProtection };
 }
 
+export function qcFlaggedSlidersForRow(
+  model: QcModel,
+  state: QcFilterState,
+  rowIndex: number,
+): readonly QcSliderDefinition[] {
+  if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= model.rowCount) {
+    return [];
+  }
+  return relevantSliders(model, state.channel).filter((slider) => {
+    if (slider.gate !== "review") return false;
+    const resolved = resolvedSliderState(slider, state.sliders?.[slider.column]);
+    if (!resolved.flagActive || (resolved.flagLo === null && resolved.flagHi === null)) {
+      return false;
+    }
+    const value = numberAt(model, slider.column, rowIndex);
+    return value !== null && sliderFlags(value, slider, resolved);
+  });
+}
+
 export function applyQcFilters(
   model: QcModel,
   state: QcFilterState = {},

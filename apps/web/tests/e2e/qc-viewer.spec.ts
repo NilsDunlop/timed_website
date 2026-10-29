@@ -5,12 +5,22 @@ import {
   buildQcFieldView,
   buildQcSiteStepper,
   copyQcContrastChannels,
+  qcDisplayLabel,
   qcSiteHref,
   qcSiteOptions,
   restoreDatasetContrasts,
   selectQcDisplayRanges,
   type QcFieldPayloadLike,
 } from "../../src/lib/qcViewer";
+
+test("uses operator-facing labels for automatic exclusion measures", () => {
+  expect(qcDisplayLabel("D62: share excluded automatically")).toBe(
+    "Automatic exclusion",
+  );
+  expect(qcDisplayLabel("D62: share flagged for review")).toBe(
+    "Flagged for review",
+  );
+});
 
 const fieldPayload: QcFieldPayloadLike = {
   export_id: "fixture-export",

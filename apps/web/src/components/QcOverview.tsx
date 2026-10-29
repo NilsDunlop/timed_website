@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import type { QcColumnDefinition } from "../lib/qcModel";
+import { qcDisplayLabel } from "../lib/qcViewer";
 
 type QcRow = Record<string, unknown>;
 
@@ -14,13 +15,6 @@ type Props = {
 
 function numeric(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function displayLabel(value: string): string {
-  return value
-    .replace(/__/g, " \u00b7 ")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
 }
 
 function displayValue(value: unknown, scale: string): string {
@@ -55,6 +49,13 @@ export default function QcOverview({
     (definition) =>
       definition.file === "triage_plate_channel.csv" && definition.metric !== "",
   );
+  const [selectedMetric, setSelectedMetric] = useState("");
+  const selectedDefinition =
+    definitions.find((definition) => definition.column === selectedMetric) ??
+    definitions.find(
+      (definition) => qcDisplayLabel(definition.label) === "Automatic exclusion",
+    ) ??
+    definitions[0];
   const byKey = useMemo(
     () =>
       new Map(
@@ -73,26 +74,38 @@ export default function QcOverview({
   }
 
   return (
-    <section className="panel stack" aria-labelledby="qc-overview-heading">
+    <details
+      className="panel qc-overview-disclosure"
+      open={selectedPlate !== null || selectedChannel !== null ? true : undefined}
+    >
+      <summary id="qc-overview-heading">
+        <span>Plate overview</span>
+        <small>Compare one measure across plates and channels</small>
+      </summary>
+      <div className="stack qc-overview-content">
       <div className="section-heading">
-        <div>
-          <p className="eyebrow">Triage</p>
-          <h2 id="qc-overview-heading">Plate overview</h2>
-        </div>
+        <label className="qc-overview-metric">
+          <span>Measure</span>
+          <select
+            value={selectedDefinition?.column ?? ""}
+            onChange={(event) => setSelectedMetric(event.target.value)}
+          >
+            {definitions.map((definition) => (
+              <option key={definition.column} value={definition.column}>
+                {qcDisplayLabel(definition.label)}
+              </option>
+            ))}
+          </select>
+        </label>
         {(selectedPlate !== null || selectedChannel !== null) && (
           <button type="button" className="secondary" onClick={() => onSelect(null, null)}>
             Clear overview filter
           </button>
         )}
       </div>
-      <ul className="qc-overview-legend" aria-label="Triage measures">
-        {definitions.map((definition) => (
-          <li key={definition.column}>
-            <strong>{displayLabel(definition.label)}</strong>
-            <span>{definition.question}</span>
-          </li>
-        ))}
-      </ul>
+      {selectedDefinition?.question && (
+        <p className="muted qc-overview-question">{selectedDefinition.question}</p>
+      )}
       <div className="qc-overview-scroll">
         <table className="qc-overview-table" data-testid="qc-overview">
           <caption className="visually-hidden">
@@ -115,15 +128,12 @@ export default function QcOverview({
                 {channels.map((channel) => {
                   const row = byKey.get(`${plate}\u0000${channel}`);
                   const active = selectedPlate === plate && selectedChannel === channel;
-                  const summary = definitions
-                    .map(
-                      (definition) =>
-                        `${displayLabel(definition.label)} ${displayValue(
-                          row?.[definition.column],
-                          definition.scale,
-                        )}`,
-                    )
-                    .join(", ");
+                  const summary = selectedDefinition
+                    ? `${qcDisplayLabel(selectedDefinition.label)} ${displayValue(
+                        row?.[selectedDefinition.column],
+                        selectedDefinition.scale,
+                      )}`
+                    : "No measure";
                   return (
                     <td key={channel}>
                       {row ? (
@@ -132,20 +142,20 @@ export default function QcOverview({
                           className={active ? "qc-triage-cell active" : "qc-triage-cell"}
                           aria-pressed={active}
                           aria-label={`Plate ${plate}, ${channel}: ${summary}`}
-                          title={definitions
-                            .map(
-                              (definition) =>
-                                `${displayLabel(definition.label)}: ${definition.question}`,
-                            )
-                            .join("\n")}
+                          title={selectedDefinition?.question ?? summary}
                           onClick={() => onSelect(active ? null : plate, active ? null : channel)}
                         >
-                          {definitions.map((definition) => (
-                            <span key={definition.column}>
-                              <strong>{displayLabel(definition.label)}</strong>
-                              <small>{displayValue(row[definition.column], definition.scale)}</small>
+                          {selectedDefinition && (
+                            <span>
+                              <strong>{qcDisplayLabel(selectedDefinition.label)}</strong>
+                              <small>
+                                {displayValue(
+                                  row[selectedDefinition.column],
+                                  selectedDefinition.scale,
+                                )}
+                              </small>
                             </span>
-                          ))}
+                          )}
                         </button>
                       ) : (
                         <span aria-label="No triage value">\u2014</span>
@@ -158,6 +168,7 @@ export default function QcOverview({
           </tbody>
         </table>
       </div>
-    </section>
+      </div>
+    </details>
   );
 }

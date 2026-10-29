@@ -6,14 +6,15 @@ import type {
   QcSliderDefinition,
   QcSliderState,
 } from "../lib/qcModel";
+import { qcDisplayLabel } from "../lib/qcViewer";
 
 type Props = {
   model: QcModel;
   result: QcFilterResult;
   state: Readonly<Record<string, QcSliderState>>;
   selectedChannel: string | null;
-  search: string;
-  onSearch: (value: string) => void;
+  selectedMetric: string;
+  onSelectMetric: (value: string) => void;
   onChange: (column: string, state: QcSliderState) => void;
 };
 
@@ -28,13 +29,6 @@ function stepFor(slider: QcSliderDefinition): number {
 
 function formatNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
-}
-
-function displayLabel(value: string): string {
-  return value
-    .replace(/__/g, " \u00b7 ")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
 }
 
 function Histogram({ model, slider }: { model: QcModel; slider: QcSliderDefinition }) {
@@ -93,7 +87,7 @@ function FilterBounds({
   const lower = finite(current.filterLo, slider.minimum);
   const upper = finite(current.filterHi, slider.maximum);
   const step = stepFor(slider);
-  const label = displayLabel(slider.label);
+  const label = qcDisplayLabel(slider.label);
   return (
     <div className="qc-slider-bounds">
       <label>
@@ -168,7 +162,7 @@ function FlagBounds({
   const showUpper = slider.direction !== "low";
   const lower = finite(current.flagLo, slider.defaultFlagLo ?? slider.minimum);
   const upper = finite(current.flagHi, slider.defaultFlagHi ?? slider.maximum);
-  const label = displayLabel(slider.label);
+  const label = qcDisplayLabel(slider.label);
   return (
     <div className="qc-slider-bounds">
       {showLower && (
@@ -230,22 +224,21 @@ export default function QcSliderPanel({
   result,
   state,
   selectedChannel,
-  search,
-  onSearch,
+  selectedMetric,
+  onSelectMetric,
   onChange,
 }: Props) {
-  const normalizedSearch = search.trim().toLocaleLowerCase();
-  const visible = model.sliders.filter(
-    (slider) =>
-      (!selectedChannel || slider.channel === selectedChannel) &&
-      (normalizedSearch
-        ? [slider.label, slider.metric, slider.channel, slider.question]
-            .join(" ")
-            .toLocaleLowerCase()
-            .includes(normalizedSearch)
-        : true),
+  const available = model.sliders.filter(
+    (slider) => !selectedChannel || slider.channel === selectedChannel,
   );
-  const channels = [...new Set(visible.map((slider) => slider.channel || "Site"))];
+  const selected =
+    available.find((slider) => slider.column === selectedMetric) ??
+    available.find((slider) => slider.gate === "review") ??
+    available[0];
+  const channels = [...new Set(available.map((slider) => slider.channel || "Site"))];
+  const current = selected ? state[selected.column] ?? {} : {};
+  const flagged = selected ? result.flaggedBySlider[selected.column] ?? 0 : 0;
+  const counts = selected ? result.countsBySlider[selected.column] : undefined;
 
   return (
     <section className="panel stack qc-slider-panel" aria-labelledby="qc-sliders-heading">
@@ -254,50 +247,51 @@ export default function QcSliderPanel({
           <p className="eyebrow">Rules and ranges</p>
           <h2 id="qc-sliders-heading">Metrics</h2>
         </div>
-        <span className="muted">{model.sliders.length} primary sliders</span>
+        <span className="muted">{available.length} available</span>
       </div>
-      <label className="qc-slider-search">
-        <span>Find a metric</span>
-        <input
-          type="search"
-          value={search}
-          placeholder="Search labels, channels, and questions"
-          onChange={(event) => onSearch(event.target.value)}
-        />
+      <label className="qc-metric-select">
+        <span>Metric</span>
+        <select
+          value={selected?.column ?? ""}
+          onChange={(event) => onSelectMetric(event.target.value)}
+        >
+          {channels.map((channel) => (
+            <optgroup key={channel} label={channel}>
+              {available
+                .filter((slider) => (slider.channel || "Site") === channel)
+                .map((slider) => (
+                  <option key={slider.column} value={slider.column}>
+                    {qcDisplayLabel(slider.label)}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
       </label>
-      {channels.map((channel) => (
-        <section className="qc-slider-group stack" key={channel} aria-label={`${channel} metrics`}>
-          <h3>{channel}</h3>
-          {visible
-            .filter((slider) => (slider.channel || "Site") === channel)
-            .map((slider) => {
-              const current = state[slider.column] ?? {};
-              const flagged = result.flaggedBySlider[slider.column] ?? 0;
-              const counts = result.countsBySlider[slider.column];
-              return (
-                <article className="qc-slider-card" key={slider.column} data-qc-slider-id={slider.column}>
+      {selected ? (
+        <article className="qc-slider-card" data-qc-slider-id={selected.column}>
                   <div className="qc-slider-heading">
                     <div>
-                      <strong>{displayLabel(slider.label)}</strong>
+                      <strong>{qcDisplayLabel(selected.label)}</strong>
                       <span className="muted">
-                        {slider.scale || "value"} \u00b7 worse {slider.direction}
+                        {selected.channel || "Site"} \u00b7 {qcDisplayLabel(selected.scale || "value")} \u00b7 worse {selected.direction}
                       </span>
                     </div>
-                    <span className={`qc-gate-badge qc-gate-${slider.gate}`}>{slider.gate}</span>
-                    {slider.status === "pending_review" && (
+                    <span className={`qc-gate-badge qc-gate-${selected.gate}`}>{selected.gate}</span>
+                    {selected.status === "pending_review" && (
                       <span className="qc-status-badge">Pending review</span>
                     )}
                   </div>
-                  <p>{slider.question}</p>
-                  <Histogram model={model} slider={slider} />
-                  {slider.gate === "review" ? (
+                  <p>{selected.question}</p>
+                  <Histogram model={model} slider={selected} />
+                  {selected.gate === "review" ? (
                     <>
                       <label className="qc-flag-toggle">
                         <input
                           type="checkbox"
                           checked={current.flagActive ?? true}
                           onChange={(event) =>
-                            onChange(slider.column, {
+                            onChange(selected.column, {
                               ...current,
                               flagActive: event.target.checked,
                             })
@@ -306,9 +300,9 @@ export default function QcSliderPanel({
                         Flag outside this rule
                       </label>
                       <FlagBounds
-                        slider={slider}
+                        slider={selected}
                         current={current}
-                        onChange={(next) => onChange(slider.column, next)}
+                        onChange={(next) => onChange(selected.column, next)}
                       />
                       <dl className="qc-slider-counts">
                         <div>
@@ -331,34 +325,32 @@ export default function QcSliderPanel({
                     </>
                   ) : (
                     <FilterBounds
-                      slider={slider}
+                      slider={selected}
                       current={current}
-                      onChange={(next) => onChange(slider.column, next)}
+                      onChange={(next) => onChange(selected.column, next)}
                     />
                   )}
-                  {slider.markers.length > 0 && (
+                  {selected.markers.length > 0 && (
                     <p className="qc-marker-line">
                       Registered markers:{" "}
-                      {slider.markers
+                      {selected.markers
                         .map((marker) =>
                           `${marker.label ? `${marker.label} ` : ""}${formatNumber(marker.value)}`,
                         )
                         .join(", ")}
                     </p>
                   )}
-                  {slider.rawColumn && slider.rawColumn !== slider.column && (
-                    <p className="muted qc-raw-companion">Raw values are shown in the table.</p>
+                  {selected.rawColumn && selected.rawColumn !== selected.column && (
+                    <p className="muted qc-raw-companion">
+                      Raw values are available under additional table columns.
+                    </p>
                   )}
                 </article>
-              );
-            })}
-        </section>
-      ))}
-      {visible.length === 0 && (
+      ) : (
         <p className="muted">
           {selectedChannel
             ? `No primary sliders are registered for ${selectedChannel}.`
-            : "No metrics match this search."}
+            : "No metrics are available."}
         </p>
       )}
     </section>

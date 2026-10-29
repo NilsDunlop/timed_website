@@ -34,6 +34,7 @@ type Props = {
   annotationsWritable: boolean;
   annotationSubmitting: boolean;
   annotationDefaultChannel?: string;
+  reviewReason?: string;
   annotationError?: string;
   annotationStatus?: string;
   onSaveAnnotation: (value: QcAnnotationFormValue) => void;
@@ -67,6 +68,7 @@ export default function QcFieldPanel({
   annotationsWritable,
   annotationSubmitting,
   annotationDefaultChannel = "all",
+  reviewReason = "",
   annotationError = "",
   annotationStatus = "",
   onSaveAnnotation,
@@ -114,6 +116,13 @@ export default function QcFieldPanel({
         </dl>
       </div>
 
+      {reviewReason && (
+        <section className="qc-review-reason-card" aria-label="Review reason">
+          <span>Flagged by</span>
+          <strong>{reviewReason}</strong>
+        </section>
+      )}
+
       {siteStepper && (
         <div
           className="qc-site-stepper"
@@ -143,14 +152,15 @@ export default function QcFieldPanel({
         </div>
       )}
 
-      <section
-        className="qc-field-section"
+      <details
+        className="qc-field-section qc-field-disclosure"
         data-testid="qc-display-provenance"
-        aria-labelledby="qc-display-provenance-heading"
       >
+        <summary id="qc-display-provenance-heading">Image display settings</summary>
+        <div className="stack qc-field-disclosure-content">
         <div className="section-heading">
           <div>
-            <h3 id="qc-display-provenance-heading">
+            <h3>
               QC display range · export {payload.export_id}
             </h3>
             <p className="muted">
@@ -188,10 +198,14 @@ export default function QcFieldPanel({
             </li>
           ))}
         </ul>
-      </section>
+        </div>
+      </details>
 
-      <section className="qc-field-section" aria-labelledby="qc-field-metrics-heading">
-        <h3 id="qc-field-metrics-heading">Metrics</h3>
+      <details className="qc-field-section qc-field-disclosure">
+        <summary id="qc-field-metrics-heading">
+          All metrics ({view.metricGroups.reduce((total, group) => total + group.metrics.length, 0)})
+        </summary>
+        <div className="qc-field-disclosure-content">
         <div className="qc-metric-groups">
           {view.metricGroups.map((group) => (
             <section key={group.channel} aria-label={`${group.channel} metrics`}>
@@ -219,11 +233,13 @@ export default function QcFieldPanel({
             </section>
           ))}
         </div>
-      </section>
+        </div>
+      </details>
 
       {view.context.length > 0 && (
-        <section className="qc-field-section" aria-labelledby="qc-field-context-heading">
-          <h3 id="qc-field-context-heading">Context</h3>
+        <details className="qc-field-section qc-field-disclosure">
+          <summary id="qc-field-context-heading">Context ({view.context.length})</summary>
+          <div className="qc-field-disclosure-content">
           <dl className="qc-field-list">
             {view.context.map((item) => (
               <div key={item.column} data-qc-context-column={item.column}>
@@ -235,12 +251,14 @@ export default function QcFieldPanel({
               </div>
             ))}
           </dl>
-        </section>
+          </div>
+        </details>
       )}
 
       {view.attributes.length > 0 && (
-        <section className="qc-field-section" aria-labelledby="qc-field-attributes-heading">
-          <h3 id="qc-field-attributes-heading">Attributes</h3>
+        <details className="qc-field-section qc-field-disclosure">
+          <summary id="qc-field-attributes-heading">Attributes ({view.attributes.length})</summary>
+          <div className="qc-field-disclosure-content">
           <dl className="qc-field-list">
             {view.attributes.map((item) => (
               <div key={item.column} data-qc-attribute={item.column}>
@@ -249,7 +267,8 @@ export default function QcFieldPanel({
               </div>
             ))}
           </dl>
-        </section>
+          </div>
+        </details>
       )}
 
       <QcAnnotationPanel

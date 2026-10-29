@@ -138,16 +138,14 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Cell Health", exact: true }),
   ).toBeVisible();
+  await expect(page.getByTestId("qc-overview")).toBeHidden();
+  await page.getByText("Plate overview", { exact: true }).click();
   await expect(page.getByTestId("qc-overview")).toBeVisible();
   await expect(page.locator("[data-qc-plate]")).toHaveCount(9);
   await expect(
     page.locator('[data-qc-plate="14610"] [aria-label^="Well "]'),
   ).toHaveCount(384);
-  await expect(page.locator("[data-qc-slider-id]")).toHaveCount(3);
-  await expect(
-    page.getByText("Registered markers: registered 0.75", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole("listitem", { name: "registered: 0.75" })).toBeVisible();
+  await expect(page.locator("[data-qc-slider-id]")).toHaveCount(1);
   await expect(page.getByText("Pending review", { exact: true })).toBeVisible();
 
   const fieldsCard = page.getByTestId("qc-counts").locator("div").filter({
@@ -156,6 +154,12 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   const fieldCount = fieldsCard.locator("dd");
   await expect(fieldCount).toHaveText("70");
   const siteTable = page.getByRole("table", { name: "QC sites" });
+  await expect(siteTable.getByRole("columnheader", { name: "Flagged by" })).toBeVisible();
+  await expect(siteTable.getByRole("columnheader", { name: /Fixture Context Count/ })).toHaveCount(0);
+  await page.getByText("Additional table columns", { exact: true }).click();
+  await page
+    .getByRole("checkbox", { name: "Show context, attributes, and metric values" })
+    .check();
   await expect(siteTable.getByRole("columnheader", { name: /Fixture Context Count/ })).toBeVisible();
   await expect(
     siteTable.getByRole("columnheader", { name: /Perturbation Type/ }),
@@ -171,6 +175,30 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
     element.scrollTop = element.scrollHeight;
     element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
+
+  const metricSelect = page.getByRole("combobox", { name: "Metric" });
+  await expect(metricSelect).toHaveValue("fixture_focus__DNA__control_z");
+  for (const [column, label] of [
+    ["fixture_intensity__AGP__raw", "Fixture Intensity"],
+    ["fixture_automatic__site__raw", "Fixture Automatic"],
+  ] as const) {
+    await metricSelect.selectOption(column);
+    const lowerRange = page.getByRole("slider", { name: `${label} filter minimum` });
+    const upperRange = page.getByRole("slider", { name: `${label} filter maximum` });
+    await expect(page.getByRole("spinbutton", { name: `${label} filter minimum value` })).toHaveValue(
+      String(await lowerRange.getAttribute("min")),
+    );
+    await expect(page.getByRole("spinbutton", { name: `${label} filter maximum value` })).toHaveValue(
+      String(await upperRange.getAttribute("max")),
+    );
+    if (column === "fixture_automatic__site__raw") {
+      await expect(
+        page.getByText("Registered markers: registered 0.75", { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByRole("listitem", { name: "registered: 0.75" })).toBeVisible();
+    }
+  }
+  await metricSelect.selectOption("fixture_focus__DNA__control_z");
 
   const reviewCard = page.locator(
     '[data-qc-slider-id="fixture_focus__DNA__control_z"]',
@@ -189,16 +217,6 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
     name: "Fixture Focus lower flag bound value",
   });
   await expect(reviewBoundValue).toHaveValue("-2");
-  for (const label of ["Fixture Intensity", "Fixture Automatic"]) {
-    const lowerRange = page.getByRole("slider", { name: `${label} filter minimum` });
-    const upperRange = page.getByRole("slider", { name: `${label} filter maximum` });
-    await expect(page.getByRole("spinbutton", { name: `${label} filter minimum value` })).toHaveValue(
-      String(await lowerRange.getAttribute("min")),
-    );
-    await expect(page.getByRole("spinbutton", { name: `${label} filter maximum value` })).toHaveValue(
-      String(await upperRange.getAttribute("max")),
-    );
-  }
   const minimum = Number(await reviewBound.getAttribute("min"));
   const step = Number(await reviewBound.getAttribute("step"));
   await reviewBoundValue.fill(String(minimum));
@@ -226,15 +244,13 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(page).toHaveURL(/qc\.plate=14610/);
   await expect(page).toHaveURL(/qc\.channel=DNA/);
 
-  const metricSearch = page.getByRole("searchbox", { name: "Find a metric" });
-  await metricSearch.fill("focus");
   await page.reload();
   await expect(page.getByRole("button", { name: /Plate 14610, DNA:/ })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await expect(fieldCount).toHaveText("1");
-  await expect(metricSearch).toHaveValue("focus");
+  await expect(metricSelect).toHaveValue("fixture_focus__DNA__control_z");
   await expect(reviewBoundValue).toHaveValue(adjustedReviewBound);
 
   await page.getByRole("button", { name: /Plate 14610, DNA:/ }).click();
@@ -303,17 +319,22 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   const focusMetric = qcPanel.locator(
     '[data-qc-metric-column="fixture_focus__DNA__control_z"]',
   );
+  await expect(focusMetric).toBeHidden();
+  await qcPanel.getByText(/^All metrics \(/).click();
   await expect(focusMetric).toContainText("-2.489");
   await expect(focusMetric).toContainText("Raw 0.81");
   await expect(focusMetric).toContainText("Worse low");
   await expect(focusMetric).toContainText("Is the synthetic DNA focus below the review bound?");
   await expect(qcPanel.getByRole("region", { name: "Site metrics" })).toContainText("0.125");
+  await qcPanel.getByText(/^Context \(/).click();
   await expect(
     qcPanel.locator('[data-qc-context-column="fixture_context_count"]'),
   ).toContainText("21");
   expect(fieldMetadataCount).toBeGreaterThan(0);
+  await qcPanel.getByText(/^Attributes \(/).click();
   await expect(qcPanel.locator("[data-qc-attribute]")).toHaveCount(fieldMetadataCount);
 
+  await qcPanel.getByText("Image display settings", { exact: true }).click();
   const rangeProvenance = page.getByTestId("qc-display-provenance");
   await expect(
     rangeProvenance.getByRole("heading", {
@@ -443,7 +464,7 @@ test("reviews ordered queues and persists field and well annotations", async ({
 
   await connectCellHealth(page);
   await page.getByRole("link", { name: "QC", exact: true }).click();
-  await expect(page.getByTestId("qc-overview")).toBeVisible();
+  await expect(page.getByText("Plate overview", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Review queue", exact: true }).click();
   await expectViewerReady(page);
@@ -455,6 +476,7 @@ test("reviews ordered queues and persists field and well annotations", async ({
   const reviewBar = page.getByTestId("qc-review-bar");
   await expect(reviewBar).toContainText("Review 1 of 45");
   await expect(reviewBar).toContainText("0 of 45 annotated");
+  await expect(page.getByTestId("qc-review-reason")).toContainText(/Fixture Focus.*DNA/);
   await expect(reviewBar.getByRole("button", { name: "Previous" })).toBeDisabled();
 
   const annotationPanel = page.getByTestId("qc-annotation-panel");
@@ -584,7 +606,7 @@ test("reviews ordered queues and persists field and well annotations", async ({
   await expect(page.getByTestId("qc-current-annotations")).toContainText("Debris");
   await expect(page.getByTestId("qc-review-bar")).toContainText("2 of 45 annotated");
   await page.getByTestId("qc-review-bar").getByRole("link", { name: "Back to QC" }).click();
-  await expect(page.getByTestId("qc-overview")).toBeVisible();
+  await expect(page.getByText("Plate overview", { exact: true })).toBeVisible();
 
   const fieldsCard = page.getByTestId("qc-counts").locator("div").filter({
     has: page.getByText("Fields", { exact: true }),
@@ -627,6 +649,7 @@ test("reviews ordered queues and persists field and well annotations", async ({
   await expect(page.getByTestId("qc-review-bar")).toContainText(
     `Review 1 of ${sessionQueueTotal}`,
   );
+  await expect(page.getByTestId("qc-review-reason")).toContainText(/Fixture Focus.*DNA/);
   expectCurrentTarget(page, firstTarget);
   await page.reload();
   await expectViewerReady(page);
@@ -642,7 +665,7 @@ test("reviews ordered queues and persists field and well annotations", async ({
   await expectViewerReady(page);
   expectCurrentTarget(page, secondTarget);
   await page.getByTestId("qc-review-bar").getByRole("link", { name: "Back to QC" }).click();
-  await expect(page.getByTestId("qc-overview")).toBeVisible();
+  await expect(page.getByText("Plate overview", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Review these", exact: true }).click();
   await expectViewerReady(page);
@@ -657,7 +680,7 @@ test("reviews ordered queues and persists field and well annotations", async ({
     "This review queue is unavailable",
   );
   await unavailableQueue.getByRole("link", { name: "Back to QC" }).click();
-  await expect(page.getByTestId("qc-overview")).toBeVisible();
+  await expect(page.getByText("Plate overview", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Review queue", exact: true }).click();
   await expectViewerReady(page);

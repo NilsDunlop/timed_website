@@ -240,8 +240,13 @@ contrast.
 Cell Health plate switching preserves the selected well. **Same gene** and
 **Controls** highlight the active plate grid and are mutually exclusive. The
 server retains the packed matches endpoint for direct API use and tests, but
-the current UI does not call it. Segmentation masks and QC are Phase 2 and must
-not be folded into Phase 1 behavior.
+the current UI does not call it. A collection may separately declare a QC
+export and annotations folder. The QC page is dictionary-driven and uses
+progressive disclosure: readable metric selection, a compact table with
+**Flagged by**, and secondary context on demand. The data server validates the
+whole export before serving it and annotations are its only QC write.
+Segmentation masks remain Part C and must not be folded into QC review or Phase
+1 image behavior.
 
 ## Known gotchas
 

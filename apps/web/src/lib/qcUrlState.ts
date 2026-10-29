@@ -16,6 +16,7 @@ export type QcUrlState = {
   sortColumn: string | null;
   sortDirection: QcSortDirection;
   sliderSearch: string;
+  showDetails: boolean;
   sliders: Record<string, QcSliderUrlState>;
   categories: Record<string, string[]>;
 };
@@ -86,6 +87,7 @@ export function emptyQcUrlState(): QcUrlState {
     sortColumn: null,
     sortDirection: "asc",
     sliderSearch: "",
+    showDetails: false,
     sliders: {},
     categories: {},
   };
@@ -110,6 +112,7 @@ export function parseQcUrlState(
   state.collection = optionalValue(query.get("collection"), collectionIds);
   state.channel = optionalValue(query.get("qc.channel"), channels);
   state.sliderSearch = query.get("qc.search") ?? "";
+  state.showDetails = query.get("qc.details") === "1";
   state.tableMode = query.get("qc.table") === "wells" ? "wells" : "sites";
 
   const rawPlate = query.get("qc.plate");
@@ -175,6 +178,7 @@ export function qcUrlSearch(state: QcUrlState): string {
     if (state.sortDirection === "desc") query.set("qc.direction", "desc");
   }
   if (state.sliderSearch) query.set("qc.search", state.sliderSearch);
+  if (state.showDetails) query.set("qc.details", "1");
 
   for (const id of Object.keys(state.sliders).sort()) {
     if (!id) continue;

@@ -13,6 +13,7 @@ export type QcQueueEntry = {
   well: string;
   site: number;
   channel: string;
+  reason?: string;
 };
 
 export type QcReviewQueue = {
@@ -65,6 +66,7 @@ type StoredEntry = [
   well: string,
   site: number,
   channel: string,
+  reasonIndex?: number,
 ];
 
 type StoredQueue = [
@@ -76,6 +78,7 @@ type StoredQueue = [
   collectionId: string,
   returnHref: string,
   entries: StoredEntry[],
+  reasons: string[],
 ];
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -103,6 +106,15 @@ function safePlateGroup(value: unknown): value is string {
 
 function positiveInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) > 0;
+}
+
+function safeReason(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 500 &&
+    !/\p{Cc}/u.test(value)
+  );
 }
 
 export function safeQcReturnHref(value: unknown): value is string {
@@ -147,7 +159,8 @@ function validEntry(
     SAFE_WELL.test(entry.well) &&
     positiveInteger(entry.site) &&
     (entry.scope !== "well" || entry.site === 1) &&
-    validChannel(entry.channel, channels)
+    validChannel(entry.channel, channels) &&
+    (entry.reason === undefined || safeReason(entry.reason))
   );
 }
 
@@ -168,8 +181,11 @@ function validInput(
   );
 }
 
-function storedEntry(entry: QcQueueEntry): StoredEntry {
-  return [
+function storedEntry(
+  entry: QcQueueEntry,
+  reasonIndexes: ReadonlyMap<string, number>,
+): StoredEntry {
+  const stored: StoredEntry = [
     entry.scope === "field" ? "f" : "w",
     entry.plateGroup,
     entry.plate,
@@ -178,9 +194,14 @@ function storedEntry(entry: QcQueueEntry): StoredEntry {
     entry.site,
     entry.channel,
   ];
+  const reasonIndex = entry.reason ? reasonIndexes.get(entry.reason) : undefined;
+  if (reasonIndex !== undefined) stored.push(reasonIndex);
+  return stored;
 }
 
 function storedQueue(queue: QcReviewQueue): StoredQueue {
+  const reasons = [...new Set(queue.entries.flatMap((entry) => entry.reason ?? []))];
+  const reasonIndexes = new Map(reasons.map((reason, index) => [reason, index]));
   return [
     1,
     queue.id,
@@ -189,14 +210,16 @@ function storedQueue(queue: QcReviewQueue): StoredQueue {
     queue.registryHash,
     queue.collectionId,
     queue.returnHref,
-    queue.entries.map(storedEntry),
+    queue.entries.map((entry) => storedEntry(entry, reasonIndexes)),
+    reasons,
   ];
 }
 
 function queueFromStored(value: unknown, channels: Set<string>): QcReviewQueue | null {
-  if (!Array.isArray(value) || value.length !== 8) return null;
-  const [version, id, source, exportId, registryHash, collectionId, returnHref, rows] =
+  if (!Array.isArray(value) || (value.length !== 8 && value.length !== 9)) return null;
+  const [version, id, source, exportId, registryHash, collectionId, returnHref, rows, rawReasons] =
     value;
+  const reasons = rawReasons === undefined ? [] : rawReasons;
   if (
     version !== 1 ||
     !safeQueueId(id) ||
@@ -206,6 +229,8 @@ function queueFromStored(value: unknown, channels: Set<string>): QcReviewQueue |
     !safeToken(collectionId) ||
     !safeQcReturnHref(returnHref) ||
     !Array.isArray(rows) ||
+    !Array.isArray(reasons) ||
+    reasons.some((reason) => !safeReason(reason)) ||
     rows.length === 0 ||
     rows.length > MAX_QUEUE_ENTRIES
   ) {
@@ -214,8 +239,15 @@ function queueFromStored(value: unknown, channels: Set<string>): QcReviewQueue |
 
   const entries: QcQueueEntry[] = [];
   for (const row of rows) {
-    if (!Array.isArray(row) || row.length !== 7) return null;
-    const [scope, plateGroup, plate, barcode, well, site, channel] = row;
+    if (!Array.isArray(row) || (row.length !== 7 && row.length !== 8)) return null;
+    const [scope, plateGroup, plate, barcode, well, site, channel, reasonIndex] = row;
+    if (
+      reasonIndex !== undefined &&
+      (!Number.isSafeInteger(reasonIndex) || !safeReason(reasons[Number(reasonIndex)]))
+    ) {
+      return null;
+    }
+    const reason = reasonIndex === undefined ? undefined : reasons[Number(reasonIndex)];
     const entry: QcQueueEntry = {
       scope: scope === "f" ? "field" : scope === "w" ? "well" : ("" as QcQueueScope),
       plateGroup: typeof plateGroup === "string" ? plateGroup : "",
@@ -224,6 +256,7 @@ function queueFromStored(value: unknown, channels: Set<string>): QcReviewQueue |
       well: typeof well === "string" ? well : "",
       site: typeof site === "number" ? site : Number.NaN,
       channel: typeof channel === "string" ? channel : "",
+      ...(safeReason(reason) ? { reason } : {}),
     };
     if (!validEntry(entry, channels)) return null;
     entries.push(entry);

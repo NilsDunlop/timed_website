@@ -26,6 +26,7 @@ test("round-trips every shareable QC page choice", () => {
     sortColumn: "signal__ER__raw",
     sortDirection: "desc",
     sliderSearch: "edge signal",
+    showDetails: true,
     sliders: {
       signal__ER__raw: { lower: null, upper: 7200, flagActive: true },
       focus__DNA__ratio: { lower: 0.25, upper: 1.5, flagActive: false },

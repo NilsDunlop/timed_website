@@ -2,6 +2,7 @@ type Props = {
   index: number;
   total: number;
   annotated: number;
+  reason?: string;
   backHref: string;
   busy?: boolean;
   warning?: string;
@@ -13,6 +14,7 @@ export default function QcReviewBar({
   index,
   total,
   annotated,
+  reason = "",
   backHref,
   busy = false,
   warning = "",
@@ -40,6 +42,10 @@ export default function QcReviewBar({
         <span>
           {annotatedCount} of {totalCount} annotated
         </span>
+      </div>
+      <div className="qc-review-reason" data-testid="qc-review-reason">
+        <span>Flagged by</span>
+        <strong>{reason || "Current QC filters"}</strong>
       </div>
       <div className="qc-review-actions">
         <button

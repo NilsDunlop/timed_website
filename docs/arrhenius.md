@@ -184,14 +184,18 @@ mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/a
 Disconnect with job cancellation enabled, confirm the previous TIMED Slurm job
 has ended, and then reconnect so a genuinely fresh job installs and runs the
 new data server. Do not reuse an existing job. Before treating any observation
-as A2 evidence, confirm the connection handshake reports `0.5.0.dev5`.
+as A2 evidence, confirm the connection handshake reports `0.5.0.dev6`.
 
 Confirm that the QC header reports export `d77939bbbf42`; any earlier export or
 the “unsupported file hashes” message means the fresh job is not running this
 build. The A2 checklist is the operator procedure in section 4.10 of
 `docs/plans/cell-health-qc-brief.md`. Record the export identity, queue and
-annotation results, QC-page load time, and slider response time here after the
-check.
+annotation results, QC-page load time, and metric-control response time here
+after the check. Confirm that the first screen is compact: Plate overview,
+secondary filters, additional columns and secondary viewer details start
+collapsed. The Metric selector uses readable labels; Sites, Wells and queue
+viewers make **Flagged by** immediately visible; and the D62-derived measure is
+shown as **Automatic exclusion**.
 
 ## Troubleshooting
 

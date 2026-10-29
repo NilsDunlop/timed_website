@@ -5,6 +5,7 @@ import {
   applyQcFilters,
   buildQcModel,
   defaultQcFilterState,
+  qcFlaggedSlidersForRow,
   sortQcRows,
   sortQcWells,
   uniqueQcValues,
@@ -213,6 +214,13 @@ test("combines filter ranges with AND and active review flags with OR", () => {
     texture__AGP__score: 2,
     balance__site__score: 1,
   });
+  expect(qcFlaggedSlidersForRow(model, { ...defaults, sliders }, 2).map((item) => item.column)).toEqual([
+    "texture__AGP__score",
+  ]);
+  expect(qcFlaggedSlidersForRow(model, { ...defaults, sliders }, 3).map((item) => item.column)).toEqual([
+    "balance__site__score",
+  ]);
+  expect(qcFlaggedSlidersForRow(model, { ...defaults, sliders }, 1)).toEqual([]);
   expect(result.counts).toEqual({
     fields: 3,
     wells: 2,
