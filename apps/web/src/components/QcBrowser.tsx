@@ -556,7 +556,7 @@ export default function QcBrowser() {
     }
   }
 
-  async function openTarget(target: QcWellTarget) {
+  async function openTarget(target: QcWellTarget, scope: "field" | "well") {
     if (!loaded) return;
     setBusy(true);
     setError("");
@@ -574,10 +574,12 @@ export default function QcBrowser() {
         path: `${target.well}_s${target.site}.zarr`,
         collection: loaded.collection.id,
         qc: "1",
+        qcScope: scope,
         qcPlate: String(target.plate),
         qcWell: target.well,
         qcSite: String(target.site),
         qcExport: loaded.status.export_id ?? "",
+        qcReturn: `${window.location.pathname}${window.location.search}`,
       });
       window.location.assign(`/view?${query.toString()}`);
     } catch (cause) {
@@ -787,7 +789,7 @@ export default function QcBrowser() {
             model={loaded.model}
             result={result}
             selectedPlate={selectedPlate}
-            onOpen={(target) => void openTarget(target)}
+            onOpen={(target) => void openTarget(target, "well")}
           />
 
           <section className="panel stack" aria-labelledby="qc-table-heading">
@@ -826,12 +828,15 @@ export default function QcBrowser() {
                 onSort={updateSort}
                 activateLabel={() => "Open site"}
                 onActivate={(rowIndex) =>
-                  void openTarget({
-                    experiment: String(loaded.model.columns.experiment?.[rowIndex] ?? ""),
-                    plate: Number(loaded.model.columns.plate?.[rowIndex]),
-                    well: String(loaded.model.columns.well?.[rowIndex] ?? ""),
-                    site: Number(loaded.model.columns.site?.[rowIndex]),
-                  })
+                  void openTarget(
+                    {
+                      experiment: String(loaded.model.columns.experiment?.[rowIndex] ?? ""),
+                      plate: Number(loaded.model.columns.plate?.[rowIndex]),
+                      well: String(loaded.model.columns.well?.[rowIndex] ?? ""),
+                      site: Number(loaded.model.columns.site?.[rowIndex]),
+                    },
+                    "field",
+                  )
                 }
               />
             ) : (
@@ -846,12 +851,15 @@ export default function QcBrowser() {
                 activateLabel={() => "Open well"}
                 onActivate={(well) => {
                   const first = well.rowIndices[0];
-                  void openTarget({
-                    experiment: String(loaded.model.columns.experiment?.[first] ?? ""),
-                    plate: Number(well.keyValues.plate),
-                    well: String(well.keyValues.well ?? ""),
-                    site: 1,
-                  });
+                  void openTarget(
+                    {
+                      experiment: String(loaded.model.columns.experiment?.[first] ?? ""),
+                      plate: Number(well.keyValues.plate),
+                      well: String(well.keyValues.well ?? ""),
+                      site: 1,
+                    },
+                    "well",
+                  );
                 }}
               />
             )}

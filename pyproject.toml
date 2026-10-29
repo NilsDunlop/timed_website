@@ -5,7 +5,7 @@ description = "Workspace for the TIMED OME-Zarr imaging platform"
 requires-python = ">=3.12"
 dependencies = [
   "timed-connector==0.1.0",
-  "timed-dataserver==0.5.0.dev2",
+  "timed-dataserver==0.5.0.dev3",
 ]
 
 [tool.uv]

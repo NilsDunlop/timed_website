@@ -10,8 +10,9 @@ import {
 import { SCALEBAR_VIEW_ID } from "@vivjs/views";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { components as ConnectorComponents } from "../lib/api/connector-schema";
 import type { components } from "../lib/api/dataserver-schema";
-import { apiErrorMessage, dataServerClient } from "../lib/api/client";
+import { apiErrorMessage, connectorClient, dataServerClient } from "../lib/api/client";
 import { viewerReturnHref } from "../lib/collectionNavigation";
 import {
   cacheImageLoader,
@@ -41,6 +42,17 @@ import {
 } from "../lib/viewerDisplay";
 import { createViewerViewConfiguration } from "../lib/viewerViews";
 import { viewerDebug } from "../lib/viewerDebug";
+import {
+  applyQcDisplayRanges,
+  buildQcSiteStepper,
+  copyQcContrastChannels,
+  qcSiteHref,
+  qcSiteOptions,
+  restoreDatasetContrasts,
+  selectQcDisplayRanges,
+  type QcDisplayRange,
+  type QcSiteStepper,
+} from "../lib/qcViewer";
 import PlateMetadataPanel, {
   doseLabel,
   findWellMetadata,
@@ -48,11 +60,15 @@ import PlateMetadataPanel, {
   type PlateMetadata,
   wellIdFromPath,
 } from "./PlateMetadataPanel";
+import QcFieldPanel, { type QcDisplayRangeMode } from "./QcFieldPanel";
 
 type ImageSummary = components["schemas"]["ImageSummary"];
 type Summary =
   | ImageSummary
   | components["schemas"]["PlateSummary"];
+type ConnectorProfile = ConnectorComponents["schemas"]["Profile"];
+type QcFieldResponse = components["schemas"]["QcFieldResponse"];
+type QcRowsResponse = components["schemas"]["QcRowsResponse"];
 type Loader = Awaited<ReturnType<typeof loadOmeZarr>>["data"];
 type Source = Loader[number];
 type Dimensions = { width: number; height: number };
@@ -95,7 +111,156 @@ type ViewerSourceIdentity = {
   plate: string;
 };
 
+type QcViewerRequest = {
+  collectionId: string;
+  expectedExport: string;
+  plate: number;
+  well: string;
+  site: number;
+  scope: "field" | "well";
+};
+
+type PendingQcViewerContext = {
+  payload: QcFieldResponse;
+  rangeRows: QcRowsResponse["rows"];
+  siteStepper: QcSiteStepper | null;
+};
+
+type QcViewerContext = {
+  payload: QcFieldResponse;
+  ranges: readonly QcDisplayRange[];
+  siteStepper: QcSiteStepper | null;
+};
+
 const MAX_VIEWER_SOURCES = 4;
+
+function qcRequestFromQuery(
+  query: URLSearchParams,
+  selectedPath: string,
+  sourceCount: number,
+): QcViewerRequest | null {
+  if (query.get("qc") !== "1") return null;
+  const collectionId = query.get("collection")?.trim() ?? "";
+  const expectedExport = query.get("qcExport")?.trim() ?? "";
+  const plate = Number(query.get("qcPlate"));
+  const well = query.get("qcWell")?.trim().toUpperCase() ?? "";
+  const site = Number(query.get("qcSite"));
+  if (
+    !collectionId ||
+    !expectedExport ||
+    !Number.isInteger(plate) ||
+    plate <= 0 ||
+    !/^[A-Z]+\d+$/.test(well) ||
+    !Number.isInteger(site) ||
+    site <= 0 ||
+    sourceCount !== 1 ||
+    wellIdFromPath(selectedPath) !== well ||
+    Number(siteIdFromPath(selectedPath)) !== site
+  ) {
+    throw new Error("The QC viewer link is invalid");
+  }
+  return {
+    collectionId,
+    expectedExport,
+    plate,
+    well,
+    site,
+    scope: query.get("qcScope") === "well" ? "well" : "field",
+  };
+}
+
+function qcCollectionPath(
+  profiles: readonly ConnectorProfile[],
+  profileId: string | null | undefined,
+  collectionId: string,
+): string | null {
+  const profile = profiles.find((candidate) => candidate.id === profileId);
+  const collection = profile?.collections?.find(
+    (candidate) => candidate.id === collectionId && candidate.qc_available,
+  );
+  return collection?.path ?? null;
+}
+
+async function loadQcViewerContext(
+  request: QcViewerRequest,
+  datasetId: string,
+): Promise<PendingQcViewerContext> {
+  const [profilesResult, sessionResult] = await Promise.all([
+    connectorClient.GET("/connector/profiles"),
+    connectorClient.GET("/connector/session"),
+  ]);
+  if (!profilesResult.data || !sessionResult.data) {
+    throw new Error("The QC collection is unavailable");
+  }
+  const path = qcCollectionPath(
+    profilesResult.data,
+    sessionResult.data.profile_id,
+    request.collectionId,
+  );
+  if (!path) throw new Error("The QC collection is unavailable");
+
+  const wellRequest =
+    request.scope === "well"
+      ? dataServerClient.GET("/api/datasets/{dataset_id}/wells/{well_path}", {
+          params: {
+            path: { dataset_id: datasetId, well_path: request.well },
+          },
+        })
+      : Promise.resolve(null);
+  const [fieldResult, rangesResult, wellResult] = await Promise.all([
+    dataServerClient.GET("/api/qc/field", {
+      params: {
+        query: {
+          path,
+          plate: request.plate,
+          well: request.well,
+          site: request.site,
+        },
+      },
+    }),
+    dataServerClient.GET("/api/qc/display-ranges", {
+      params: { query: { path } },
+    }),
+    wellRequest,
+  ]);
+  if (!fieldResult.data || !rangesResult.data) {
+    throw new Error(
+      apiErrorMessage(
+        fieldResult.error ?? rangesResult.error,
+        "The QC review data is unavailable",
+      ),
+    );
+  }
+  if (
+    fieldResult.data.blinded ||
+    rangesResult.data.blinded ||
+    fieldResult.data.export_id !== rangesResult.data.export_id ||
+    fieldResult.data.registry_hash !== rangesResult.data.registry_hash ||
+    fieldResult.data.export_id !== request.expectedExport ||
+    Number(fieldResult.data.field.plate) !== request.plate ||
+    String(fieldResult.data.field.well ?? "").toUpperCase() !== request.well ||
+    Number(fieldResult.data.field.site) !== request.site
+  ) {
+    throw new Error("The QC export changed while the viewer was opening");
+  }
+
+  let siteStepper: QcSiteStepper | null = null;
+  if (request.scope === "well") {
+    if (!wellResult?.data) {
+      throw new Error("The QC well fields are unavailable");
+    }
+    siteStepper = buildQcSiteStepper(
+      qcSiteOptions(wellResult.data.fields),
+      request.site,
+    );
+    if (!siteStepper) throw new Error("The selected QC site is unavailable");
+  }
+  return {
+    payload: fieldResult.data,
+    rangeRows: rangesResult.data.rows,
+    siteStepper,
+  };
+}
 
 const fallbackColors: [number, number, number][] = [
   [0, 0, 255],
@@ -393,6 +558,10 @@ export default function ImageViewer() {
   });
   const [viewerSources, setViewerSources] = useState<ViewerSourceState[]>([]);
   const [channels, setChannels] = useState<ChannelState[]>([]);
+  const [datasetDefaultChannels, setDatasetDefaultChannels] = useState<ChannelState[]>([]);
+  const [qcContext, setQcContext] = useState<QcViewerContext | null>(null);
+  const [qcRangeMode, setQcRangeMode] = useState<QcDisplayRangeMode>("dataset");
+  const [qcError, setQcError] = useState("");
   const [displayPreference, setDisplayPreference] =
     useState<ViewerDisplayPreference>(() => {
       if (typeof window === "undefined") return defaultViewerDisplayPreference;
@@ -440,6 +609,18 @@ export default function ImageViewer() {
           seenSources.add(key);
           return true;
         });
+        let qcLinkError = false;
+        let qcRequest: QcViewerRequest | null = null;
+        try {
+          qcRequest = qcRequestFromQuery(query, selectedPath, sourceSpecs.length);
+        } catch {
+          qcLinkError = true;
+        }
+        const qcOutcomePromise = qcRequest
+          ? loadQcViewerContext(qcRequest, primaryDatasetId)
+              .then((value) => ({ value, failed: false }))
+              .catch(() => ({ value: null, failed: true }))
+          : Promise.resolve({ value: null, failed: qcLinkError });
         viewerDebug("viewer:load-start", { sources: sourceSpecs });
 
         async function loadDatasetDetails(sourceDatasetId: string) {
@@ -589,6 +770,42 @@ export default function ImageViewer() {
           throw new Error("The selected images have no comparable channels.");
         }
         initialChannels = initialChannels.slice(0, commonChannelCount);
+        const datasetDefaults = copyQcContrastChannels(initialChannels);
+        let displayedChannels = copyQcContrastChannels(initialChannels);
+        let loadedQcContext: QcViewerContext | null = null;
+        const qcOutcome = await qcOutcomePromise;
+        let qcFailed = qcOutcome.failed;
+        if (qcOutcome.value) {
+          try {
+            const ranges = selectQcDisplayRanges(
+              qcOutcome.value.rangeRows,
+              qcRequest?.plate ?? 0,
+              initialChannels.map((channel) => channel.name),
+            );
+            const fieldBarcode = String(
+              qcOutcome.value.payload.field.plate_barcode ?? "",
+            ).trim();
+            const displayedPlate = primarySpec.metadata?.plate?.plate_id?.trim() ?? "";
+            if (
+              !fieldBarcode ||
+              !displayedPlate ||
+              displayedPlate !== fieldBarcode ||
+              ranges.some(
+                (range) => !range.plateBarcode || range.plateBarcode !== displayedPlate,
+              )
+            ) {
+              throw new Error("The QC display ranges do not match this plate");
+            }
+            displayedChannels = applyQcDisplayRanges(initialChannels, ranges);
+            loadedQcContext = {
+              payload: qcOutcome.value.payload,
+              ranges,
+              siteStepper: qcOutcome.value.siteStepper,
+            };
+          } catch {
+            qcFailed = true;
+          }
+        }
         if (!active) return;
         const loadedSources = configuredSources.map((source, index) => ({
           ...source,
@@ -611,7 +828,15 @@ export default function ImageViewer() {
         setDisplayedTime(null);
         setJumpFrames(1);
         setViewerSources(loadedSources);
-        setChannels(initialChannels);
+        setDatasetDefaultChannels(datasetDefaults);
+        setQcContext(loadedQcContext);
+        setQcRangeMode(loadedQcContext ? "qc" : "dataset");
+        setQcError(
+          qcFailed
+            ? "QC review data could not be loaded. Return to QC and reload the export."
+            : "",
+        );
+        setChannels(displayedChannels);
         setViewState(null);
         setStatus(
           loadedSources.length > 1 ? "Rendering images…" : "Rendering image…",
@@ -1010,6 +1235,22 @@ export default function ImageViewer() {
     );
   }
 
+  function chooseQcRangeMode(mode: QcDisplayRangeMode) {
+    if (!qcContext) return;
+    try {
+      setChannels((current) =>
+        mode === "qc"
+          ? applyQcDisplayRanges(current, qcContext.ranges)
+          : restoreDatasetContrasts(current, datasetDefaultChannels),
+      );
+      setQcRangeMode(mode);
+    } catch {
+      setQcError(
+        "QC display ranges could not be applied. Return to QC and reload the export.",
+      );
+    }
+  }
+
   function defaultViewState(): CameraViewState | null {
     if (!loader) return null;
     const initial = getDefaultInitialViewState(
@@ -1091,6 +1332,10 @@ export default function ImageViewer() {
   const backHref = useMemo(() => {
     return viewerReturnHref(window.location.search);
   }, []);
+  const qcMode = useMemo(
+    () => new URLSearchParams(window.location.search).get("qc") === "1",
+    [],
+  );
   const cycleTimeJump = () => {
     const nextFrames = nextJumpOption?.frames ?? 1;
     viewerDebug("time:jump-change", {
@@ -1330,10 +1575,16 @@ export default function ImageViewer() {
                 <span>Contrast minimum: {Math.round(channel.contrast[0])}</span>
                 <input
                   aria-label={channel.name + " contrast minimum"}
+                  aria-describedby={
+                    qcContext && qcRangeMode === "qc"
+                      ? "qc-range-locked-hint"
+                      : undefined
+                  }
                   type="range"
+                  disabled={Boolean(qcContext && qcRangeMode === "qc")}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
-                  step={step}
+                  step={qcMode ? "any" : step}
                   value={channel.contrast[0]}
                   onChange={(event) => {
                     const value = Number(event.target.value);
@@ -1347,10 +1598,16 @@ export default function ImageViewer() {
                 <span>Contrast maximum: {Math.round(channel.contrast[1])}</span>
                 <input
                   aria-label={channel.name + " contrast maximum"}
+                  aria-describedby={
+                    qcContext && qcRangeMode === "qc"
+                      ? "qc-range-locked-hint"
+                      : undefined
+                  }
                   type="range"
+                  disabled={Boolean(qcContext && qcRangeMode === "qc")}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
-                  step={step}
+                  step={qcMode ? "any" : step}
                   value={channel.contrast[1]}
                   onChange={(event) => {
                     const value = Number(event.target.value);
@@ -1363,7 +1620,7 @@ export default function ImageViewer() {
             </fieldset>
           );
         })}
-        <a href={backHref}>← Back to data</a>
+        <a href={backHref}>{qcMode ? "← Back to QC" : "← Back to data"}</a>
         </aside>
       )}
 
@@ -1414,6 +1671,11 @@ export default function ImageViewer() {
         {error && (
           <div className="notice error" role="alert">
             {error}
+          </div>
+        )}
+        {qcError && (
+          <div className="notice error" role="alert" data-testid="qc-viewer-error">
+            {qcError}
           </div>
         )}
 
@@ -1548,6 +1810,18 @@ export default function ImageViewer() {
             metadata={plateMetadata}
             selectedWell={wellIdFromPath(imagePath)}
             detailsOnly
+          />
+        )}
+        {qcContext && !comparing && (
+          <QcFieldPanel
+            payload={qcContext.payload}
+            ranges={qcContext.ranges}
+            rangeMode={qcRangeMode}
+            onRangeModeChange={chooseQcRangeMode}
+            siteStepper={qcContext.siteStepper}
+            onSiteChange={(option) =>
+              window.location.assign(qcSiteHref(window.location.search, option))
+            }
           />
         )}
       </section>

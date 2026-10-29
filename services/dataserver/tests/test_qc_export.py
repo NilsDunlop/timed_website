@@ -333,6 +333,48 @@ def test_channel_mapping_mismatch_never_publishes_snapshot(
     assert store.status.error == "channels.csv does not match the packed dataset profile"
 
 
+@pytest.mark.parametrize(
+    ("column", "value"),
+    (
+        ("display_lo", "nan"),
+        ("display_hi", "inf"),
+        ("display_lo", "5250"),
+        ("display_mode", "adaptive"),
+        ("quantile_lo", "nan"),
+        ("quantile_hi", "inf"),
+        ("quantile_lo", "-0.1"),
+        ("quantile_hi", "1.1"),
+        ("quantile_lo", "0.995"),
+        ("reference_fields", "0"),
+        ("reference_fields", "1.5"),
+    ),
+)
+def test_invalid_display_ranges_never_publish_snapshot(
+    tmp_path: Path,
+    qc_fixture: tuple[Path, PackedCatalogue],
+    column: str,
+    value: str,
+) -> None:
+    output, catalogue = qc_fixture
+    live = _copy_export(
+        output / make_test_data.GENERATED_QC_EXPORT_DIRECTORY,
+        tmp_path / f"invalid-{column}-{value.replace('.', '_')}",
+    )
+
+    def invalidate_first_row(rows: list[dict[str, str]]) -> None:
+        rows[0][column] = value
+
+    _rewrite_rows(live / "display_ranges.csv", invalidate_first_row)
+    _publish_changed_file(live, "display_ranges.csv", label="invalid display range")
+    store = QcExportStore(live, catalogue, IDR0080_FIXTURE_PROFILE)
+
+    assert store.refresh() is None
+    assert not store.status.available
+    assert store.status.hash_check == "error"
+    assert store.status.error is not None
+    assert store.status.error.startswith("display_ranges.csv")
+
+
 def test_parser_and_dictionary_errors_do_not_echo_export_contents(
     tmp_path: Path,
     qc_fixture: tuple[Path, PackedCatalogue],

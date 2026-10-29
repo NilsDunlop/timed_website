@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import threading
 import time
 from collections.abc import Mapping
@@ -224,6 +225,18 @@ def _integer(value: object, *, context: str) -> int:
         raise QcExportError(f"{context} must be an integer") from None
     if isinstance(value, float) and value != result:
         raise QcExportError(f"{context} must be an integer")
+    return result
+
+
+def _finite_number(value: object, *, context: str) -> float:
+    if value is None or isinstance(value, bool):
+        raise QcExportError(f"{context} must be a finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise QcExportError(f"{context} must be a finite number") from None
+    if not math.isfinite(result):
+        raise QcExportError(f"{context} must be a finite number")
     return result
 
 
@@ -558,12 +571,32 @@ def _validate_panel_tables(
 
     display_keys: set[tuple[int, str]] = set()
     for row_index, row in enumerate(display.to_pylist()):
+        context = f"display_ranges.csv row {row_index}"
         key = (
-            _integer(row.get("plate"), context=f"display range row {row_index} plate"),
+            _integer(row.get("plate"), context=f"{context} plate"),
             _text(row.get("channel")),
         )
         if key in display_keys or key[0] not in plates or key[1] not in channel_labels:
             raise QcExportError(f"display_ranges.csv has an invalid key at row {row_index}")
+        display_lo = _finite_number(row.get("display_lo"), context=f"{context} display_lo")
+        display_hi = _finite_number(row.get("display_hi"), context=f"{context} display_hi")
+        if display_lo >= display_hi:
+            raise QcExportError(f"{context} display bounds must be increasing")
+        if _text(row.get("display_mode")) != "fixed per plate x channel":
+            raise QcExportError(f"{context} has an unsupported display mode")
+        quantile_lo = _finite_number(
+            row.get("quantile_lo"), context=f"{context} quantile_lo"
+        )
+        quantile_hi = _finite_number(
+            row.get("quantile_hi"), context=f"{context} quantile_hi"
+        )
+        if not 0 <= quantile_lo < quantile_hi <= 1:
+            raise QcExportError(f"{context} quantiles must be increasing within [0, 1]")
+        reference_fields = _integer(
+            row.get("reference_fields"), context=f"{context} reference_fields"
+        )
+        if reference_fields <= 0:
+            raise QcExportError(f"{context} reference_fields must be positive")
         display_keys.add(key)
     expected_display = {(plate, channel) for plate in plates for channel in channel_labels}
     if display_keys != expected_display:

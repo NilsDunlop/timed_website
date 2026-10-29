@@ -76,6 +76,8 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   page,
 }) => {
   const qcRequests: URL[] = [];
+  let fieldMetadataCount = 0;
+  let forceFieldExportMismatch = false;
   page.on("request", (request) => {
     const url = new URL(request.url());
     if (url.pathname.startsWith("/backend/api/qc/")) qcRequests.push(url);
@@ -84,6 +86,20 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await connectCellHealth(page);
   await page.route("**/backend/api/qc/fields?*", expandFieldsToNinePlates);
   await page.route("**/backend/api/qc/triage?*", expandTriageToNinePlates);
+  await page.route("**/backend/api/qc/field?*", async (route) => {
+    const response = await route.fetch();
+    const payload = (await response.json()) as {
+      export_id: string;
+      well_metadata?: Record<string, unknown> | null;
+    };
+    fieldMetadataCount = Object.keys(payload.well_metadata ?? {}).length;
+    if (forceFieldExportMismatch) payload.export_id = `${payload.export_id}-replacement`;
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
   await page.getByRole("link", { name: "QC", exact: true }).click();
 
   await expect(
@@ -233,15 +249,132 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   expect(qcRequests.length).toBeGreaterThan(0);
   expect(qcRequests.every((url) => !url.searchParams.has("blind"))).toBe(true);
 
+  const qcReturn = `${new URL(page.url()).pathname}${new URL(page.url()).search}`;
   await page
     .locator('[data-qc-plate="14610"]')
     .getByRole("button", { name: "Well A1", exact: true })
     .click();
   await expect(page).toHaveURL(/\/view\/?\?/);
   await expect(page).toHaveURL(/qc=1/);
+  await expect(page).toHaveURL(/qcScope=well/);
+  await expect(page).toHaveURL(/qcSite=1/);
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
     timeout: 60_000,
   });
+  const qcPanel = page.getByTestId("qc-viewer-panel");
+  await expect(qcPanel).toBeVisible();
+  await expect(page.getByRole("link", { name: "Back to QC" })).toHaveAttribute(
+    "href",
+    qcReturn,
+  );
+  const focusMetric = qcPanel.locator(
+    '[data-qc-metric-column="fixture_focus__DNA__control_z"]',
+  );
+  await expect(focusMetric).toContainText("-2.489");
+  await expect(focusMetric).toContainText("Raw 0.81");
+  await expect(focusMetric).toContainText("Worse low");
+  await expect(focusMetric).toContainText("Is the synthetic DNA focus below the review bound?");
+  await expect(qcPanel.getByRole("region", { name: "Site metrics" })).toContainText("0.125");
+  await expect(
+    qcPanel.locator('[data-qc-context-column="fixture_context_count"]'),
+  ).toContainText("21");
+  expect(fieldMetadataCount).toBeGreaterThan(0);
+  await expect(qcPanel.locator("[data-qc-attribute]")).toHaveCount(fieldMetadataCount);
+
+  const rangeProvenance = page.getByTestId("qc-display-provenance");
+  await expect(
+    rangeProvenance.getByRole("heading", {
+      name: "QC display range · export fixture-qc-primary-20261029",
+    }),
+  ).toBeVisible();
+  await expect(rangeProvenance.locator('[data-qc-range-channel="DNA"]')).toContainText(
+    /101.*5,250/,
+  );
+  await expect(rangeProvenance.locator('[data-qc-range-channel="DNA"]')).toContainText(
+    /Quantiles 0\.01.*0\.995.*10 reference fields/,
+  );
+  for (const [channel, low, high] of [
+    ["DNA", "101", "5250"],
+    ["ER", "102", "5500"],
+    ["AGP", "103", "5750"],
+    ["RNA", "104", "6000"],
+    ["Mito", "105", "6250"],
+  ] as const) {
+    await expect(page.getByRole("slider", { name: `${channel} contrast minimum` })).toHaveValue(
+      low,
+    );
+    await expect(page.getByRole("slider", { name: `${channel} contrast maximum` })).toHaveValue(
+      high,
+    );
+    await expect(page.getByRole("slider", { name: `${channel} contrast minimum` })).toBeDisabled();
+    await expect(page.getByRole("slider", { name: `${channel} contrast maximum` })).toBeDisabled();
+  }
+
+  const rangeToggle = page.getByRole("checkbox", { name: "Use QC display ranges" });
+  await rangeToggle.uncheck();
+  await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toHaveValue("292");
+  await expect(page.getByRole("slider", { name: "DNA contrast maximum" })).toHaveValue("11552");
+  await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toBeEnabled();
+  await rangeToggle.check();
+  await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toHaveValue("101");
+  await expect(page.getByRole("slider", { name: "DNA contrast maximum" })).toHaveValue("5250");
+
+  const siteStepper = page.getByTestId("qc-site-stepper");
+  await expect(siteStepper).toContainText("Site 1 of 2");
+  await expect(siteStepper.getByRole("button", { name: "Previous site" })).toBeDisabled();
+  await siteStepper.getByRole("button", { name: "Next site" }).click();
+  await expect(page).toHaveURL(/path=A01_s2\.zarr/);
+  await expect(page).toHaveURL(/qcSite=2/);
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("qc-site-stepper")).toContainText("Site 2 of 2");
+  await expect(
+    page
+      .getByTestId("qc-viewer-panel")
+      .locator('[data-qc-metric-column="fixture_focus__DNA__control_z"]'),
+  ).toContainText("-2.478");
+  await page
+    .getByTestId("qc-site-stepper")
+    .getByRole("button", { name: "Previous site" })
+    .click();
+  await expect(page).toHaveURL(/path=A01_s1\.zarr/);
+  await expect(page).toHaveURL(/qcSite=1/);
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
+    timeout: 60_000,
+  });
+
+  await page.getByRole("link", { name: "Back to QC" }).click();
+  await expect(page).toHaveURL(new RegExp(qcReturn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await expect(page.getByRole("table", { name: "QC wells" })).toBeVisible();
+  await expect(cellLine).toHaveValues(["A549"]);
+  await expect(plateFilter).toHaveValues(["14610", "14612"]);
+
+  await page.getByRole("button", { name: "Sites", exact: true }).click();
+  const realSiteOpen = page
+    .getByRole("table", { name: "QC sites" })
+    .locator("tbody tr")
+    .filter({ hasText: /^14,610/ })
+    .getByRole("button", { name: "Open site" });
+  await realSiteOpen.click();
+  await expect(page).toHaveURL(/qcScope=field/);
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("qc-viewer-panel")).toBeVisible();
+  await expect(page.getByTestId("qc-site-stepper")).toHaveCount(0);
+  await page.getByRole("link", { name: "Back to QC" }).click();
+
+  forceFieldExportMismatch = true;
+  await realSiteOpen.click();
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("qc-viewer-error")).toBeVisible();
+  await expect(page.getByTestId("qc-viewer-panel")).toHaveCount(0);
+  await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toHaveValue("292");
+  await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toBeEnabled();
+  expect(qcRequests.every((url) => !url.searchParams.has("blind"))).toBe(true);
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect and stop server" }).click();
