@@ -55,8 +55,7 @@ def _inject_hidden_site_value(snapshot: QcExportSnapshot) -> QcExportSnapshot:
             "question": "Runtime-only private payload regression value.",
             "blind": "hide",
             "primary": False,
-            "default_flag_lo": None,
-            "default_flag_hi": None,
+            "default_flag": None,
             "markers": None,
         }
     )
@@ -99,8 +98,7 @@ def _inject_hidden_display_range_value(snapshot: QcExportSnapshot) -> QcExportSn
             "question": "Runtime-only private display-range regression value.",
             "blind": "hide",
             "primary": False,
-            "default_flag_lo": None,
-            "default_flag_hi": None,
+            "default_flag": None,
             "markers": None,
         }
     )
@@ -216,6 +214,9 @@ def test_core_payloads_preserve_export_columns_metadata_and_order(
     }
     assert field["field"]["runtime_private_column"] == "runtime-private-token"
     assert field["well_metadata"]["gene"] == f"fixture-gene-{first_source['well']}"
+    expected_labels = [dict(row) for row in payload_snapshot.annotation_labels()]
+    assert fields["labels"] == expected_labels
+    assert field["labels"] == expected_labels
     assert set(triage["rows"][0]) == set(
         payload_snapshot.table("triage_plate_channel.csv").column_names
     )

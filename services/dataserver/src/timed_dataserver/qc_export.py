@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import threading
 import time
 from collections.abc import Mapping
@@ -29,6 +30,7 @@ REQUIRED_EXPORT_FILES = (
     "site_metrics.csv",
     "columns.csv",
     "channels.csv",
+    "labels.csv",
     "review_list.csv",
     "triage_plate_channel.csv",
     "display_ranges.csv",
@@ -41,6 +43,7 @@ DICTIONARY_FILES = (
 CURRENT_DICTIONARY_COLUMNS = (
     "file",
     "column",
+    "label",
     "metric",
     "version",
     "channel",
@@ -54,8 +57,7 @@ CURRENT_DICTIONARY_COLUMNS = (
 )
 NEXT_DICTIONARY_COLUMNS = (
     "primary",
-    "default_flag_lo",
-    "default_flag_hi",
+    "default_flag",
     "markers",
 )
 REQUIRED_SITE_COLUMNS = (
@@ -72,6 +74,7 @@ REQUIRED_CHANNEL_COLUMNS = (
     "packed_member_suffix",
     "phenix_channel_id",
 )
+REQUIRED_LABEL_COLUMNS = ("label", "description")
 REQUIRED_REVIEW_COLUMNS = (
     "scope",
     "plate",
@@ -97,7 +100,9 @@ REQUIRED_DISPLAY_COLUMNS = (
     "reference_fields",
 )
 KNOWN_STATUSES = frozenset(("", "registered", "kept", "pending_review", "retired", "dropped"))
-KNOWN_LAYERS = frozenset(("key", "context", "site_review", "panel", "retired", "review"))
+KNOWN_LAYERS = frozenset(
+    ("key", "context", "site_review", "triage", "panel", "retired", "review")
+)
 KNOWN_GATES = frozenset(("", "automatic", "none", "review"))
 KNOWN_BLIND_POLICIES = frozenset(("show", "hide"))
 
@@ -168,6 +173,23 @@ class QcExportSnapshot:
             if (filename is None or row.get("file") == filename)
             and (not blind or row.get("blind") != "hide")
         )
+
+    def annotation_labels(self) -> tuple[Mapping[str, str], ...]:
+        """Return the validated annotation-label registry in export order."""
+        return tuple(
+            MappingProxyType(
+                {
+                    "label": _text(row.get("label")),
+                    "description": _text(row.get("description")),
+                }
+            )
+            for row in self.tables["labels.csv"].to_pylist()
+        )
+
+    @property
+    def annotation_label_names(self) -> frozenset[str]:
+        """Return the label tokens accepted for new annotations."""
+        return frozenset(row["label"] for row in self.annotation_labels())
 
     def unknown_statuses_for(self, *, blind: bool = False) -> tuple[str, ...]:
         """Return unknown statuses without deriving blinded state from hidden rows."""
@@ -370,8 +392,8 @@ def _validate_dictionary(
     triage_columns = set(tables["triage_plate_channel.csv"].column_names)
     if any(("triage_plate_channel.csv", column) not in seen for column in triage_columns):
         missing_contract.append("dictionary:triage_plate_channel.csv")
-    if not any(_text(row.get("layer")) == "panel" for row in rows):
-        missing_contract.append("columns.csv.layer=panel")
+    if not any(_text(row.get("layer")) == "triage" for row in rows):
+        missing_contract.append("columns.csv.layer=triage")
 
     for filename in ("site_metrics.csv", "review_list.csv"):
         missing = sorted(
@@ -423,12 +445,49 @@ def _validate_next_dictionary(rows: list[dict[str, object]]) -> None:
         primary_keys.add(key)
         gate = _text(row.get("gate"))
         markers = _text(row.get("markers"))
-        lower = row.get("default_flag_lo")
-        upper = row.get("default_flag_hi")
+        default_flag = _text(row.get("default_flag"))
         if gate == "automatic" and not markers:
             raise QcExportError(f"columns.csv row {row_index} has no automatic-rule markers")
-        if gate == "review" and lower is None and upper is None:
-            raise QcExportError(f"columns.csv row {row_index} has no default review bound")
+        if gate == "review":
+            match = re.fullmatch(
+                r"([<>])\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)",
+                default_flag,
+            )
+            if match is None or not math.isfinite(float(match.group(2))):
+                raise QcExportError(
+                    f"columns.csv row {row_index} has an invalid default review rule"
+                )
+            direction = _text(row.get("worse"))
+            if (direction == "low" and match.group(1) != "<") or (
+                direction == "high" and match.group(1) != ">"
+            ):
+                raise QcExportError(
+                    f"columns.csv row {row_index} has a default review rule "
+                    "that disagrees with its direction"
+                )
+
+
+def _validate_annotation_labels(table: pa.Table) -> None:
+    _require_columns(table, REQUIRED_LABEL_COLUMNS, filename="labels.csv")
+    if table.num_columns != len(REQUIRED_LABEL_COLUMNS):
+        raise QcExportError("labels.csv has unsupported columns")
+    labels: set[str] = set()
+    for row_index, row in enumerate(table.to_pylist()):
+        label = _text(row.get("label"))
+        description = _text(row.get("description"))
+        if (
+            not label
+            or len(label) > 100
+            or re.fullmatch(r"[a-z][a-z0-9_]*", label) is None
+            or not description
+            or len(description) > 500
+        ):
+            raise QcExportError(f"labels.csv row {row_index} is invalid")
+        if label in labels:
+            raise QcExportError("labels.csv label names must be unique")
+        labels.add(label)
+    if not labels:
+        raise QcExportError("labels.csv must define at least one annotation label")
 
 
 def _validate_channel_mapping(
@@ -616,6 +675,7 @@ def _load_snapshot(
         filename: _read_hashed_csv(root, filename, file_hashes[filename])
         for filename in REQUIRED_EXPORT_FILES
     }
+    _validate_annotation_labels(tables["labels.csv"])
     hidden, missing_contract, unknown_statuses = _validate_dictionary(tables)
     if (catalogue is None) != (profile is None):
         raise QcExportError("Catalogue and profile must be supplied together")

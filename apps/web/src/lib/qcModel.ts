@@ -179,6 +179,15 @@ function markers(value: unknown): readonly QcMarker[] {
     .filter((item): item is QcMarker => item !== null);
 }
 
+function defaultFlag(value: unknown): { lo: number | null; hi: number | null } {
+  if (typeof value !== "string") return { lo: null, hi: null };
+  const match = value.trim().match(/^([<>])\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?)$/i);
+  if (!match) return { lo: null, hi: null };
+  const threshold = Number(match[2]);
+  if (!Number.isFinite(threshold)) return { lo: null, hi: null };
+  return match[1] === "<" ? { lo: threshold, hi: null } : { lo: null, hi: threshold };
+}
+
 function applicableDictionaryRow(row: QcDictionaryRow): boolean {
   const status = text(row.status).toLowerCase();
   const layer = text(row.layer).toLowerCase();
@@ -282,6 +291,7 @@ export function buildQcModel(
         candidate.scale === "raw" &&
         candidate.column in columns,
     );
+    const initialFlag = defaultFlag(definition.row.default_flag);
     sliders.push({
       ...definition,
       gate: definition.gate as QcGate,
@@ -289,8 +299,8 @@ export function buildQcModel(
       rawColumn: definition.scale === "raw" ? definition.column : (raw?.column ?? null),
       minimum,
       maximum,
-      defaultFlagLo: finiteNumber(definition.row.default_flag_lo),
-      defaultFlagHi: finiteNumber(definition.row.default_flag_hi),
+      defaultFlagLo: initialFlag.lo,
+      defaultFlagHi: initialFlag.hi,
       markers: markers(definition.row.markers),
     });
   }

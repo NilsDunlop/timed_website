@@ -1,6 +1,6 @@
 # Codex brief: Cell Health QC review
 
-**Version 1.** Phase 1 (viewing Cell Health, 0.4.0) is merged. This brief replaces everything about Phase 2 in `docs/plans/idr0080-codex-brief.md`: its sections on masks, QC, the QC screen and the review queue, with their milestones and tests. That brief still holds for the mask-store contract (its Appendix D).
+**Version 2.** Phase 1 (viewing Cell Health, 0.4.0) is merged. This brief replaces everything about Phase 2 in `docs/plans/idr0080-codex-brief.md`: its sections on masks, QC, the QC screen and the review queue, with their milestones and tests. That brief still holds for the mask-store contract (its Appendix D).
 
 | Part | Branch | Version | What |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@
 ## 0. Working agreement
 
 - **Read first:** `CLAUDE.md`, `docs/decisions.md` and this brief. For Part C, also read the old brief's section 5.1 and Appendix D.
-- **Input:** `docs/data/qc-export/`, a local copy of the current QC export (`version.json` id `2e009e837cd1`). It is gitignored and must never be committed. It contains hidden columns, so never print real hidden names or values into commits, docs, tests or replies; refer to them only by count.
+- **Input:** `docs/data/qc-export/`, a local copy of the core-ready QC export (`version.json` id `d77939bbbf42`). It is gitignored and must never be committed. It contains hidden columns, so never print real hidden names or values into commits, docs, tests or replies; refer to them only by count.
 - **Never** connect to Arrhenius, submit Slurm jobs, or touch real data. Steps marked **Operator** are done by the operator: stop there and wait.
 - **Stop and ask** when the export, the repository and this brief disagree, or when a value in the export's dictionary has a meaning this brief does not define.
 - **Each part:**
@@ -73,12 +73,13 @@ The export is at `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc
 | File | Contents and use |
 | --- | --- |
 | `site_metrics.csv` | One row per field (31,104): plate, barcode, well, site; every main metric's raw value and shown scale; the context columns; and each channel's packed member name |
-| `columns.csv` | The column dictionary: metric, channel, scale, `worse` direction, layer, gate, status, one-sentence question, `blind`, and the primary/marker/default-bound fields in the next export |
+| `columns.csv` | The column dictionary: label, metric, channel, scale, `worse` direction, layer, gate, status, one-sentence question, `blind`, primary, marker and default-rule fields |
 | `channels.csv` | Channel identity in both numberings (section 2) |
-| `review_list.csv` | The review queue (158 entries in the current export). It has eight hidden columns; the next export adds entry id and review group |
+| `labels.csv` | The ordered annotation-label registry and operator guidance |
+| `review_list.csv` | The review queue (178 entries). It has ten hidden columns plus public entry ids and review groups |
 | `triage_plate_channel.csv` | The plate × channel overview |
 | `display_ranges.csv` | The fixed display range per plate × channel, with its display mode |
-| `version.json` | The export id (now `2e009e837cd1`), the registry hash and the file hashes |
+| `version.json` | The export id (now `d77939bbbf42`), the registry hash and the seven file hashes |
 
 **First step of Part B: document the export.**
 
@@ -86,8 +87,8 @@ The export is at `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc
 2. From the local copy, write `docs/data/QC_EXPORT.md`. It describes every file's columns and types, and the values used in `columns.csv`'s `channel`, `scale`, `worse`, `layer`, `gate`, `status` and `blind`. It also covers the context columns, the triage and display-range layouts, and the structure of `version.json`.
 3. For hidden columns, record only how many there are, never their names or values.
 4. Stop and ask about anything whose meaning is still unclear after
-   `QC_EXPORT.md` and the recorded Part B decisions, or if the next export does
-   not match this contract.
+   `QC_EXPORT.md` and the recorded Part B decisions, or if a replacement export
+   does not match this contract.
 
 **Keys.**
 
@@ -101,21 +102,23 @@ Metric columns are named `<metric>__<channel>__<scale>`. The channel is a stain 
 
 - `site_review` rows are per-field metrics. One slider is created for each metric and channel from the row marked `primary=true`; the raw value appears beside the primary scale.
 - `context` rows are shown and sortable but have no sliders.
-- `panel` rows describe plate- or well-level views.
+- `triage` rows identify the plate and channel keys in the overview file.
+- Non-key rows from `triage_plate_channel.csv` provide its overview values;
+  their `site_review` and `panel` layers retain the producer's roles.
+- `panel` rows in other files describe plate- or well-level values.
 - `key` and `review` retain their identifier and review-list roles.
 - `retired` rows are never shown. Rows with status `retired`, `dropped`, or an unrecognised value are hidden; unrecognised values are listed in QC status. `pending_review` is shown with a badge.
 
-The next-export contract currently defines 19 primary sliders. Its only
-automatic gate is the upstream D62 decision on `focus_score_normvar`.
+The current contract defines 37 primary rows. Automatic gates are upstream
+decisions: the website displays their registered markers and never recomputes
+them.
 
 A metric added or retired in the export appears or disappears on reload, with no code change.
 
-The next export adds `primary`, `default_flag_lo`, `default_flag_hi` and
-`markers` to `columns.csv`; dictionary rows for
-`triage_plate_channel.csv`; and `entry_id` plus `review_group` to
-`review_list.csv`. Until that export is available, build configuration,
-loading, validation, the annotation store, and code independent of those
-columns against the current export. Fixtures follow the next-export contract.
+`default_flag` is a strict one-sided expression (`< threshold` or
+`> threshold`). It provides the initial rule for a review slider. The export
+also contains dictionary rows for `triage_plate_channel.csv`, and
+`entry_id` plus `review_group` in `review_list.csv`.
 
 ### 4.2 Configuration
 
@@ -196,9 +199,10 @@ selector of its own. The core page makes unblinded requests.
   - `automatic` was decided upstream by a registered rule. The website never
     recomputes or changes it. Registered thresholds from `markers` are shown on
     the slider.
-  - `review` is a flag slider initialised from `default_flag_lo` and
-    `default_flag_hi`; a blank bound makes it one-sided. A site is flagged when
-    it lies beyond the slider, and the slider shows its own flagged-site count.
+  - `review` is a flag slider initialised from the exported `default_flag`
+    expression. It is one-sided (`< threshold` or `> threshold`). A site is
+    flagged when it lies beyond the slider, and the slider shows its own
+    flagged-site count.
   - `none` is a filter slider, initially fully open. It never flags a site or
     feeds a queue.
   - `worse` is `low`, `high` or `both`, with `both` producing a two-sided
@@ -287,8 +291,9 @@ The existing viewer with a QC panel, opened from the QC page or a queue
 - **Retraction:** `record` "retraction", carrying the `id` it retracts. The
   latest unretracted record per reviewer, scope, plate and barcode, field or
   well, and channel is current.
-- **Labels:** ok, blurred, partial_blur, saturated, debris, dark_or_bubble, uneven_illumination, dim_or_staining, noisy, misregistered, sparse_biological, known_fixed_shadow, other, unsure.
-- **Validation.** The label must be in the list, the channel a name in
+- **Labels:** the ordered identifiers and their descriptions come from
+  `labels.csv`; the browser has no second hard-coded list.
+- **Validation.** The label must be in the active export registry, the channel a name in
   `channels.csv` or "all", and the field or well must exist in the export.
   Field scope requires a site; well scope does not accept one. Confidence must
   be one of the three values, and the note at most 2,000 characters. Anything
@@ -302,8 +307,9 @@ The existing viewer with a QC panel, opened from the QC page or a queue
 
 - site-review, context, panel, key, review and retired rows, plus dropped and
   unrecognised statuses;
-- primary scales, automatic markers, and one- and two-sided default flag bounds;
-- hidden columns, including eight hidden review-list columns;
+- primary scales, automatic markers, and one-sided default flag expressions;
+- hidden columns, including ten hidden review-list columns;
+- the ordered `labels.csv` annotation registry;
 - dictionary-described triage values and plain-linear display ranges;
 - field- and well-scope review entries with entry ids and review groups;
 - a `channels.csv` with AGP in slot 3 and RNA in slot 4;

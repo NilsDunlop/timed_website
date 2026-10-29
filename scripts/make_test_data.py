@@ -519,6 +519,7 @@ QC_EXPORT_FILES = (
     "site_metrics.csv",
     "columns.csv",
     "channels.csv",
+    "labels.csv",
     "review_list.csv",
     "triage_plate_channel.csv",
     "display_ranges.csv",
@@ -526,6 +527,7 @@ QC_EXPORT_FILES = (
 QC_DICTIONARY_FIELDS = (
     "file",
     "column",
+    "label",
     "metric",
     "version",
     "channel",
@@ -537,11 +539,26 @@ QC_DICTIONARY_FIELDS = (
     "question",
     "blind",
     "primary",
-    "default_flag_lo",
-    "default_flag_hi",
+    "default_flag",
     "markers",
 )
-QC_REVIEW_HIDDEN_COLUMNS = tuple(f"fixture_hidden_review_{index:02d}" for index in range(1, 9))
+QC_REVIEW_HIDDEN_COLUMNS = tuple(f"fixture_hidden_review_{index:02d}" for index in range(1, 11))
+QC_ANNOTATION_LABELS = (
+    ("ok", "No image-quality problem is visible."),
+    ("blurred", "The whole field is out of focus."),
+    ("partial_blur", "Part of the field is out of focus."),
+    ("saturated", "Bright regions are clipped."),
+    ("debris", "Non-cellular objects are visible."),
+    ("bright_biological", "Bright cells or structures are biological."),
+    ("dark_or_bubble", "A dark region, bubble, or meniscus is visible."),
+    ("uneven_illumination", "Illumination varies across the field."),
+    ("dim_or_staining", "One or more channels are dim or unevenly stained."),
+    ("noisy", "The image has low signal-to-noise."),
+    ("sparse_biological", "The field contains few cells for biological reasons."),
+    ("known_fixed_shadow", "The known fixed instrument shadow is visible."),
+    ("other", "Another problem is visible and should be described."),
+    ("unsure", "The reviewer cannot decide."),
+)
 
 
 def _replace_qc_export_directory(output: Path, directory: str) -> Path:
@@ -572,6 +589,7 @@ def _dictionary_row(
     file: str,
     column: str,
     *,
+    label: str = "",
     metric: str = "",
     version: int | str = "",
     channel: str = "",
@@ -583,13 +601,13 @@ def _dictionary_row(
     question: str,
     blind: str = "show",
     primary: bool = False,
-    default_flag_lo: float | str = "",
-    default_flag_hi: float | str = "",
+    default_flag: str = "",
     markers: str = "",
 ) -> dict[str, object]:
     return {
         "file": file,
         "column": column,
+        "label": label,
         "metric": metric,
         "version": version,
         "channel": channel,
@@ -601,8 +619,7 @@ def _dictionary_row(
         "question": question,
         "blind": blind,
         "primary": primary,
-        "default_flag_lo": default_flag_lo,
-        "default_flag_hi": default_flag_hi,
+        "default_flag": default_flag,
         "markers": markers,
     }
 
@@ -691,7 +708,7 @@ def _qc_site_dictionary(variant: str) -> list[dict[str, object]]:
                 status="pending_review",
                 question="Is the synthetic DNA focus below the review bound?",
                 primary=True,
-                default_flag_lo=-2.0,
+                default_flag="< -2.0",
             ),
             _dictionary_row(
                 "site_metrics.csv",
@@ -781,8 +798,7 @@ def _qc_site_dictionary(variant: str) -> list[dict[str, object]]:
                 status="pending_review",
                 question="Is the synthetic ER texture outside the review interval?",
                 primary=True,
-                default_flag_lo=-1.5,
-                default_flag_hi=1.5,
+                default_flag="< -1.5",
             )
         )
     return rows
@@ -830,13 +846,13 @@ def _qc_triage_dictionary() -> list[dict[str, object]]:
         _dictionary_row(
             "triage_plate_channel.csv",
             "plate",
-            layer="key",
+            layer="triage",
             question="Numeric plate identifier.",
         ),
         _dictionary_row(
             "triage_plate_channel.csv",
             "channel",
-            layer="key",
+            layer="triage",
             question="Stain or field-level site summary.",
         ),
         _dictionary_row(
@@ -846,12 +862,10 @@ def _qc_triage_dictionary() -> list[dict[str, object]]:
             version=1,
             scale="ratio",
             worse="high",
-            layer="panel",
+            layer="site_review",
             gate="review",
             status="pending_review",
             question="Synthetic share of fields selected for review.",
-            primary=True,
-            default_flag_hi=0.25,
         ),
         _dictionary_row(
             "triage_plate_channel.csv",
@@ -860,11 +874,10 @@ def _qc_triage_dictionary() -> list[dict[str, object]]:
             version=1,
             scale="ratio",
             worse="high",
-            layer="panel",
+            layer="site_review",
             gate="automatic",
             status="registered",
             question="Synthetic share flagged by a registered rule.",
-            primary=True,
             markers='[{"label":"registered","value":0.2}]',
         ),
         _dictionary_row(
@@ -877,7 +890,6 @@ def _qc_triage_dictionary() -> list[dict[str, object]]:
             gate="none",
             status="kept",
             question="Synthetic plate-panel flag.",
-            primary=True,
         ),
         _dictionary_row(
             "triage_plate_channel.csv",
@@ -1065,6 +1077,13 @@ def _write_qc_export_fixture(
         "site_metrics.csv": (tuple(site_rows[0]), site_rows),
         "columns.csv": (QC_DICTIONARY_FIELDS, dictionary_rows),
         "channels.csv": (tuple(_qc_channel_rows()[0]), _qc_channel_rows()),
+        "labels.csv": (
+            ("label", "description"),
+            [
+                {"label": label, "description": description}
+                for label, description in QC_ANNOTATION_LABELS
+            ],
+        ),
         "review_list.csv": (
             tuple(_qc_review_rows(site_rows)[0]),
             _qc_review_rows(site_rows),

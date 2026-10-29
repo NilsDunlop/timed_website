@@ -53,7 +53,7 @@ export default function QcOverview({
   );
   const definitions = dictionary.filter(
     (definition) =>
-      definition.file === "triage_plate_channel.csv" && definition.layer === "panel",
+      definition.file === "triage_plate_channel.csv" && definition.metric !== "",
   );
   const byKey = useMemo(
     () =>

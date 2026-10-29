@@ -1049,22 +1049,9 @@
             "type": "string"
           },
           "label": {
-            "enum": [
-              "ok",
-              "blurred",
-              "partial_blur",
-              "saturated",
-              "debris",
-              "dark_or_bubble",
-              "uneven_illumination",
-              "dim_or_staining",
-              "noisy",
-              "misregistered",
-              "sparse_biological",
-              "known_fixed_shadow",
-              "other",
-              "unsure"
-            ],
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
             "title": "Label",
             "type": "string"
           },
@@ -1123,6 +1110,26 @@
           "confidence"
         ],
         "title": "QcAnnotationCreateRequest",
+        "type": "object"
+      },
+      "QcAnnotationLabelDefinition": {
+        "additionalProperties": false,
+        "description": "One export-defined annotation choice and its operator guidance.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "description"
+        ],
+        "title": "QcAnnotationLabelDefinition",
         "type": "object"
       },
       "QcAnnotationMutationResponse": {
@@ -1214,22 +1221,6 @@
             "type": "string"
           },
           "label": {
-            "enum": [
-              "ok",
-              "blurred",
-              "partial_blur",
-              "saturated",
-              "debris",
-              "dark_or_bubble",
-              "uneven_illumination",
-              "dim_or_staining",
-              "noisy",
-              "misregistered",
-              "sparse_biological",
-              "known_fixed_shadow",
-              "other",
-              "unsure"
-            ],
             "title": "Label",
             "type": "string"
           },
@@ -1416,6 +1407,13 @@
             "title": "Export Id",
             "type": "string"
           },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/QcAnnotationLabelDefinition"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
           "malformed_lines": {
             "title": "Malformed Lines",
             "type": "integer"
@@ -1435,6 +1433,7 @@
           "blinded",
           "writable",
           "malformed_lines",
+          "labels",
           "annotations"
         ],
         "title": "QcAnnotationsResponse",
@@ -1471,6 +1470,13 @@
             "additionalProperties": true,
             "title": "Field",
             "type": "object"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/QcAnnotationLabelDefinition"
+            },
+            "title": "Labels",
+            "type": "array"
           },
           "registry_hash": {
             "title": "Registry Hash",
@@ -1525,6 +1531,13 @@
           "export_id": {
             "title": "Export Id",
             "type": "string"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/QcAnnotationLabelDefinition"
+            },
+            "title": "Labels",
+            "type": "array"
           },
           "registry_hash": {
             "title": "Registry Hash",
@@ -2011,7 +2024,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.5.0.dev4"
+    "version": "0.5.0.dev5"
   },
   "openapi": "3.1.0",
   "paths": {

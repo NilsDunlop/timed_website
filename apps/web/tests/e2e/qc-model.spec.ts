@@ -53,7 +53,7 @@ const dictionary: QcDictionaryRow[] = [
     status: "pending_review",
     question: "Is texture excessive?",
     primary: true,
-    default_flag_hi: 8,
+    default_flag: "> 8",
   },
   {
     file: "site_metrics.csv",
@@ -78,8 +78,7 @@ const dictionary: QcDictionaryRow[] = [
     gate: "review",
     status: "kept",
     primary: true,
-    default_flag_lo: -2,
-    default_flag_hi: 2,
+    default_flag: "< -2",
   },
   {
     file: "site_metrics.csv",
@@ -137,7 +136,7 @@ const fields: QcFieldsInput = {
     sharpness__DNA__raw: [10, 50, 60, 70, 80, 90],
     texture__AGP__score: [2, 3, 9, 5, 10, 1],
     texture__AGP__raw: [20, 30, 90, 50, 100, 10],
-    balance__site__score: [-3, 0, 0, 4, 0, 0],
+    balance__site__score: [-3, 0, 0, -4, 0, 0],
     brightness__RNA__score: [2, 3, 4, 5, 6, 7],
     fixture_context: ["x", "x", "y", "y", "y", "z"],
     fixture_guard: [false, false, true, false, true, false],
@@ -182,7 +181,7 @@ test("derives primary sliders and raw companions entirely from the dictionary", 
     },
     balance__site__score: {
       flagLo: -2,
-      flagHi: 2,
+      flagHi: null,
       flagActive: true,
     },
     brightness__RNA__score: {
@@ -316,7 +315,7 @@ test("aggregates every in-range site for retained wells and sorts stably", () =>
     values: { gene: "G3", well_type: "control" },
     worstValues: {
       texture__AGP__score: 10,
-      balance__site__score: 4,
+      balance__site__score: -4,
     },
   });
   expect(

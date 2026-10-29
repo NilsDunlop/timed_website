@@ -1,29 +1,17 @@
 import type { QcQueueEntry, QcQueueScope } from "./qcQueue";
 
-export const QC_ANNOTATION_LABELS = [
-  "ok",
-  "blurred",
-  "partial_blur",
-  "saturated",
-  "debris",
-  "dark_or_bubble",
-  "uneven_illumination",
-  "dim_or_staining",
-  "noisy",
-  "misregistered",
-  "sparse_biological",
-  "known_fixed_shadow",
-  "other",
-  "unsure",
-] as const;
-
 export const QC_ANNOTATION_CONFIDENCES = ["low", "medium", "high"] as const;
 export const QC_ANNOTATION_REVIEW_STATES = ["not reviewed", "reviewed"] as const;
 
-export type QcAnnotationLabel = (typeof QC_ANNOTATION_LABELS)[number];
+export type QcAnnotationLabel = string;
 export type QcAnnotationConfidence = (typeof QC_ANNOTATION_CONFIDENCES)[number];
 export type QcAnnotationReviewState = (typeof QC_ANNOTATION_REVIEW_STATES)[number];
 export type QcAnnotationFilter = QcAnnotationReviewState | QcAnnotationLabel;
+
+export type QcAnnotationLabelDefinition = {
+  label: string;
+  description: string;
+};
 
 export type QcCurrentAnnotation = {
   schemaVersion: 1;
@@ -66,14 +54,16 @@ export type QcAnnotationParseResult = {
   invalidRecords: number;
 };
 
+export type QcAnnotationLabelParseResult = {
+  labels: QcAnnotationLabelDefinition[];
+  invalidRecords: number;
+};
+
 const SAFE_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SAFE_REVIEWER = /^[A-Za-z0-9_-]+$/;
 const SAFE_WELL = /^[A-Z]+\d+$/;
-const LABELS = new Set<string>(QC_ANNOTATION_LABELS);
+const SAFE_LABEL = /^[a-z][a-z0-9_]*$/;
 const CONFIDENCES = new Set<string>(QC_ANNOTATION_CONFIDENCES);
-const LABEL_ORDER = new Map(
-  QC_ANNOTATION_LABELS.map((label, index) => [label, index]),
-);
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -95,7 +85,7 @@ function positiveInteger(value: unknown): value is number {
 }
 
 function isLabel(value: unknown): value is QcAnnotationLabel {
-  return typeof value === "string" && LABELS.has(value);
+  return typeof value === "string" && value.length <= 100 && SAFE_LABEL.test(value);
 }
 
 function isConfidence(value: unknown): value is QcAnnotationConfidence {
@@ -186,6 +176,30 @@ export function parseQcAnnotations(
   return { annotations, invalidRecords };
 }
 
+export function parseQcAnnotationLabels(values: unknown): QcAnnotationLabelParseResult {
+  if (!Array.isArray(values)) return { labels: [], invalidRecords: 1 };
+  const labels: QcAnnotationLabelDefinition[] = [];
+  const seen = new Set<string>();
+  let invalidRecords = 0;
+  for (const value of values) {
+    const row = objectRecord(value);
+    const label = row?.label;
+    const description = row?.description;
+    if (
+      !isLabel(label) ||
+      !nonemptyText(description, 500) ||
+      seen.has(label)
+    ) {
+      invalidRecords += 1;
+      continue;
+    }
+    seen.add(label);
+    labels.push({ label, description });
+  }
+  if (labels.length === 0) invalidRecords += 1;
+  return { labels, invalidRecords };
+}
+
 function matchesTarget(
   annotation: QcCurrentAnnotation,
   target: QcAnnotationRowTarget,
@@ -202,10 +216,21 @@ function matchesTarget(
 export function qcAnnotationRowState(
   annotations: readonly QcCurrentAnnotation[],
   target: QcAnnotationRowTarget,
+  labelDefinitions: readonly QcAnnotationLabelDefinition[] = [],
 ): QcAnnotationRowState {
   const matching = annotations.filter((annotation) => matchesTarget(annotation, target));
+  const labelOrder = new Map(
+    labelDefinitions.map((definition, index) => [definition.label, index]),
+  );
   const labels = [...new Set(matching.map((annotation) => annotation.label))].sort(
-    (left, right) => (LABEL_ORDER.get(left) ?? 0) - (LABEL_ORDER.get(right) ?? 0),
+    (left, right) => {
+      const leftIndex = labelOrder.get(left);
+      const rightIndex = labelOrder.get(right);
+      if (leftIndex !== undefined && rightIndex !== undefined) return leftIndex - rightIndex;
+      if (leftIndex !== undefined) return -1;
+      if (rightIndex !== undefined) return 1;
+      return left.localeCompare(right);
+    },
   );
   return {
     reviewed: matching.length > 0,

@@ -50,7 +50,9 @@ import { viewerDebug } from "../lib/viewerDebug";
 import {
   countAnnotatedQueueEntries,
   parseQcAnnotation,
+  parseQcAnnotationLabels,
   parseQcAnnotations,
+  type QcAnnotationLabelDefinition,
   type QcCurrentAnnotation,
 } from "../lib/qcAnnotations";
 import {
@@ -144,6 +146,7 @@ type PendingQcViewerContext = {
   payload: QcFieldResponse;
   rangeRows: QcRowsResponse["rows"];
   annotationRows: QcAnnotationsResponse["annotations"];
+  annotationLabelRows: QcAnnotationsResponse["labels"];
   annotationsWritable: boolean;
   collectionPath: string;
   siteStepper: QcSiteStepper | null;
@@ -153,6 +156,7 @@ type QcViewerContext = {
   payload: QcFieldResponse;
   ranges: readonly QcDisplayRange[];
   annotations: readonly QcCurrentAnnotation[];
+  annotationLabels: readonly QcAnnotationLabelDefinition[];
   annotationsWritable: boolean;
   collectionPath: string;
   scope: "field" | "well";
@@ -299,6 +303,7 @@ async function loadQcViewerContext(
     payload: fieldResult.data,
     rangeRows: rangesResult.data.rows,
     annotationRows: annotationsResult.data.annotations,
+    annotationLabelRows: annotationsResult.data.labels,
     annotationsWritable: annotationsResult.data.writable,
     collectionPath: path,
     siteStepper,
@@ -861,10 +866,17 @@ export default function ImageViewer() {
             if (parsedAnnotations.invalidRecords > 0) {
               throw new Error("The QC annotation response is invalid");
             }
+            const parsedLabels = parseQcAnnotationLabels(
+              qcOutcome.value.annotationLabelRows,
+            );
+            if (parsedLabels.invalidRecords > 0) {
+              throw new Error("The QC annotation label registry is invalid");
+            }
             loadedQcContext = {
               payload: qcOutcome.value.payload,
               ranges,
               annotations: parsedAnnotations.annotations,
+              annotationLabels: parsedLabels.labels,
               annotationsWritable: qcOutcome.value.annotationsWritable,
               collectionPath: qcOutcome.value.collectionPath,
               scope: qcRequest?.scope ?? "field",
@@ -1380,11 +1392,16 @@ export default function ImageViewer() {
     if (parsed.invalidRecords > 0) {
       throw new Error("The QC annotation response is invalid");
     }
+    const parsedLabels = parseQcAnnotationLabels(result.data.labels);
+    if (parsedLabels.invalidRecords > 0) {
+      throw new Error("The QC annotation label registry is invalid");
+    }
     setQcContext((current) =>
       current && current.payload.export_id === context.payload.export_id
         ? {
             ...current,
             annotations: parsed.annotations,
+            annotationLabels: parsedLabels.labels,
             annotationsWritable: result.data.writable,
           }
         : current,
@@ -2199,6 +2216,7 @@ export default function ImageViewer() {
             }
             annotationScope={qcContext.scope}
             annotationChannels={channels.map((channel) => channel.name)}
+            annotationLabels={qcContext.annotationLabels}
             annotations={currentQcAnnotations}
             annotationsWritable={qcContext.annotationsWritable}
             annotationSubmitting={qcAnnotationBusy}

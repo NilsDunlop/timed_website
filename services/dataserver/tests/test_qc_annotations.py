@@ -158,6 +158,26 @@ def test_invalid_annotation_writes_nothing(
     assert not store.path.exists()
 
 
+def test_export_registry_controls_labels_for_new_writes(tmp_path: Path) -> None:
+    folder = tmp_path / "annotations"
+    folder.mkdir()
+    store = QcAnnotationStore(folder, reviewer="alice")
+    allowed = {"ok", "bright_biological"}
+
+    record = store.append_annotation(
+        _draft(label="bright_biological"),
+        allowed_labels=allowed,
+    )
+    with pytest.raises(QcAnnotationValidationError, match="label is invalid"):
+        store.append_annotation(
+            _draft(label="misregistered"),
+            allowed_labels=allowed,
+        )
+
+    assert record["label"] == "bright_biological"
+    assert len(store.path.read_bytes().splitlines()) == 1
+
+
 def test_validation_error_does_not_echo_note_contents(tmp_path: Path) -> None:
     folder = tmp_path / "annotations"
     folder.mkdir()

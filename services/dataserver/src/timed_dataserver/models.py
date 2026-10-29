@@ -52,24 +52,6 @@ class QcStatusResponse(ApiModel):
 
 QcAnnotationScope = Literal["field", "well"]
 QcAnnotationConfidence = Literal["low", "medium", "high"]
-QcAnnotationLabel = Literal[
-    "ok",
-    "blurred",
-    "partial_blur",
-    "saturated",
-    "debris",
-    "dark_or_bubble",
-    "uneven_illumination",
-    "dim_or_staining",
-    "noisy",
-    "misregistered",
-    "sparse_biological",
-    "known_fixed_shadow",
-    "other",
-    "unsure",
-]
-
-
 class QcAnnotationCreateRequest(ApiModel):
     """Operator-entered fields for one append-only annotation."""
 
@@ -80,7 +62,7 @@ class QcAnnotationCreateRequest(ApiModel):
     well: str = Field(min_length=2, max_length=16, pattern=r"^[A-Za-z]+[0-9]+$")
     site: int | None = Field(default=None, ge=1)
     channel: str = Field(min_length=1, max_length=100)
-    label: QcAnnotationLabel
+    label: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
     confidence: QcAnnotationConfidence
     note: str = Field(default="", max_length=2_000)
 
@@ -130,7 +112,7 @@ class QcAnnotationRecord(ApiModel):
     well: str
     site: int | None
     channel: str
-    label: QcAnnotationLabel
+    label: str
     confidence: QcAnnotationConfidence
     note: str
     blinded: bool
@@ -165,7 +147,15 @@ class QcAnnotationsResponse(ApiModel):
     blinded: bool
     writable: bool
     malformed_lines: int
+    labels: list["QcAnnotationLabelDefinition"]
     annotations: list[QcAnnotationRecord]
+
+
+class QcAnnotationLabelDefinition(ApiModel):
+    """One export-defined annotation choice and its operator guidance."""
+
+    label: str
+    description: str
 
 
 class QcAnnotationMutationResponse(ApiModel):
@@ -199,6 +189,7 @@ class QcFieldsResponse(ApiModel):
         exclude_if=lambda value: value is None,
     )
     annotations: list[QcAnnotationRecord] = Field(default_factory=list)
+    labels: list[QcAnnotationLabelDefinition] = Field(default_factory=list)
 
 
 class QcFieldResponse(ApiModel):
@@ -214,6 +205,7 @@ class QcFieldResponse(ApiModel):
         exclude_if=lambda value: value is None,
     )
     annotations: list[QcAnnotationRecord] = Field(default_factory=list)
+    labels: list[QcAnnotationLabelDefinition] = Field(default_factory=list)
 
 
 class OmeZarrInfo(ApiModel):

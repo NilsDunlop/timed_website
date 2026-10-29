@@ -87,6 +87,11 @@ def annotation_record_payload(
     return payload
 
 
+def annotation_labels_payload(snapshot: QcExportSnapshot) -> list[dict[str, JsonScalar]]:
+    """Return the export-defined annotation choices in file order."""
+    return [_record(row) for row in snapshot.annotation_labels()]
+
+
 def _applicable_dictionary_rows(
     snapshot: QcExportSnapshot,
     *,
@@ -213,6 +218,7 @@ def fields_payload(
         "annotations": [
             annotation_record_payload(row, blind=blind) for row in annotations
         ],
+        "labels": annotation_labels_payload(snapshot),
     }
     if not blind:
         payload["well_metadata"] = _metadata_payload(table, metadata)
@@ -277,6 +283,7 @@ def field_payload(
                 )
             )
         ],
+        "labels": annotation_labels_payload(snapshot),
     }
     if not blind:
         payload["well_metadata"] = {

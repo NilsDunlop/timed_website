@@ -623,11 +623,8 @@ export interface components {
             confidence: "low" | "medium" | "high";
             /** Export Id */
             export_id: string;
-            /**
-             * Label
-             * @enum {string}
-             */
-            label: "ok" | "blurred" | "partial_blur" | "saturated" | "debris" | "dark_or_bubble" | "uneven_illumination" | "dim_or_staining" | "noisy" | "misregistered" | "sparse_biological" | "known_fixed_shadow" | "other" | "unsure";
+            /** Label */
+            label: string;
             /**
              * Note
              * @default
@@ -649,6 +646,16 @@ export interface components {
             site?: number | null;
             /** Well */
             well: string;
+        };
+        /**
+         * QcAnnotationLabelDefinition
+         * @description One export-defined annotation choice and its operator guidance.
+         */
+        QcAnnotationLabelDefinition: {
+            /** Description */
+            description: string;
+            /** Label */
+            label: string;
         };
         /**
          * QcAnnotationMutationResponse
@@ -686,11 +693,8 @@ export interface components {
             export_id: string;
             /** Id */
             id: string;
-            /**
-             * Label
-             * @enum {string}
-             */
-            label: "ok" | "blurred" | "partial_blur" | "saturated" | "debris" | "dark_or_bubble" | "uneven_illumination" | "dim_or_staining" | "noisy" | "misregistered" | "sparse_biological" | "known_fixed_shadow" | "other" | "unsure";
+            /** Label */
+            label: string;
             /** Note */
             note: string;
             /** Plate */
@@ -777,6 +781,8 @@ export interface components {
             blinded: boolean;
             /** Export Id */
             export_id: string;
+            /** Labels */
+            labels: components["schemas"]["QcAnnotationLabelDefinition"][];
             /** Malformed Lines */
             malformed_lines: number;
             /** Registry Hash */
@@ -803,6 +809,8 @@ export interface components {
             field: {
                 [key: string]: unknown;
             };
+            /** Labels */
+            labels?: components["schemas"]["QcAnnotationLabelDefinition"][];
             /** Registry Hash */
             registry_hash: string;
             /** Well Metadata */
@@ -825,6 +833,8 @@ export interface components {
             };
             /** Export Id */
             export_id: string;
+            /** Labels */
+            labels?: components["schemas"]["QcAnnotationLabelDefinition"][];
             /** Registry Hash */
             registry_hash: string;
             /** Row Count */

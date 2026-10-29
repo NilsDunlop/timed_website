@@ -111,6 +111,7 @@ from .qc_http import qc_json_response
 from .qc_payloads import (
     QcFieldNotFoundError,
     QcPayloadError,
+    annotation_labels_payload,
     annotation_record_payload,
     dictionary_payload,
     display_ranges_payload,
@@ -1007,6 +1008,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                 "blinded": blind,
                 "writable": writable,
                 "malformed_lines": annotations.malformed_lines,
+                "labels": annotation_labels_payload(snapshot),
                 "annotations": [
                     annotation_record_payload(record, blind=blind)
                     for record in annotations.current
@@ -1055,7 +1057,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                         note=command.note,
                         blinded=blind,
                         app_version=__version__,
-                    )
+                    ),
+                    allowed_labels=snapshot.annotation_label_names,
                 )
             else:
                 record = runtime.annotations.append_retraction(

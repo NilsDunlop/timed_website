@@ -1,7 +1,7 @@
 # Cell Health QC export reference
 
 This document records the structure of the Cell Health QC export used for
-TIMED Part B. The inspected snapshot has export id `2e009e837cd1`, definitions
+TIMED Part B. The inspected snapshot has export id `d77939bbbf42`, definitions
 version 3, and 31,104 fields. The repository copy under
 `docs/data/qc-export/` is local-only and gitignored; it must never be committed.
 
@@ -11,12 +11,12 @@ validates the hashes in `version.json`, and never writes into it.
 ## Core and blinded data boundaries
 
 `columns.csv` marks each described data column as `show` or `hide`. The snapshot
-contains 63 shown dictionary rows and 24 hidden rows. Hidden columns are
+contains 37 shown dictionary rows and 65 hidden rows. Hidden columns are
 described here only by count:
 
-- `site_metrics.csv` has 16 hidden columns: five key columns and eleven context
-  columns.
-- `review_list.csv` has eight hidden columns.
+- `site_metrics.csv` has 55 hidden columns.
+- `review_list.csv` has ten hidden columns.
+- `triage_plate_channel.csv` has no hidden columns.
 
 The 0.5.0 core QC view loads and serves the complete export. A request without
 `blind=1` may therefore include both `show` and `hide` rows and attributes. The
@@ -37,13 +37,14 @@ though the unblinded core API is allowed to serve them at runtime.
 
 | File | Rows | Columns | Public structure |
 | --- | ---: | ---: | --- |
-| `site_metrics.csv` | 31,104 | 69 | 53 shown columns and 16 hidden columns; one row per field |
-| `columns.csv` | 87 | 12 | Dictionary for `site_metrics.csv` and `review_list.csv` |
+| `site_metrics.csv` | 31,104 | 69 | 14 shown columns and 55 hidden columns; one row per field |
+| `columns.csv` | 102 | 16 | Dictionary for site, review-list and triage columns |
 | `channels.csv` | 5 | 14 | One row per stain, joining packed and Phenix identities |
-| `review_list.csv` | 158 | 18 | 10 shown columns and eight hidden columns |
+| `labels.csv` | 14 | 2 | Ordered annotation labels and operator guidance |
+| `review_list.csv` | 178 | 23 | 13 shown columns and ten hidden columns |
 | `triage_plate_channel.csv` | 54 | 10 | Nine plates by five stains plus the field-level `site` channel |
 | `display_ranges.csv` | 45 | 9 | Nine plates by five stains |
-| `version.json` | one object | seven top-level keys | Export identity, registry identity, field count, and six file hashes |
+| `version.json` | one object | seven top-level keys | Export identity, registry identity, field count, and seven file hashes |
 
 PyArrow infers integer identifiers as `int64`, measurements as `double`, the
 triage rule flag as `bool`, and other CSV fields as `string`. Blank CSV cells
@@ -76,50 +77,29 @@ There is exactly one row per `(plate, well, site)`. The snapshot covers plates
 The five member names are validated against the packed catalogue and the slots
 declared by `channels.csv`.
 
-### Dictionary-shown context columns
+### Hidden metric and attribute columns
 
-| Columns | Type | Dictionary meaning |
-| --- | --- | --- |
-| `nuclei_final` | int64 | Final nucleus count and field density context |
-| `qc_release_delivery` | string | Acquisition delivery and TIFF-writer context |
-| `qc_sbr_otsu__<channel>__raw` | double | Raw foreground-to-background signal ratio for each stain |
-| `qc_sbr_otsu__<channel>__control_z` | double | Control-standardised signal ratio for each stain |
-
-`<channel>` expands in packed slot order to DNA, ER, AGP, RNA, and Mito. The
-remaining eleven context columns are hidden and are not identified here.
-
-### Dictionary-shown site-review columns
-
-All site-review values are `double`. Their names follow
-`<metric>__<channel>__<scale>`; `site` denotes a field-level metric.
-
-| Metric | Channel expansion | Scales | `worse` | `gate` | Status |
-| --- | --- | --- | --- | --- | --- |
-| `focus_score_normvar` | DNA | `raw`, `ratio` | `low` | `automatic` | `registered` |
-| `qc_acq_z_well_dev_um` | site | `raw`, `plate_z` | `both` | `none` | `kept` |
-| `qc_acq_z_residual_um` | site | `raw`, `plate_z` | `both` | `none` | `kept` |
-| `qc_focus_radial_ratio` | all five stains | `raw`, `control_z` | `low` | `review` | `pending_review` |
-| `qc_plateau_pct` | all five stains | `raw` | `high` | `none` | `kept` |
-| `qc_coincident_bright_pct` | site | `raw` | `high` | `review` | `pending_review` |
-| `qc_bright_area_pct` | all five stains | `raw` | `high` | `none` | `kept` |
-
-This produces 27 shown site-review columns. The current snapshot has no
-dictionary rows with a `panel` layer. Under the next-export contract,
-`site_review` rows supply per-field sliders, `context` rows are sortable without
-sliders, and `panel` rows describe plate- or well-level views.
+The other 55 columns are dictionary-described metrics and attributes. Their
+names and values are intentionally not reproduced here. The unblinded core view
+uses their labels, questions, scales and rules from `columns.csv`; a `blind=1`
+response removes them before serialisation.
 
 ## `columns.csv`
 
 | Column | Type | Observed values or role |
 | --- | --- | --- |
-| `file` | string | `site_metrics.csv`, `review_list.csv` |
+| `file` | string | `site_metrics.csv`, `review_list.csv`, `triage_plate_channel.csv` |
 | `column` | string | Column described by the row |
+| `label` | nullable string | Operator-facing label when the source supplies one |
 | `metric` | string | Stable metric id, or blank for structural rows |
 | `version` | nullable int64 | Metric version, or blank for structural rows |
 | `channel` | string | blank, DNA, ER, AGP, RNA, Mito, `site` |
 | `scale` | string | blank, `raw`, `ratio`, `plate_z`, `control_z` |
+| `primary` | bool | Selects one slider column per metric and channel |
+| `default_flag` | nullable string | Initial one-sided rule as `< threshold` or `> threshold` |
+| `markers` | nullable string | Registered upstream thresholds for automatic rules |
 | `worse` | string | blank, `low`, `high`, `both`, `context` |
-| `layer` | string | `key`, `context`, `site_review`, `review` |
+| `layer` | string | `key`, `context`, `site_review`, `review`, `triage`, `panel` |
 | `gate` | string | blank, `automatic`, `none`, `review` |
 | `status` | string | blank, `registered`, `kept`, `pending_review` |
 | `question` | string | One-sentence description or review prompt |
@@ -130,7 +110,8 @@ describes a non-slider context value. Layers have these roles:
 
 - `site_review`: per-field metrics with sliders;
 - `context`: values shown and sortable beside slider metrics, without sliders;
-- `panel`: plate- or well-level views;
+- `triage`: structural plate and channel keys for the overview;
+- `panel`: other plate- or well-level values;
 - `retired`: never shown;
 - `key`: identifiers; and
 - `review`: review-list columns.
@@ -138,11 +119,10 @@ describes a non-slider context value. Layers have these roles:
 The gate controls slider behaviour:
 
 - `automatic` is decided upstream by a registered rule. TIMED does not
-  recompute or change that rule; registered thresholds appear as markers. The
-  current automatic decision is D62 on `focus_score_normvar`.
-- `review` is a flag slider. Its exported default bounds define the initial
-  rule, with a blank bound meaning one-sided. A value is flagged beyond the
-  slider, and the slider reports its own flagged count.
+  recompute or change that rule; registered thresholds appear as markers.
+- `review` is a flag slider. Its exported `default_flag` is a strict `<` or `>`
+  comparison and defines the initial one-sided rule. A value is flagged beyond
+  the slider, and the slider reports its own flagged count.
 - `none` is a filter slider that starts fully open, never flags a value, and
   never contributes to a review queue.
 
@@ -153,17 +133,10 @@ must also be beyond at least one active flag rule.
 unrecognised status are hidden; unrecognised statuses are reported by the QC
 status endpoint. Blank status is valid for structural dictionary rows.
 
-The next export adds these dictionary columns:
-
-| Column | Role |
-| --- | --- |
-| `primary` | Selects one slider column per metric and channel; 19 are expected |
-| `default_flag_lo`, `default_flag_hi` | Initial flag bounds; either may be blank for a one-sided rule |
-| `markers` | Registered upstream thresholds displayed on automatic sliders |
-
-Each primary slider also displays the corresponding raw value. The current
-snapshot predates these columns and has no `panel`, `retired`, or `dropped`
-rows.
+The snapshot contains 37 primary rows. Each primary slider also displays its
+corresponding raw value when one is registered. Every non-key dictionary row
+for `triage_plate_channel.csv` supplies an overview value; its `site_review` or
+`panel` layer describes the value's role without a hard-coded metric list.
 
 ## `channels.csv`
 
@@ -187,12 +160,28 @@ The identity mapping is:
 
 This must agree with the Cell Health code profile before QC is enabled.
 
+## `labels.csv`
+
+The file is the authoritative ordered registry for annotation labels. It has a
+`label` column containing a safe lowercase identifier and a `description`
+column containing the guidance shown beside the annotation form. The current
+registry is: `ok`, `blurred`, `partial_blur`, `saturated`, `debris`,
+`bright_biological`, `dark_or_bubble`, `uneven_illumination`,
+`dim_or_staining`, `noisy`, `sparse_biological`, `known_fixed_shadow`, `other`
+and `unsure`.
+
+The data server validates writes against this registry. The browser does not
+keep a second hard-coded label list, and stored historical labels remain
+readable even when a later export changes the registry.
+
 ## `review_list.csv`
 
-The queue has 158 rows in file order. Its shown columns are:
+The queue has 178 rows in file order. Its shown columns are:
 
 | Column | Type | Meaning |
 | --- | --- | --- |
+| `entry_id` | string | Stable queue identity |
+| `review_group` | string | Stable queue grouping |
 | `scope` | string | `field` or `well` |
 | `plate` | int64 | Plate id |
 | `cell_line` | string | Cell line |
@@ -201,14 +190,12 @@ The queue has 158 rows in file order. Its shown columns are:
 | `channel` | string | Stain name or `site` |
 | `metric` | string | Metric behind the queue entry |
 | `metric_version` | int64 | Metric version |
-| `value` | double | Metric value |
 | `unit` | string | Display unit |
+| `crop_x`, `crop_y` | int64 | Suggested image review centre |
 
-The other eight columns are marked hidden. The core queue preserves file order
-and may use all 18 columns. With `blind=1`, the server returns no hidden columns
-and reduces each queue entry to its blinded identity and grouping. The next
-export adds the public `entry_id` and `review_group` columns required for that
-blinded response.
+The other ten columns are marked hidden. The core queue preserves file order
+and may use all 23 columns. With `blind=1`, the server returns no hidden columns
+and reduces each queue entry to its blinded identity and grouping.
 
 A field-scoped row opens its site. A well-scoped row opens site 1 and provides
 the normal site stepper for the other eight sites.
@@ -230,9 +217,9 @@ The 54 rows form nine plates by six channel values: the five stains plus
 | `panel_flatfield_max_over_min` | double |
 | `panel_plateau_share` | double |
 
-Cells are null where a measure does not apply to that channel value. The next
-export adds dictionary rows for this file. Those rows provide labels and legend
-metadata; the website does not hard-code them.
+Cells are null where a measure does not apply to that channel value. Dictionary
+rows for this file provide labels, questions, layers and rule metadata; the
+website does not hard-code them.
 
 ## `display_ranges.csv`
 
@@ -258,13 +245,13 @@ The current object contains:
 
 | Key | Type | Current role |
 | --- | --- | --- |
-| `id` | string | Export id `2e009e837cd1` |
+| `id` | string | Export id `d77939bbbf42` |
 | `label` | string | Human-readable snapshot label |
 | `created_utc` | ISO 8601 string | Export creation time |
 | `definitions_version` | integer | Dictionary definitions version, currently 3 |
 | `fields` | integer | Expected field count, currently 31,104 |
 | `registry_sha256` | SHA-256 string | Registry identity |
-| `files` | object | Six required CSV filenames mapped to their SHA-256 digests |
+| `files` | object | Seven required CSV filenames mapped to their SHA-256 digests |
 
 The loader verifies every entry in `files` before publishing a snapshot. API
 names such as `export_id` and `registry_hash` are derived from `id` and
@@ -305,16 +292,9 @@ stain-specific record does not mark an All-channel composite entry. The
 review-list queue preserves CSV order. "Review these" preserves current table
 order in one validated `sessionStorage` value; it does not modify the export.
 
-## Next-export additions
+## Publication contract
 
-The current snapshot is sufficient for configuration, base loading and
-validation, the annotation store, and features that do not depend on the new
-dictionary contract. The replacement export will add:
-
-- `primary`, `default_flag_lo`, `default_flag_hi`, and `markers` to
-  `columns.csv`;
-- dictionary rows for `triage_plate_channel.csv`; and
-- `entry_id` and `review_group` to `review_list.csv`.
-
-Fixtures for 0.5.0 follow that next-export contract. The real-data A2 check must
-use the replacement export rather than this older snapshot.
+This replacement snapshot is core-ready. The loader requires exactly the seven
+hashed CSV files above, verifies their hashes before publication, validates the
+dictionary and annotation registry, and publishes the snapshot atomically. A
+partially replaced or unsupported folder never becomes the active QC export.

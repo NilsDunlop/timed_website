@@ -16,36 +16,19 @@ import re
 import stat
 import threading
 import uuid
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-ANNOTATION_LABELS = frozenset(
-    (
-        "ok",
-        "blurred",
-        "partial_blur",
-        "saturated",
-        "debris",
-        "dark_or_bubble",
-        "uneven_illumination",
-        "dim_or_staining",
-        "noisy",
-        "misregistered",
-        "sparse_biological",
-        "known_fixed_shadow",
-        "other",
-        "unsure",
-    )
-)
 ANNOTATION_CONFIDENCES = frozenset(("low", "medium", "high"))
 MAX_NOTE_LENGTH = 2_000
 _MAX_SHORT_TEXT = 256
 _REVIEWER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _WELL_PATTERN = re.compile(r"^[A-Z]+[0-9]+$")
+_LABEL_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _FILE_LOCKS_GUARD = threading.Lock()
 _FILE_LOCKS: dict[Path, threading.RLock] = {}
 
@@ -213,11 +196,20 @@ def _normalized_target(target: QcAnnotationTarget) -> QcAnnotationTarget:
     )
 
 
-def _normalized_annotation_draft(draft: QcAnnotationDraft) -> QcAnnotationDraft:
+def _normalized_annotation_draft(
+    draft: QcAnnotationDraft,
+    *,
+    allowed_labels: Collection[str] | None = None,
+) -> QcAnnotationDraft:
     export_id = _short_text(draft.export_id, "export id")
     registry_hash = _short_text(draft.registry_hash, "registry hash")
     app_version = _short_text(draft.app_version, "application version")
-    if draft.label not in ANNOTATION_LABELS:
+    if (
+        not isinstance(draft.label, str)
+        or len(draft.label) > 100
+        or _LABEL_PATTERN.fullmatch(draft.label) is None
+        or (allowed_labels is not None and draft.label not in allowed_labels)
+    ):
         raise QcAnnotationValidationError("Annotation label is invalid")
     if draft.confidence not in ANNOTATION_CONFIDENCES:
         raise QcAnnotationValidationError("Annotation confidence is invalid")
@@ -331,9 +323,14 @@ class QcAnnotationStore:
         self.path = self.folder / f"annotations_{self.reviewer}.jsonl"
         self._lock = _file_lock(self.path)
 
-    def append_annotation(self, draft: QcAnnotationDraft) -> Mapping[str, object]:
+    def append_annotation(
+        self,
+        draft: QcAnnotationDraft,
+        *,
+        allowed_labels: Collection[str] | None = None,
+    ) -> Mapping[str, object]:
         """Append one annotation and return the immutable stored record."""
-        normalized = _normalized_annotation_draft(draft)
+        normalized = _normalized_annotation_draft(draft, allowed_labels=allowed_labels)
         target = normalized.target
         record: JsonRecord = {
             "schema_version": 1,

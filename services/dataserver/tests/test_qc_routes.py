@@ -201,6 +201,10 @@ def test_core_qc_routes_preserve_export_columns_metadata_and_order(
     assert payloads["annotations"]["annotations"] == []
     assert fields["annotations"] == []
     assert field["annotations"] == []
+    expected_labels = [dict(row) for row in snapshot.annotation_labels()]
+    assert payloads["annotations"]["labels"] == expected_labels
+    assert fields["labels"] == expected_labels
+    assert field["labels"] == expected_labels
 
 
 def test_every_blind_qc_route_removes_private_and_header_tokens(
@@ -483,10 +487,17 @@ def test_qc_annotation_routes_reject_invalid_or_stale_writes_without_appending(
             params=_params(index),
             json={**command, "channel": "DNA", "reviewer": "spoofed"},
         )
+        removed_label = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json={**command, "channel": "DNA", "label": "misregistered"},
+        )
 
     assert invalid.status_code == 422
     assert stale.status_code == 409
     assert spoofed.status_code == 422
+    assert removed_label.status_code == 422
     assert list(annotations.iterdir()) == []
 
 
@@ -837,7 +848,7 @@ def _make_non_core_export(output: Path) -> tuple[Path, Path, Path, Path]:
         fieldnames = tuple(reader.fieldnames or ())
         rows = list(reader)
     for row in rows:
-        if row["layer"] == "panel":
+        if row["layer"] == "triage":
             row["layer"] = "context"
     with columns_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)

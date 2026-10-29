@@ -9,7 +9,10 @@ import {
   type QcSiteStepper,
   type QcViewerScalar,
 } from "../lib/qcViewer";
-import type { QcCurrentAnnotation } from "../lib/qcAnnotations";
+import type {
+  QcAnnotationLabelDefinition,
+  QcCurrentAnnotation,
+} from "../lib/qcAnnotations";
 import type { QcQueueScope } from "../lib/qcQueue";
 import QcAnnotationPanel, {
   type QcAnnotationFormValue,
@@ -26,6 +29,7 @@ type Props = {
   onSiteChange?: (site: QcSiteOption) => void;
   annotationScope: QcQueueScope;
   annotationChannels: readonly string[];
+  annotationLabels: readonly QcAnnotationLabelDefinition[];
   annotations: readonly QcCurrentAnnotation[];
   annotationsWritable: boolean;
   annotationSubmitting: boolean;
@@ -58,6 +62,7 @@ export default function QcFieldPanel({
   onSiteChange,
   annotationScope,
   annotationChannels,
+  annotationLabels,
   annotations,
   annotationsWritable,
   annotationSubmitting,
@@ -250,6 +255,7 @@ export default function QcFieldPanel({
       <QcAnnotationPanel
         initialScope={annotationScope}
         channels={annotationChannels}
+        labelDefinitions={annotationLabels}
         annotations={annotations}
         writable={annotationsWritable}
         submitting={annotationSubmitting}

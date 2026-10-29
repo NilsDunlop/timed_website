@@ -118,8 +118,12 @@ def test_generated_qc_exports_are_deterministic_and_follow_next_contract(
     ]
     assert len(primary) == 1
     assert primary[0]["primary"] is True
-    assert primary[0]["default_flag_lo"] == -1.5
-    assert primary[0]["default_flag_hi"] == 1.5
+    assert primary[0]["default_flag"] == "< -1.5"
+    assert tuple(row["label"] for row in snapshot.annotation_labels()) == tuple(
+        label for label, _description in make_test_data.QC_ANNOTATION_LABELS
+    )
+    assert "bright_biological" in snapshot.annotation_label_names
+    assert "misregistered" not in snapshot.annotation_label_names
 
 
 def test_loader_validates_catalogue_channels_and_retains_all_core_columns(
@@ -190,7 +194,7 @@ def test_blind_policy_only_removes_dictionary_hidden_columns(
     assert all(row["blind"] != "hide" for row in snapshot.dictionary_rows(blind=True))
     review_hidden = snapshot.hidden_columns["review_list.csv"]
     assert review_hidden == frozenset(make_test_data.QC_REVIEW_HIDDEN_COLUMNS)
-    assert len(review_hidden) == 8
+    assert len(review_hidden) == 10
     review_dictionary_hidden = {
         row["column"]
         for row in snapshot.dictionary_rows(filename="review_list.csv")
@@ -256,7 +260,7 @@ def test_current_contract_loads_as_base_but_is_not_core_ready(
     live = _copy_export(output / make_test_data.GENERATED_QC_EXPORT_DIRECTORY, tmp_path / "live")
     _drop_csv_columns(
         live / "columns.csv",
-        set(make_test_data.QC_DICTIONARY_FIELDS[-4:]),
+        {"primary", "default_flag", "markers"},
         keep_row=lambda row: row["file"] != "triage_plate_channel.csv"
         and not (
             row["file"] == "review_list.csv"
@@ -274,13 +278,12 @@ def test_current_contract_loads_as_base_but_is_not_core_ready(
     assert not store.status.core_ready
     assert {
         "columns.csv.primary",
-        "columns.csv.default_flag_lo",
-        "columns.csv.default_flag_hi",
+        "columns.csv.default_flag",
         "columns.csv.markers",
         "review_list.csv.entry_id",
         "review_list.csv.review_group",
         "dictionary:triage_plate_channel.csv",
-        "columns.csv.layer=panel",
+        "columns.csv.layer=triage",
     }.issubset(snapshot.missing_contract)
 
 
@@ -416,6 +419,51 @@ def test_parser_and_dictionary_errors_do_not_echo_export_contents(
     assert hidden_row["column"] not in duplicate_store.status.error
 
 
+def test_label_registry_and_default_rules_are_validated(
+    tmp_path: Path,
+    qc_fixture: tuple[Path, PackedCatalogue],
+) -> None:
+    output, catalogue = qc_fixture
+    source = output / make_test_data.GENERATED_QC_EXPORT_DIRECTORY
+
+    duplicate_labels = _copy_export(source, tmp_path / "duplicate-labels")
+    labels_path = duplicate_labels / "labels.csv"
+    with labels_path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+        fieldnames = tuple(rows[0])
+    rows.append(dict(rows[0]))
+    with labels_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    _publish_changed_file(duplicate_labels, "labels.csv", label="duplicate label")
+    label_store = QcExportStore(
+        duplicate_labels,
+        catalogue,
+        IDR0080_FIXTURE_PROFILE,
+    )
+    assert label_store.refresh() is None
+    assert label_store.status.error == "labels.csv label names must be unique"
+
+    invalid_rule = _copy_export(source, tmp_path / "invalid-default-rule")
+
+    def break_review_rule(rows: list[dict[str, str]]) -> None:
+        row = next(
+            item
+            for item in rows
+            if item["primary"] == "True" and item["gate"] == "review"
+        )
+        row["default_flag"] = "outside"
+
+    _rewrite_rows(invalid_rule / "columns.csv", break_review_rule)
+    _publish_changed_file(invalid_rule, "columns.csv", label="invalid default rule")
+    rule_store = QcExportStore(invalid_rule, catalogue, IDR0080_FIXTURE_PROFILE)
+    assert rule_store.refresh() is None
+    assert rule_store.status.error is not None
+    assert rule_store.status.error.startswith("columns.csv row ")
+    assert "invalid default review rule" in rule_store.status.error
+
+
 def test_missing_export_has_explicit_unavailable_status(
     tmp_path: Path,
     qc_fixture: tuple[Path, PackedCatalogue],
@@ -438,9 +486,10 @@ def test_real_export_structure_opt_in() -> None:
     snapshot = inspect_qc_export(root)
     expected_shapes = {
         "site_metrics.csv": (31_104, 69),
-        "columns.csv": (87, 12),
+        "columns.csv": (102, 16),
         "channels.csv": (5, 14),
-        "review_list.csv": (158, 18),
+        "labels.csv": (14, 2),
+        "review_list.csv": (178, 23),
         "triage_plate_channel.csv": (54, 10),
         "display_ranges.csv": (45, 9),
     }
@@ -452,8 +501,9 @@ def test_real_export_structure_opt_in() -> None:
     } == expected_shapes
     assert snapshot.row_count == snapshot.expected_fields == 31_104
     assert len(snapshot.registry_hash) == 64
-    assert not snapshot.core_ready
-    assert snapshot.missing_contract
+    assert snapshot.core_ready
+    assert not snapshot.missing_contract
+    assert len(snapshot.annotation_labels()) == 14
 
     described = {
         (str(row["file"]), str(row["column"])) for row in snapshot.dictionary_rows()
@@ -463,7 +513,7 @@ def test_real_export_structure_opt_in() -> None:
             column for described_file, column in described if described_file == filename
         } == set(snapshot.table(filename).column_names)
 
-    assert len(snapshot.hidden_columns["site_metrics.csv"]) == 16
-    assert len(snapshot.hidden_columns["review_list.csv"]) == 8
+    assert len(snapshot.hidden_columns["site_metrics.csv"]) == 55
+    assert len(snapshot.hidden_columns["review_list.csv"]) == 10
     assert len(snapshot.hidden_columns["triage_plate_channel.csv"]) == 0
-    assert sum(len(columns) for columns in snapshot.hidden_columns.values()) == 24
+    assert sum(len(columns) for columns in snapshot.hidden_columns.values()) == 65

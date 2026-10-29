@@ -581,7 +581,7 @@ request adds the user-facing blinded-mode switch. Part C segmentation remains
 separate at 0.6.0.
 
 The server boundary is designed for both modes now. Every QC endpoint accepts
-`blind=1`; that option removes all 24 columns marked hidden in the inspected
+`blind=1`; that option removes all 65 columns marked hidden in the replacement
 export plus the additional Phase 1 and viewer attributes defined by the
 blinded contract before a response is built. The 0.5.0 browser does not set
 that option. Real hidden names and values remain absent from documentation,
@@ -589,18 +589,20 @@ commits, fixtures, logs, and errors even though the unblinded core API may
 serve them at runtime.
 
 The export dictionary owns QC presentation. `site_review` rows define field
-sliders, `context` rows are shown and sortable without sliders, `panel` rows
-describe plate- or well-level views, and `retired` rows are never shown. Key
-and review rows retain their structural roles. The `worse` value is the slider
+sliders, `context` rows are shown and sortable without sliders, `triage` rows
+identify the plate and channel keys in the overview file, `panel` rows describe
+plate- or well-level views, and `retired` rows are never shown. All non-key
+dictionary rows belonging to the overview file are rendered there, including
+its `site_review` and `panel` values. Key and review
+rows retain their structural roles. The `worse` value is the slider
 direction. Unknown statuses, along with retired and dropped rows, are hidden
 and reported by the status endpoint; `pending_review` remains visible with a
 badge.
 
-One primary column per metric and channel creates a slider; the next-export
-contract currently defines 19. The sole automatic gate is the upstream D62
-decision on `focus_score_normvar`: automatic gates show registered markers and
-are never recomputed by TIMED. Review
-gates start from the exported flag bounds and report flagged counts. None gates
+One primary column per metric and channel creates a slider; the replacement
+contract defines 37. Automatic gates show their exported registered markers
+and are never recomputed by TIMED. Review gates start from a strict exported
+`< threshold` or `> threshold` rule and report flagged counts. None gates
 start fully open and filter without flagging or feeding queues. Filter ranges
 combine with AND; active flag sliders additionally keep rows beyond at least
 one flag rule. Context values, including the export-defined attributes, remain
@@ -621,12 +623,10 @@ are append-only and include whether the request was blinded. The core view
 writes unblinded records. Rule proposals, their endpoint, their file, and their
 UI are removed from 0.5.0.
 
-The current local export predates the primary/flag-marker dictionary fields,
-triage dictionary rows, and blinded queue identifiers. Configuration, base
-loading and validation, the annotation store, and independent features can be
-built against it. Fixtures follow the next-export contract; the replacement
-real export is required before A2. After the 0.5.0 merge, blinded mode is the
-next PR, followed only later by Part C.
+The core-ready export includes the primary and marker dictionary fields,
+one-sided default flag expressions, triage dictionary rows, queue identifiers,
+crop centres and the annotation-label registry. After the 0.5.0 merge, blinded
+mode is the next PR, followed only later by Part C.
 
 Queue state is browser-session state, not export state. The review-list queue
 keeps file order; "Review these" keeps the currently displayed Sites or Wells
@@ -656,3 +656,27 @@ as the server closed it and return an isolated 502, even while concurrent data-
 server requests succeeded. The connector now expires pooled upstream sockets
 after four seconds, preserving normal reuse while staying below the server's
 idle timeout.
+
+## 2026-10-29: make the replacement QC export the runtime contract
+
+Export `d77939bbbf42` is the core-ready Part B snapshot: 31,104 fields, 102
+dictionary rows, 178 queue entries and seven hashed CSV files. Its additional
+file is `labels.csv`, an ordered registry of 14 annotation identifiers and
+their operator guidance. The data server validates annotation writes against
+the active registry and returns it with QC payloads; the browser renders those
+choices and descriptions instead of maintaining a hard-coded list. Historical
+stored labels remain readable, but a new write must use the active registry.
+
+The final producer contract uses `default_flag` as a strict one-sided
+comparison (`< threshold` or `> threshold`). It does not use the earlier split
+low/high fields. This keeps the upstream rule intact and lets TIMED initialise
+review sliders without deriving thresholds. The loader also accepts the
+export's dedicated `triage` key layer while retaining `site_review` and
+`panel` for its overview values.
+
+The manifest allowlist is intentionally exact. Adding `labels.csv` without a
+matching server update produced the visible “unsupported file hashes” error;
+silently ignoring the seventh hash would have bypassed both its integrity
+check and its role in annotation validation. The replacement is now validated
+as one atomic seven-file snapshot. Private data remain described only by
+count: 55 hidden site columns and ten hidden review-list columns.

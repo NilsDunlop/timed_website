@@ -464,9 +464,14 @@ test("reviews ordered queues and persists field and well annotations", async ({
   await expect(
     annotationPanel.getByRole("combobox", { name: "Channel", exact: true }),
   ).toHaveValue("DNA");
-  await annotationPanel
-    .getByRole("combobox", { name: "Label", exact: true })
-    .selectOption("blurred");
+  const labelSelect = annotationPanel.getByRole("combobox", {
+    name: "Label",
+    exact: true,
+  });
+  await expect(labelSelect.getByRole("option", { name: "Bright Biological" })).toHaveCount(1);
+  await expect(labelSelect.getByRole("option", { name: "Misregistered" })).toHaveCount(0);
+  await labelSelect.selectOption("blurred");
+  await expect(annotationPanel).toContainText("The whole field is out of focus.");
   await annotationPanel
     .getByRole("combobox", { name: "Confidence", exact: true })
     .selectOption("high");

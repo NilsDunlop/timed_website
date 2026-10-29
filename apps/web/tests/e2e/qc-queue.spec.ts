@@ -14,10 +14,10 @@ import {
 } from "../../src/lib/qcQueue";
 import {
   QC_ANNOTATION_CONFIDENCES,
-  QC_ANNOTATION_LABELS,
   annotationMatchesQueueEntry,
   countAnnotatedQueueEntries,
   parseQcAnnotation,
+  parseQcAnnotationLabels,
   parseQcAnnotations,
   qcAnnotationFilterMatches,
   qcAnnotationRowState,
@@ -37,6 +37,22 @@ class MemoryStorage implements QcQueueStorage {
 }
 
 const channels = ["DNA", "ER", "AGP", "RNA", "Mito"];
+const labelDefinitions = [
+  "ok",
+  "blurred",
+  "partial_blur",
+  "saturated",
+  "debris",
+  "bright_biological",
+  "dark_or_bubble",
+  "uneven_illumination",
+  "dim_or_staining",
+  "noisy",
+  "sparse_biological",
+  "known_fixed_shadow",
+  "other",
+  "unsure",
+].map((label) => ({ label, description: `Fixture ${label}` }));
 const queueId = "queue_test_0001";
 
 const field: QcQueueEntry = {
@@ -98,7 +114,7 @@ function annotationRecord(overrides: Record<string, unknown> = {}) {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    app_version: "0.5.0.dev4",
+    app_version: "0.5.0.dev5",
     ...overrides,
   };
 }
@@ -292,7 +308,7 @@ test("parses current annotation records from supplied channel names", () => {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    appVersion: "0.5.0.dev4",
+    appVersion: "0.5.0.dev5",
   });
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), ["new-stain"])).not.toBeNull();
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), channels)).toBeNull();
@@ -303,7 +319,15 @@ test("parses current annotation records from supplied channel names", () => {
   );
   expect(records.annotations).toHaveLength(1);
   expect(records.invalidRecords).toBe(1);
-  expect(QC_ANNOTATION_LABELS).toHaveLength(14);
+  const labels = parseQcAnnotationLabels(labelDefinitions);
+  expect(labels.invalidRecords).toBe(0);
+  expect(labels.labels).toEqual(labelDefinitions);
+  expect(labels.labels.map((definition) => definition.label)).toContain(
+    "bright_biological",
+  );
+  expect(labels.labels.map((definition) => definition.label)).not.toContain(
+    "misregistered",
+  );
   expect(QC_ANNOTATION_CONFIDENCES).toEqual(["low", "medium", "high"]);
 });
 
@@ -327,7 +351,7 @@ test("derives field and well annotation status without crossing row scopes", () 
     barcode: "SQ00014610",
     well: "A01",
     site: 1,
-  });
+  }, labelDefinitions);
   expect(fieldState).toEqual({
     reviewed: true,
     status: "reviewed",
@@ -344,7 +368,7 @@ test("derives field and well annotation status without crossing row scopes", () 
     barcode: "SQ00014610",
     well: "A01",
     site: null,
-  });
+  }, labelDefinitions);
   expect(wellState.labels).toEqual(["debris"]);
   expect(wellState.count).toBe(1);
   const empty = qcAnnotationRowState(parsed, {
@@ -353,7 +377,7 @@ test("derives field and well annotation status without crossing row scopes", () 
     barcode: "SQ00014610",
     well: "B01",
     site: 1,
-  });
+  }, labelDefinitions);
   expect(empty.status).toBe("not reviewed");
   expect(qcAnnotationFilterMatches(empty, "not reviewed")).toBe(true);
   const reusedPlate = qcAnnotationRowState(parsed, {
@@ -362,7 +386,7 @@ test("derives field and well annotation status without crossing row scopes", () 
     barcode: "SQ00099999",
     well: "A01",
     site: 1,
-  });
+  }, labelDefinitions);
   expect(reusedPlate.status).toBe("not reviewed");
 });
 

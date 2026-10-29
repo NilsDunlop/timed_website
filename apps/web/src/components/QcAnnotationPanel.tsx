@@ -1,10 +1,9 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import {
   QC_ANNOTATION_CONFIDENCES,
-  QC_ANNOTATION_LABELS,
   type QcAnnotationConfidence,
-  type QcAnnotationLabel,
+  type QcAnnotationLabelDefinition,
   type QcCurrentAnnotation,
 } from "../lib/qcAnnotations";
 import type { QcQueueScope } from "../lib/qcQueue";
@@ -12,7 +11,7 @@ import type { QcQueueScope } from "../lib/qcQueue";
 export type QcAnnotationFormValue = {
   scope: QcQueueScope;
   channel: string;
-  label: QcAnnotationLabel;
+  label: string;
   confidence: QcAnnotationConfidence;
   note: string;
 };
@@ -20,6 +19,7 @@ export type QcAnnotationFormValue = {
 type Props = {
   initialScope: QcQueueScope;
   channels: readonly string[];
+  labelDefinitions: readonly QcAnnotationLabelDefinition[];
   annotations: readonly QcCurrentAnnotation[];
   writable: boolean;
   submitting: boolean;
@@ -39,6 +39,7 @@ function displayToken(value: string): string {
 export default function QcAnnotationPanel({
   initialScope,
   channels,
+  labelDefinitions,
   annotations,
   writable,
   submitting,
@@ -59,12 +60,21 @@ export default function QcAnnotationPanel({
       : "all";
   const [scope, setScope] = useState<QcQueueScope>(initialScope);
   const [channel, setChannel] = useState(initialChannel);
-  const [label, setLabel] = useState<QcAnnotationLabel>("ok");
+  const [label, setLabel] = useState(labelDefinitions[0]?.label ?? "");
   const [confidence, setConfidence] =
     useState<QcAnnotationConfidence>("medium");
   const [note, setNote] = useState("");
-  const disabled = !writable || submitting;
+  const selectedLabel = labelDefinitions.find(
+    (definition) => definition.label === label,
+  );
+  const disabled = !writable || submitting || labelDefinitions.length === 0;
   const unavailableId = `${id}-unavailable`;
+
+  useEffect(() => {
+    if (!labelDefinitions.some((definition) => definition.label === label)) {
+      setLabel(labelDefinitions[0]?.label ?? "");
+    }
+  }, [label, labelDefinitions]);
 
   return (
     <section
@@ -154,15 +164,16 @@ export default function QcAnnotationPanel({
             id={`${id}-label`}
             value={label}
             disabled={disabled}
-            onChange={(event) => setLabel(event.target.value as QcAnnotationLabel)}
+            onChange={(event) => setLabel(event.target.value)}
           >
-            {QC_ANNOTATION_LABELS.map((option) => (
-              <option key={option} value={option}>
-                {displayToken(option)}
+            {labelDefinitions.map((option) => (
+              <option key={option.label} value={option.label}>
+                {displayToken(option.label)}
               </option>
             ))}
           </select>
         </label>
+        {selectedLabel && <small className="muted">{selectedLabel.description}</small>}
 
         <label htmlFor={`${id}-confidence`}>
           <span>Confidence</span>

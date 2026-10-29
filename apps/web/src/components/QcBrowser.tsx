@@ -22,8 +22,10 @@ import {
   type DataCollection,
 } from "../lib/collectionNavigation";
 import {
+  parseQcAnnotationLabels,
   parseQcAnnotations,
   qcAnnotationRowState,
+  type QcAnnotationLabelDefinition,
   type QcAnnotationRowState,
   type QcCurrentAnnotation,
 } from "../lib/qcAnnotations";
@@ -72,6 +74,7 @@ type LoadedQc = {
   triageRows: Record<string, unknown>[];
   reviewRows: Record<string, unknown>[];
   annotations: QcCurrentAnnotation[];
+  annotationLabels: QcAnnotationLabelDefinition[];
   channels: string[];
   fieldAnnotationCategories: readonly (readonly QcScalar[])[];
   wellAnnotationCategories: readonly (readonly QcScalar[])[];
@@ -213,6 +216,7 @@ function annotationKey(
 
 function annotationStateIndex(
   annotations: readonly QcCurrentAnnotation[],
+  labelDefinitions: readonly QcAnnotationLabelDefinition[],
 ): Map<string, QcAnnotationRowState> {
   const grouped = new Map<string, QcCurrentAnnotation[]>();
   for (const annotation of annotations) {
@@ -232,13 +236,17 @@ function annotationStateIndex(
       const first = records[0] as QcCurrentAnnotation;
       return [
         key,
-        qcAnnotationRowState(records, {
-          scope: first.scope,
-          plate: first.plate,
-          barcode: first.barcode,
-          well: first.well,
-          site: first.site,
-        }),
+        qcAnnotationRowState(
+          records,
+          {
+            scope: first.scope,
+            plate: first.plate,
+            barcode: first.barcode,
+            well: first.well,
+            site: first.site,
+          },
+          labelDefinitions,
+        ),
       ];
     }),
   );
@@ -460,7 +468,14 @@ export default function QcBrowser() {
     if (parsedAnnotations.invalidRecords > 0) {
       throw new Error("The QC annotation response is invalid.");
     }
-    const annotationStates = annotationStateIndex(parsedAnnotations.annotations);
+    const parsedLabels = parseQcAnnotationLabels(fieldsResult.data.labels);
+    if (parsedLabels.invalidRecords > 0) {
+      throw new Error("The QC annotation label registry is invalid.");
+    }
+    const annotationStates = annotationStateIndex(
+      parsedAnnotations.annotations,
+      parsedLabels.labels,
+    );
     const fieldAnnotationCategories: (readonly QcScalar[])[] = [];
     const wellAnnotationCategories: (readonly QcScalar[])[] = [];
     const annotationDisplayValues: string[] = [];
@@ -524,6 +539,7 @@ export default function QcBrowser() {
       triageRows,
       reviewRows: reviewResult.data.rows as Record<string, unknown>[],
       annotations: parsedAnnotations.annotations,
+      annotationLabels: parsedLabels.labels,
       channels,
       fieldAnnotationCategories,
       wellAnnotationCategories,
@@ -682,7 +698,11 @@ export default function QcBrowser() {
     [loaded],
   );
   const currentAnnotationStates = useMemo(
-    () => annotationStateIndex(loaded?.annotations ?? []),
+    () =>
+      annotationStateIndex(
+        loaded?.annotations ?? [],
+        loaded?.annotationLabels ?? [],
+      ),
     [loaded],
   );
   const displayedSliders = useMemo(
