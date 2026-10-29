@@ -132,6 +132,8 @@ On the Cell Health collection in the connector profile, add two paths and update
 - **Passing them on.** The connector validates both paths (absolute for Slurm profiles) and passes them to the data server as `--qc-export <index path>=<export folder>` and `--qc-annotations <index path>=<annotations folder>`. They are keyed by the collection's real index path, so the data server still needs no collection concept.
 - **Startup checks.** The export folder must be readable. The annotations folder must exist and be writable; the server never creates it. The server reports both in the handshake capabilities (`qc_review`, `qc_annotations_writable`) and in the QC status endpoint.
 - **Not browsable.** Neither folder is a data root, and neither can be listed.
+  The writable annotations folder must not equal, contain, or sit inside any
+  data root or configured QC export.
 - **Switching exports.** Switching to another export folder with the same structure is a profile change only.
 
 ### 4.3 Loading an export (data server, new module `qc_export.py`)
@@ -219,6 +221,9 @@ selector of its own. The core page makes unblinded requests.
   - Wells include one row per well with flagged-site count, the worst value
     among its sites for each active slider, gene, well type, D62 and protection
     summaries, and annotation status.
+  - Annotation status is exact-scope: Sites use field annotations for that
+    site, and Wells use whole-well annotations. The field viewer still shows
+    both the current field and its applicable whole-well annotations.
 - **Actions:** "Review these" opens the current site or well rows as a session
   queue (section 4.7).
 - **State in the URL:** every interactive QC-page choice, including slider
@@ -252,9 +257,15 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   in file order. A field entry opens its site. A well entry opens site 1 and
   retains the site stepper. The viewer shows the QC panel and a review bar:
   "Review 3 of N", Previous, Next and Back to QC. It also shows how many
-  entries already have an annotation.
+  entries already have a current annotation for the same scope and target.
+  Target identity includes both the numeric plate and its barcode, so a later
+  export cannot inherit reviews from a different plate that reused the number. An
+  All-channel annotation covers a stain entry; a stain annotation does not
+  mark an All-channel composite entry.
 - **Session queue.** "Review these" does the same for the current Sites or Wells
-  table rows, stored in `sessionStorage`.
+  table rows, in their displayed order. One compact, validated queue is stored
+  in `sessionStorage`; stale export, collection, or queue identities fail safely
+  back to QC.
 
 ### 4.8 Annotations: the one write
 
@@ -265,7 +276,8 @@ The existing viewer with a QC panel, opened from the QC page or a queue
 - **Append only.**
   - Open with `O_WRONLY | O_APPEND | O_CREAT` and write each record as one line in a single `write`, followed by `fsync`.
   - Never truncate, rewrite, rename or delete.
-  - A per-file lock in the server serialises writes.
+  - A process-wide lock keyed by canonical writer file serialises writes, even
+    when more than one configured store resolves to that file.
 - **Annotation record:** `schema_version` 1, `record` "annotation", `id`
   (UUID), `time` (UTC, ISO 8601), `reviewer`, `export_id`, `registry_hash`,
   `scope` (`field` or `well`), `plate`, `barcode`, `well`, nullable `site`,
@@ -273,8 +285,8 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   and `app_version`. Core-view writes have `blinded=false`; the server derives
   the value from request mode.
 - **Retraction:** `record` "retraction", carrying the `id` it retracts. The
-  latest unretracted record per reviewer, scope, field or well, and channel is
-  current.
+  latest unretracted record per reviewer, scope, plate and barcode, field or
+  well, and channel is current.
 - **Labels:** ok, blurred, partial_blur, saturated, debris, dark_or_bubble, uneven_illumination, dim_or_staining, noisy, misregistered, sparse_biological, known_fixed_shadow, other, unsure.
 - **Validation.** The label must be in the list, the channel a name in
   `channels.csv` or "all", and the field or well must exist in the export.

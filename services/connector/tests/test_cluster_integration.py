@@ -223,6 +223,7 @@ async def test_real_test_cluster_hpc_flow(tmp_path: Path) -> None:
             assert handshake.status_code == 200
             linked = await client.post(
                 "/backend/api/datasets",
+                headers={"X-Timed-Client": "web"},
                 json={"path": str(image)},
             )
             assert linked.status_code == 201, linked.text

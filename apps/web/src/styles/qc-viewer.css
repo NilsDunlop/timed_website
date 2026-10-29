@@ -2,6 +2,34 @@
   margin-top: 0.5rem;
 }
 
+.qc-review-bar {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.qc-review-progress {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.qc-review-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.qc-review-shortcuts,
+.qc-review-warning {
+  margin: 0;
+}
+
+.qc-review-warning {
+  grid-column: 1 / -1;
+}
+
 .qc-field-identity {
   display: flex;
   flex-wrap: wrap;
@@ -132,7 +160,113 @@
   color: #31576d;
 }
 
+.qc-annotation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.qc-annotation-form fieldset,
+.qc-annotation-form label {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.qc-annotation-form fieldset {
+  margin: 0;
+  padding: 0.6rem;
+}
+
+.qc-annotation-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.qc-annotation-options label {
+  display: flex;
+  align-items: center;
+  grid-auto-flow: column;
+}
+
+.qc-annotation-form label:has(textarea),
+.qc-annotation-form label:has(textarea) + small,
+.qc-annotation-form > button {
+  grid-column: 1 / -1;
+}
+
+.qc-annotation-form textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.qc-annotation-form > button {
+  justify-self: start;
+}
+
+.qc-current-annotations ul {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qc-current-annotations li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid #dce3db;
+  border-radius: 0.35rem;
+  background: #fff;
+}
+
+.qc-current-annotations li > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.qc-current-annotations li span {
+  color: #516656;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.qc-current-annotations li p {
+  margin-top: 0.25rem;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 720px) {
+  .qc-review-bar,
+  .qc-annotation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .qc-review-actions {
+    align-items: stretch;
+  }
+
+  .qc-review-actions > * {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .qc-annotation-form label:has(textarea),
+  .qc-annotation-form label:has(textarea) + small,
+  .qc-annotation-form > button {
+    grid-column: auto;
+  }
+
+  .qc-current-annotations li {
+    grid-template-columns: 1fr;
+  }
+
   .qc-site-stepper {
     grid-template-columns: 1fr 1fr;
   }

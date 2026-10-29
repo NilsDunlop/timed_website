@@ -89,6 +89,9 @@ def resolve_qc_path_configs(
     normalized for stable status reporting but never added to ``RootGuard``.
     """
     resolved: dict[Path, QcPathConfig] = {}
+    export_paths = tuple(
+        config.export_path.resolve(strict=False) for config in configs
+    )
     for config in configs:
         try:
             index_path = guard.resolve(str(config.index_path))
@@ -100,6 +103,24 @@ def resolve_qc_path_configs(
             raise QcConfigurationError("QC configuration repeats a canonical index path")
         export_path = config.export_path.resolve(strict=False)
         annotations_path = config.annotations_path.resolve(strict=False)
+        if any(
+            annotations_path == root
+            or annotations_path.is_relative_to(root)
+            or root.is_relative_to(annotations_path)
+            for root in guard.roots
+        ):
+            raise QcConfigurationError(
+                "Configured QC annotations cannot overlap a data root"
+            )
+        if any(
+            annotations_path == candidate
+            or annotations_path.is_relative_to(candidate)
+            or candidate.is_relative_to(annotations_path)
+            for candidate in export_paths
+        ):
+            raise QcConfigurationError(
+                "Configured QC annotations cannot overlap a QC export"
+            )
         for private_path in (export_path, annotations_path):
             if any(
                 private_path == root or root.is_relative_to(private_path)

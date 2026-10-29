@@ -627,3 +627,32 @@ loading and validation, the annotation store, and independent features can be
 built against it. Fixtures follow the next-export contract; the replacement
 real export is required before A2. After the 0.5.0 merge, blinded mode is the
 next PR, followed only later by Part C.
+
+Queue state is browser-session state, not export state. The review-list queue
+keeps file order; "Review these" keeps the currently displayed Sites or Wells
+order in one compact, validated `sessionStorage` record. Its export, registry,
+collection, and random queue identities must all match before the viewer will
+navigate it. Annotation status and queue counts use exact target scope and both
+the numeric plate and barcode, preventing annotations from crossing to a
+different plate if a later export reuses the number. An
+All-channel annotation covers a stain-specific queue entry, but a stain record
+does not mark an All-channel composite entry.
+
+The annotation write boundary is narrower than the configured data boundary.
+The annotations folder may not overlap a data root or any configured QC export
+in either direction. The writer path comes only from the configured folder and
+the sanitised operating-system user. Every record is one append plus `fsync`,
+and a process-wide lock keyed by canonical writer file serialises stores that
+resolve to the same file. Connector-proxied state-changing requests also
+require the existing `X-Timed-Client: web` guard; the connector removes that
+local guard header before forwarding the authenticated request.
+
+## 2026-10-29: expire connector HTTP keep-alives before the data server
+
+The QC reload regression exposed a stale pooled-connection race: Uvicorn closes
+an idle upstream connection after five seconds, while the connector previously
+kept it eligible for reuse for thirty. A reload could therefore select a socket
+as the server closed it and return an isolated 502, even while concurrent data-
+server requests succeeded. The connector now expires pooled upstream sockets
+after four seconds, preserving normal reuse while staying below the server's
+idle timeout.

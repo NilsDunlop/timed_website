@@ -9,6 +9,11 @@ import {
   type QcSiteStepper,
   type QcViewerScalar,
 } from "../lib/qcViewer";
+import type { QcCurrentAnnotation } from "../lib/qcAnnotations";
+import type { QcQueueScope } from "../lib/qcQueue";
+import QcAnnotationPanel, {
+  type QcAnnotationFormValue,
+} from "./QcAnnotationPanel";
 
 export type QcDisplayRangeMode = "qc" | "dataset";
 
@@ -19,6 +24,16 @@ type Props = {
   onRangeModeChange: (mode: QcDisplayRangeMode) => void;
   siteStepper?: QcSiteStepper | null;
   onSiteChange?: (site: QcSiteOption) => void;
+  annotationScope: QcQueueScope;
+  annotationChannels: readonly string[];
+  annotations: readonly QcCurrentAnnotation[];
+  annotationsWritable: boolean;
+  annotationSubmitting: boolean;
+  annotationDefaultChannel?: string;
+  annotationError?: string;
+  annotationStatus?: string;
+  onSaveAnnotation: (value: QcAnnotationFormValue) => void;
+  onRetractAnnotation: (id: string) => void;
 };
 
 function displayValue(value: QcViewerScalar): ReactNode {
@@ -41,6 +56,16 @@ export default function QcFieldPanel({
   onRangeModeChange,
   siteStepper = null,
   onSiteChange,
+  annotationScope,
+  annotationChannels,
+  annotations,
+  annotationsWritable,
+  annotationSubmitting,
+  annotationDefaultChannel = "all",
+  annotationError = "",
+  annotationStatus = "",
+  onSaveAnnotation,
+  onRetractAnnotation,
 }: Props) {
   const view = useMemo(() => buildQcFieldView(payload), [payload]);
   const plate = displayValue(
@@ -221,6 +246,19 @@ export default function QcFieldPanel({
           </dl>
         </section>
       )}
+
+      <QcAnnotationPanel
+        initialScope={annotationScope}
+        channels={annotationChannels}
+        annotations={annotations}
+        writable={annotationsWritable}
+        submitting={annotationSubmitting}
+        defaultChannel={annotationDefaultChannel}
+        error={annotationError}
+        status={annotationStatus}
+        onSave={onSaveAnnotation}
+        onRetract={onRetractAnnotation}
+      />
     </section>
   );
 }

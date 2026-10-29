@@ -49,6 +49,9 @@ export interface QcModelOptions {
   isControl?: (value: QcScalar, rowIndex: number) => boolean;
   isProtected?: (value: QcScalar, rowIndex: number) => boolean;
   wellKeyColumns?: readonly string[];
+  categoryColumns?: Readonly<
+    Record<string, readonly (QcScalar | readonly QcScalar[])[]>
+  >;
 }
 
 export interface QcModel {
@@ -62,6 +65,7 @@ export interface QcModel {
   isControl: (value: QcScalar, rowIndex: number) => boolean;
   isProtected: (value: QcScalar, rowIndex: number) => boolean;
   wellKeyColumns: readonly string[];
+  categoryColumns: Readonly<Record<string, readonly (readonly QcScalar[])[]>>;
 }
 
 export interface QcSliderState {
@@ -250,6 +254,15 @@ export function buildQcModel(
     .map(columnDefinition)
     .filter((definition): definition is QcColumnDefinition => definition !== null);
   const sliders: QcSliderDefinition[] = [];
+  const categoryColumns: Record<string, readonly (readonly QcScalar[])[]> = {};
+  for (const [name, values] of Object.entries(options.categoryColumns ?? {})) {
+    if (!Array.isArray(values) || values.length !== fields.row_count) {
+      throw new QcModelError("Category data does not match the QC row count");
+    }
+    categoryColumns[name] = values.map((value) =>
+      (Array.isArray(value) ? value : [value]).map(scalar),
+    );
+  }
 
   for (const definition of dictionary) {
     if (definition.layer !== "site_review" || !definition.primary) continue;
@@ -307,6 +320,7 @@ export function buildQcModel(
     isControl: options.isControl ?? defaultCategoryPredicate,
     isProtected: options.isProtected ?? defaultCategoryPredicate,
     wellKeyColumns,
+    categoryColumns,
   };
 }
 
@@ -403,9 +417,11 @@ function rowMatchesCategories(
 ): boolean {
   for (const [column, selected] of Object.entries(categories ?? {})) {
     if (selected.length === 0) continue;
-    const value = model.columns[column]?.[rowIndex] ?? null;
-    const key = qcValueKey(value);
-    if (!selected.some((candidate) => qcValueKey(candidate) === key)) return false;
+    const values =
+      model.categoryColumns[column]?.[rowIndex] ??
+      [model.columns[column]?.[rowIndex] ?? null];
+    const keys = new Set(values.map(qcValueKey));
+    if (!selected.some((candidate) => keys.has(qcValueKey(candidate)))) return false;
   }
   return true;
 }
@@ -519,7 +535,14 @@ export function applyQcFilters(
 
 export function uniqueQcValues(model: QcModel, column: string): readonly QcScalar[] {
   const unique = new Map<string, QcScalar>();
-  for (const value of model.columns[column] ?? []) unique.set(qcValueKey(value), value);
+  const categoryValues = model.categoryColumns[column];
+  if (categoryValues) {
+    for (const values of categoryValues) {
+      for (const value of values) unique.set(qcValueKey(value), value);
+    }
+  } else {
+    for (const value of model.columns[column] ?? []) unique.set(qcValueKey(value), value);
+  }
   return [...unique.values()].sort(compareQcValues);
 }
 

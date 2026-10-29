@@ -288,6 +288,23 @@ their label, confidence, note, export identity, and whether the request used
 `blind=1`. The core view therefore writes `blinded=false`. Version 0.5.0 has no
 rule-proposal endpoint or proposal file.
 
+The annotations folder is separate from every data root and export. The server
+does not create it. It appends one JSON object per line to the fixed
+`annotations_<reviewer>.jsonl` file derived from the server's operating-system
+user, using one write and `fsync` under a process-wide per-file lock. Reads fold
+all regular JSONL files into the latest unretracted record per reviewer,
+target scope, target identity, and channel; malformed lines are skipped and
+reported only by count.
+
+Table annotation status uses exact scope: site rows use field records and well
+rows use whole-well records. Queue counts also require the same scope and
+target, including both the numeric plate and barcode. This prevents a later
+export from attaching an old review to a different plate that reused the
+number. An All-channel record covers a stain-specific queue entry, while a
+stain-specific record does not mark an All-channel composite entry. The
+review-list queue preserves CSV order. "Review these" preserves current table
+order in one validated `sessionStorage` value; it does not modify the export.
+
 ## Next-export additions
 
 The current snapshot is sufficient for configuration, base loading and

@@ -314,3 +314,41 @@ def test_field_payload_rejects_unknown_field(
             well="A01",
             site=1,
         )
+
+
+def test_field_payload_does_not_cross_reused_plate_barcodes(
+    payload_snapshot: QcExportSnapshot,
+    phase_one_metadata: dict[tuple[str, int, str], dict[str, object]],
+) -> None:
+    first_source = payload_snapshot.table("site_metrics.csv").to_pylist()[0]
+    target = {
+        "scope": "field",
+        "plate": int(first_source["plate"]),
+        "barcode": str(first_source["plate_barcode"]),
+        "well": str(first_source["well"]),
+        "site": int(first_source["site"]),
+    }
+    matching = {**target, "id": "matching"}
+    reused = {**target, "id": "reused", "barcode": "fixture-reused-barcode"}
+
+    payload = field_payload(
+        payload_snapshot,
+        phase_one_metadata,
+        plate=target["plate"],
+        well=target["well"],
+        site=target["site"],
+        annotations=(matching, reused),
+    )
+    blinded = field_payload(
+        payload_snapshot,
+        phase_one_metadata,
+        plate=target["plate"],
+        well=target["well"],
+        site=target["site"],
+        blind=True,
+        annotations=(matching, reused),
+    )
+
+    assert [record["id"] for record in payload["annotations"]] == ["matching"]
+    assert [record["id"] for record in blinded["annotations"]] == ["matching"]
+    assert "barcode" not in blinded["annotations"][0]

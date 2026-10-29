@@ -257,6 +257,43 @@ test("categorical and channel scopes remain type-safe and automatic gates never 
   expect(uniqueQcValues(model, "plate")).toEqual([1, 2]);
 });
 
+test("multi-valued categorical state filters annotation labels without flattening them", () => {
+  const model = buildQcModel(fields, dictionary, {
+    protectionColumn: "fixture_guard",
+    categoryColumns: {
+      annotation_status: [
+        ["reviewed", "blurred"],
+        ["not reviewed"],
+        ["reviewed", "ok", "noisy"],
+        ["not reviewed"],
+        ["reviewed", "ok"],
+        ["not reviewed"],
+      ],
+    },
+  });
+  const defaults = defaultQcFilterState(model);
+
+  expect(uniqueQcValues(model, "annotation_status")).toEqual([
+    "blurred",
+    "noisy",
+    "not reviewed",
+    "ok",
+    "reviewed",
+  ]);
+  expect(
+    applyQcFilters(model, {
+      ...defaults,
+      categories: { annotation_status: ["ok"] },
+    }).baseRowIndices,
+  ).toEqual([2, 4]);
+  expect(
+    applyQcFilters(model, {
+      ...defaults,
+      categories: { annotation_status: ["not reviewed"] },
+    }).baseRowIndices,
+  ).toEqual([1, 3, 5]);
+});
+
 test("aggregates every in-range site for retained wells and sorts stably", () => {
   const model = buildQcModel(fields, dictionary, { protectionColumn: "fixture_guard" });
   const defaults = defaultQcFilterState(model);

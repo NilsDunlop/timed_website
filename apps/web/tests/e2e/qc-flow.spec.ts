@@ -1,4 +1,11 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Request,
+  type Route,
+} from "@playwright/test";
 
 const fixturePlates = [14610, 14611, 14613];
 const allPlates = Array.from({ length: 9 }, (_, index) => 14610 + index);
@@ -70,6 +77,32 @@ async function connectCellHealth(page: Page) {
   await expect(page.getByTestId("session-state")).toHaveText("connected", {
     timeout: 30_000,
   });
+}
+
+async function expectViewerReady(page: Page) {
+  await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
+    timeout: 60_000,
+  });
+}
+
+async function displayedTarget(row: Locator) {
+  const cells = row.locator("td");
+  return {
+    plate: Number((await cells.nth(0).innerText()).replaceAll(",", "")),
+    well: (await cells.nth(1).innerText()).trim(),
+    site: Number((await cells.nth(2).innerText()).trim()),
+  };
+}
+
+function expectCurrentTarget(
+  page: Page,
+  target: { plate: number; well: string; site: number },
+) {
+  const query = new URL(page.url()).searchParams;
+  expect(query.get("qcPlate")).toBe(String(target.plate));
+  expect(query.get("qcWell")).toBe(target.well);
+  expect(query.get("qcSite")).toBe(String(target.site));
+  expect(query.get("path")).toBe(`${target.well}_s${target.site}.zarr`);
 }
 
 test("reviews the unblinded QC overview, maps, filters, and tables", async ({
@@ -375,6 +408,292 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toHaveValue("292");
   await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toBeEnabled();
   expect(qcRequests.every((url) => !url.searchParams.has("blind"))).toBe(true);
+
+  await page.getByRole("link", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
+  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+});
+
+test("reviews ordered queues and persists field and well annotations", async ({
+  page,
+}) => {
+  const qcRequests: Request[] = [];
+  const annotationWrites: Request[] = [];
+  let failNextAnnotationRefresh = false;
+  await page.route("**/backend/api/qc/annotations*", async (route) => {
+    if (route.request().method() === "GET" && failNextAnnotationRefresh) {
+      failNextAnnotationRefresh = false;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Fixture refresh failure" }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (!url.pathname.startsWith("/backend/api/qc/")) return;
+    qcRequests.push(request);
+    if (url.pathname.endsWith("/annotations") && request.method() === "POST") {
+      annotationWrites.push(request);
+    }
+  });
+
+  await connectCellHealth(page);
+  await page.getByRole("link", { name: "QC", exact: true }).click();
+  await expect(page.getByTestId("qc-overview")).toBeVisible();
+
+  await page.getByRole("button", { name: "Review queue", exact: true }).click();
+  await expectViewerReady(page);
+  await expect(page).toHaveURL(/qcQueue=/);
+  await expect(page).toHaveURL(/qcIndex=0/);
+  await expect(page).toHaveURL(/qcScope=field/);
+  expectCurrentTarget(page, { plate: 14610, well: "A01", site: 1 });
+
+  const reviewBar = page.getByTestId("qc-review-bar");
+  await expect(reviewBar).toContainText("Review 1 of 45");
+  await expect(reviewBar).toContainText("0 of 45 annotated");
+  await expect(reviewBar.getByRole("button", { name: "Previous" })).toBeDisabled();
+
+  const annotationPanel = page.getByTestId("qc-annotation-panel");
+  await expect(
+    annotationPanel.getByRole("radio", { name: "Current field" }),
+  ).toBeChecked();
+  await expect(
+    annotationPanel.getByRole("combobox", { name: "Channel", exact: true }),
+  ).toHaveValue("DNA");
+  await annotationPanel
+    .getByRole("combobox", { name: "Label", exact: true })
+    .selectOption("blurred");
+  await annotationPanel
+    .getByRole("combobox", { name: "Confidence", exact: true })
+    .selectOption("high");
+  const note = annotationPanel.getByRole("textbox", {
+    name: "Note (optional)",
+    exact: true,
+  });
+  await note.fill("Fixture field note ");
+  await note.focus();
+  await page.keyboard.type("[]");
+  await expect(note).toHaveValue("Fixture field note []");
+  await expect(page).toHaveURL(/qcIndex=0/);
+  failNextAnnotationRefresh = true;
+  await annotationPanel.getByRole("button", { name: "Save annotation" }).click();
+  await expect(
+    annotationPanel.getByText(
+      "Annotation saved, but the latest annotation list could not be refreshed.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(annotationPanel.getByTestId("qc-current-annotations")).toContainText(
+    "Blurred",
+  );
+  await expect(reviewBar).toContainText("1 of 45 annotated");
+
+  await page.reload();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-review-bar")).toContainText("Review 1 of 45");
+  await expect(page.getByTestId("qc-review-bar")).toContainText("1 of 45 annotated");
+  await expect(page.getByTestId("qc-current-annotations")).toContainText("Blurred");
+
+  await page
+    .getByTestId("qc-review-bar")
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect(page).toHaveURL(/qcIndex=1/);
+  await expectViewerReady(page);
+  await expect(page).toHaveURL(/qcScope=well/);
+  expectCurrentTarget(page, { plate: 14610, well: "A01", site: 1 });
+  await expect(page.getByTestId("qc-review-bar")).toContainText("Review 2 of 45");
+  await expect(page.getByTestId("qc-site-stepper")).toContainText("Site 1 of 2");
+
+  await page
+    .getByTestId("qc-review-bar")
+    .getByRole("button", { name: "Previous" })
+    .click();
+  await expect(page).toHaveURL(/qcIndex=0/);
+  await expectViewerReady(page);
+  await page.locator("body").press("]");
+  await expect(page).toHaveURL(/qcIndex=1/);
+  await expectViewerReady(page);
+  await page.locator("body").press("[");
+  await expect(page).toHaveURL(/qcIndex=0/);
+  await expectViewerReady(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "]",
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    );
+  });
+  await expect(page).toHaveURL(/qcIndex=1/);
+  await expectViewerReady(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "[",
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    );
+  });
+  await expect(page).toHaveURL(/qcIndex=0/);
+  await expectViewerReady(page);
+  await page
+    .getByTestId("qc-review-bar")
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect(page).toHaveURL(/qcIndex=1/);
+  await expectViewerReady(page);
+
+  const wellAnnotationPanel = page.getByTestId("qc-annotation-panel");
+  await expect(
+    wellAnnotationPanel.getByRole("radio", { name: "Whole well" }),
+  ).toBeChecked();
+  await wellAnnotationPanel
+    .getByRole("combobox", { name: "Channel", exact: true })
+    .selectOption("all");
+  await wellAnnotationPanel
+    .getByRole("combobox", { name: "Label", exact: true })
+    .selectOption("debris");
+  await wellAnnotationPanel
+    .getByRole("combobox", { name: "Confidence", exact: true })
+    .selectOption("low");
+  await wellAnnotationPanel
+    .getByRole("textbox", { name: "Note (optional)", exact: true })
+    .fill("Fixture whole-well note");
+  await wellAnnotationPanel.getByRole("button", { name: "Save annotation" }).click();
+  await expect(
+    wellAnnotationPanel.getByText("Annotation saved.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("qc-review-bar")).toContainText("2 of 45 annotated");
+
+  await page.reload();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-current-annotations")).toContainText("Debris");
+  await expect(page.getByTestId("qc-review-bar")).toContainText("2 of 45 annotated");
+  await page.getByTestId("qc-review-bar").getByRole("link", { name: "Back to QC" }).click();
+  await expect(page.getByTestId("qc-overview")).toBeVisible();
+
+  const fieldsCard = page.getByTestId("qc-counts").locator("div").filter({
+    has: page.getByText("Fields", { exact: true }),
+  });
+  const fieldCount = fieldsCard.locator("dd");
+  const annotationFilter = page.getByRole("listbox", { name: "Annotation status" });
+  await annotationFilter.selectOption("blurred");
+  await expect(fieldCount).toHaveText("1");
+  const annotatedSiteRows = page
+    .getByRole("table", { name: "QC sites" })
+    .locator("tbody tr")
+    .filter({ has: page.getByRole("button", { name: "Open site" }) });
+  await expect(annotatedSiteRows).toHaveCount(1);
+  await expect(annotatedSiteRows.first()).toContainText("Blurred");
+  await annotationFilter.selectOption([]);
+
+  await page.getByRole("button", { name: "Wells", exact: true }).click();
+  await annotationFilter.selectOption("debris");
+  await expect(fieldCount).toHaveText("2");
+  const annotatedWellRows = page
+    .getByRole("table", { name: "QC wells" })
+    .locator("tbody tr")
+    .filter({ has: page.getByRole("button", { name: "Open well" }) });
+  await expect(annotatedWellRows).toHaveCount(1);
+  await expect(annotatedWellRows.first()).toContainText("Debris");
+  await annotationFilter.selectOption([]);
+  await page.getByRole("button", { name: "Sites", exact: true }).click();
+
+  const siteTable = page.getByRole("table", { name: "QC sites" });
+  const displayedRows = siteTable.locator("tbody tr").filter({
+    has: page.getByRole("button", { name: "Open site" }),
+  });
+  const firstTarget = await displayedTarget(displayedRows.nth(0));
+  const secondTarget = await displayedTarget(displayedRows.nth(1));
+  const sessionQueueTotal = Number((await fieldCount.innerText()).replaceAll(",", ""));
+  expect(sessionQueueTotal).toBeGreaterThan(1);
+
+  await page.getByRole("button", { name: "Review these", exact: true }).click();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-review-bar")).toContainText(
+    `Review 1 of ${sessionQueueTotal}`,
+  );
+  expectCurrentTarget(page, firstTarget);
+  await page.reload();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-review-bar")).toContainText(
+    `Review 1 of ${sessionQueueTotal}`,
+  );
+  expectCurrentTarget(page, firstTarget);
+  await page
+    .getByTestId("qc-review-bar")
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect(page).toHaveURL(/qcIndex=1/);
+  await expectViewerReady(page);
+  expectCurrentTarget(page, secondTarget);
+  await page.getByTestId("qc-review-bar").getByRole("link", { name: "Back to QC" }).click();
+  await expect(page.getByTestId("qc-overview")).toBeVisible();
+
+  await page.getByRole("button", { name: "Review these", exact: true }).click();
+  await expectViewerReady(page);
+  await page.evaluate(() => {
+    window.sessionStorage.setItem("timed.qc.review-queue.v1", "not-json");
+  });
+  await page.reload();
+  await expectViewerReady(page);
+  const unavailableQueue = page.getByTestId("qc-review-bar");
+  await expect(unavailableQueue).toContainText("Review 0 of 0");
+  await expect(unavailableQueue.getByRole("alert")).toContainText(
+    "This review queue is unavailable",
+  );
+  await unavailableQueue.getByRole("link", { name: "Back to QC" }).click();
+  await expect(page.getByTestId("qc-overview")).toBeVisible();
+
+  await page.getByRole("button", { name: "Review queue", exact: true }).click();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-review-bar")).toContainText("2 of 45 annotated");
+  await page
+    .getByTestId("qc-current-annotations")
+    .getByRole("button", { name: /Retract Blurred annotation/ })
+    .click();
+  await expect(page.getByTestId("qc-annotation-panel")).toContainText(
+    "Annotation retracted.",
+  );
+  await expect(page.getByTestId("qc-review-bar")).toContainText("1 of 45 annotated");
+  await page
+    .getByTestId("qc-review-bar")
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect(page).toHaveURL(/qcIndex=1/);
+  await expectViewerReady(page);
+  await page
+    .getByTestId("qc-current-annotations")
+    .getByRole("button", { name: /Retract Debris annotation/ })
+    .click();
+  await expect(page.getByTestId("qc-annotation-panel")).toContainText(
+    "Annotation retracted.",
+  );
+  await expect(page.getByTestId("qc-review-bar")).toContainText("0 of 45 annotated");
+  await page.reload();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-current-annotations")).toContainText(
+    "No current annotations.",
+  );
+
+  expect(annotationWrites).toHaveLength(4);
+  for (const request of annotationWrites) {
+    expect(await request.headerValue("x-timed-client")).toBe("web");
+    expect(new URL(request.url()).searchParams.has("blind")).toBe(false);
+  }
+  expect(qcRequests.length).toBeGreaterThan(0);
+  expect(
+    qcRequests.every((request) => !new URL(request.url()).searchParams.has("blind")),
+  ).toBe(true);
 
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect and stop server" }).click();

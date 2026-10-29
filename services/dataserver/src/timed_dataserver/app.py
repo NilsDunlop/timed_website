@@ -1,4 +1,4 @@
-"""FastAPI application for authenticated, read-only OME-Zarr access."""
+"""FastAPI application for OME-Zarr access and isolated QC annotations."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import anyio
+import pyarrow.compute as pc
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.exception_handlers import (
     http_exception_handler,
@@ -44,6 +45,10 @@ from .models import (
     MatchMode,
     OmeZarrInfo,
     PlateMetadataResponse,
+    QcAnnotationCreateRequest,
+    QcAnnotationMutationResponse,
+    QcAnnotationRequest,
+    QcAnnotationsResponse,
     QcFieldResponse,
     QcFieldsResponse,
     QcRowsResponse,
@@ -91,12 +96,22 @@ from .packed_profiles import (
 )
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
 from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
+from .qc_annotations import (
+    QcAnnotationDraft,
+    QcAnnotationState,
+    QcAnnotationStore,
+    QcAnnotationTarget,
+    QcAnnotationUnavailableError,
+    QcAnnotationValidationError,
+    QcRetractionDraft,
+)
 from .qc_config import QcPathConfig, resolve_qc_path_configs
 from .qc_export import QcExportSnapshot, QcExportStore
 from .qc_http import qc_json_response
 from .qc_payloads import (
     QcFieldNotFoundError,
     QcPayloadError,
+    annotation_record_payload,
     dictionary_payload,
     display_ranges_payload,
     field_payload,
@@ -136,6 +151,7 @@ class QcRuntime:
     catalogue: PackedCatalogue
     profile: PackedDatasetProfile
     store: QcExportStore
+    annotations: QcAnnotationStore
 
 
 def _forbidden(exc: Exception) -> HTTPException:
@@ -356,6 +372,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         for private_path in (config.export_path, config.annotations_path)
     )
     qc_stores: dict[Path, tuple[object, QcExportStore]] = {}
+    qc_annotation_stores: dict[Path, QcAnnotationStore] = {}
     registry = DatasetRegistry(settings.state_dir)
     packed_catalogues = PackedCatalogueCache()
     packed_reader = PackedReader(cache_bytes=settings.packed_cache_mb * 1024 * 1024)
@@ -445,6 +462,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     app.state.qc_paths = qc_paths
     app.state.qc_private_roots = qc_private_roots
     app.state.qc_stores = qc_stores
+    app.state.qc_annotation_stores = qc_annotation_stores
 
     def is_private_qc_path(path: Path) -> bool:
         return any(path == root or path.is_relative_to(root) for root in qc_private_roots)
@@ -565,6 +583,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             qc_stores[index_path] = (catalogue.signature, store)
         else:
             store = cached[1]
+        annotation_store = qc_annotation_stores.get(index_path)
+        if annotation_store is None:
+            annotation_store = QcAnnotationStore(config.annotations_path)
+            qc_annotation_stores[index_path] = annotation_store
         return (
             config,
             QcRuntime(
@@ -572,6 +594,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                 catalogue=catalogue,
                 profile=profile,
                 store=store,
+                annotations=annotation_store,
             ),
             None,
         )
@@ -633,6 +656,50 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         except PackedMetadataError as exc:
             raise _service_unavailable("Phase 1 metadata is unavailable or invalid") from exc
 
+    def annotation_state(runtime: QcRuntime) -> QcAnnotationState:
+        try:
+            return runtime.annotations.read()
+        except QcAnnotationUnavailableError:
+            return QcAnnotationState(
+                current=(),
+                malformed_lines=0,
+                revision="unavailable",
+            )
+
+    def annotation_target(
+        runtime: QcRuntime,
+        snapshot: QcExportSnapshot,
+        command: QcAnnotationCreateRequest,
+    ) -> QcAnnotationTarget:
+        canonical_well = command.well.upper()
+        table = snapshot.table("site_metrics.csv")
+        selected = table.filter(
+            pc.and_(
+                pc.equal(table["plate"], command.plate),
+                pc.equal(table["well"], canonical_well),
+            )
+        )
+        if command.scope == "field":
+            selected = selected.filter(pc.equal(selected["site"], command.site))
+            if selected.num_rows != 1:
+                raise QcAnnotationValidationError("Annotation field does not exist")
+        elif selected.num_rows == 0:
+            raise QcAnnotationValidationError("Annotation well does not exist")
+
+        channels = {
+            str(value) for value in snapshot.table("channels.csv")["channel"].to_pylist()
+        }
+        if command.channel != "all" and command.channel not in channels:
+            raise QcAnnotationValidationError("Annotation channel is invalid")
+        return QcAnnotationTarget(
+            scope=command.scope,
+            plate=command.plate,
+            barcode=runtime.profile.plate_name(command.plate),
+            well=canonical_well,
+            site=command.site,
+            channel=command.channel,
+        )
+
     async def qc_payload_response(
         snapshot: QcExportSnapshot,
         payload: Callable[[], object],
@@ -642,6 +709,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         accept_encoding: str | None,
         if_none_match: str | None,
         state: str | None = None,
+        status_code: int = status.HTTP_200_OK,
     ) -> Response:
         identity = f"{__version__}:{snapshot.export_id}:{snapshot.registry_hash}"
         try:
@@ -655,6 +723,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                     accept_encoding=accept_encoding,
                     if_none_match=if_none_match,
                     state=state,
+                    status_code=status_code,
                 )
             )
         except QcFieldNotFoundError as exc:
@@ -746,6 +815,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             )
         else:
             await anyio.to_thread.run_sync(runtime.store.refresh)
+            annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
             store_status = runtime.store.status_for(blind=blind)
             response = QcStatusResponse(
                 available=store_status.available,
@@ -758,6 +828,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                 hash_check=store_status.hash_check,
                 missing_contract=list(store_status.missing_contract),
                 unknown_statuses=list(store_status.unknown_statuses),
+                malformed_annotation_lines=annotations.malformed_lines,
                 error=store_status.error,
             )
         payload = response.model_dump(mode="json")
@@ -806,15 +877,21 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     ) -> Response:
         runtime, snapshot = await ready_qc_snapshot(path)
         metadata, metadata_identity = await ready_qc_metadata(runtime, blind=blind)
+        annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
 
         return await qc_payload_response(
             snapshot,
-            lambda: fields_payload(snapshot, metadata, blind=blind),
+            lambda: fields_payload(
+                snapshot,
+                metadata,
+                blind=blind,
+                annotations=annotations.current,
+            ),
             endpoint="fields",
             blind=blind,
             accept_encoding=accept_encoding,
             if_none_match=if_none_match,
-            state=metadata_identity,
+            state=f"{metadata_identity or ''}:{annotations.revision}",
         )
 
     @app.get("/api/qc/field", response_model=QcFieldResponse)
@@ -833,6 +910,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         runtime, snapshot = await ready_qc_snapshot(path)
         canonical_well = well.upper()
         metadata, metadata_identity = await ready_qc_metadata(runtime, blind=blind)
+        annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
 
         def payload() -> object:
             return field_payload(
@@ -842,6 +920,7 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                 well=canonical_well,
                 site=site,
                 blind=blind,
+                annotations=annotations.current,
             )
 
         return await qc_payload_response(
@@ -851,7 +930,10 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             blind=blind,
             accept_encoding=accept_encoding,
             if_none_match=if_none_match,
-            state=f"{plate}:{canonical_well}:{site}:{metadata_identity or ''}",
+            state=(
+                f"{plate}:{canonical_well}:{site}:{metadata_identity or ''}:"
+                f"{annotations.revision}"
+            ),
         )
 
     @app.get("/api/qc/triage", response_model=QcRowsResponse)
@@ -903,6 +985,111 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             blind=blind,
             accept_encoding=accept_encoding,
             if_none_match=if_none_match,
+        )
+
+    @app.get("/api/qc/annotations", response_model=QcAnnotationsResponse)
+    async def qc_annotations(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        runtime, snapshot = await ready_qc_snapshot(path)
+        annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
+        writable = await anyio.to_thread.run_sync(
+            lambda: runtime.config.annotations_writable
+        )
+        return await qc_payload_response(
+            snapshot,
+            lambda: {
+                "export_id": snapshot.export_id,
+                "registry_hash": snapshot.registry_hash,
+                "blinded": blind,
+                "writable": writable,
+                "malformed_lines": annotations.malformed_lines,
+                "annotations": [
+                    annotation_record_payload(record, blind=blind)
+                    for record in annotations.current
+                ],
+            },
+            endpoint="annotations",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+            state=f"{annotations.revision}:{int(writable)}",
+        )
+
+    @app.post(
+        "/api/qc/annotations",
+        response_model=QcAnnotationMutationResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def write_qc_annotation(
+        command: QcAnnotationRequest,
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        runtime, snapshot = await ready_qc_snapshot(path)
+        if command.export_id != snapshot.export_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The QC export changed; reload the review before saving",
+            )
+        writable = await anyio.to_thread.run_sync(
+            lambda: runtime.config.annotations_writable
+        )
+        if not writable:
+            raise _service_unavailable("QC annotations are not writable")
+
+        def append() -> dict[str, object]:
+            if isinstance(command, QcAnnotationCreateRequest):
+                target = annotation_target(runtime, snapshot, command)
+                record = runtime.annotations.append_annotation(
+                    QcAnnotationDraft(
+                        export_id=snapshot.export_id,
+                        registry_hash=snapshot.registry_hash,
+                        target=target,
+                        label=command.label,
+                        confidence=command.confidence,
+                        note=command.note,
+                        blinded=blind,
+                        app_version=__version__,
+                    )
+                )
+            else:
+                record = runtime.annotations.append_retraction(
+                    QcRetractionDraft(
+                        annotation_id=command.id,
+                        export_id=snapshot.export_id,
+                        registry_hash=snapshot.registry_hash,
+                        blinded=blind,
+                        app_version=__version__,
+                    )
+                )
+            return dict(record)
+
+        try:
+            record = await anyio.to_thread.run_sync(append)
+        except QcAnnotationValidationError as exc:
+            raise _unprocessable(exc) from exc
+        except QcAnnotationUnavailableError as exc:
+            raise _service_unavailable("QC annotations are not writable") from exc
+
+        return await qc_payload_response(
+            snapshot,
+            lambda: {
+                "export_id": snapshot.export_id,
+                "registry_hash": snapshot.registry_hash,
+                "blinded": blind,
+                "record": annotation_record_payload(record, blind=blind),
+            },
+            endpoint="annotations:write",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=None,
+            state=f"{record['record']}:{record['id']}:{record['time']}",
+            status_code=status.HTTP_201_CREATED,
         )
 
     @app.get("/api/fs/list", response_model=FilesystemListResponse)

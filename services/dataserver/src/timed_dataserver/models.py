@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ApiModel(BaseModel):
@@ -46,7 +46,135 @@ class QcStatusResponse(ApiModel):
     hash_check: Literal["unavailable", "ok", "error"]
     missing_contract: list[str] = Field(default_factory=list)
     unknown_statuses: list[str] = Field(default_factory=list)
+    malformed_annotation_lines: int = 0
     error: str | None = None
+
+
+QcAnnotationScope = Literal["field", "well"]
+QcAnnotationConfidence = Literal["low", "medium", "high"]
+QcAnnotationLabel = Literal[
+    "ok",
+    "blurred",
+    "partial_blur",
+    "saturated",
+    "debris",
+    "dark_or_bubble",
+    "uneven_illumination",
+    "dim_or_staining",
+    "noisy",
+    "misregistered",
+    "sparse_biological",
+    "known_fixed_shadow",
+    "other",
+    "unsure",
+]
+
+
+class QcAnnotationCreateRequest(ApiModel):
+    """Operator-entered fields for one append-only annotation."""
+
+    record: Literal["annotation"] = "annotation"
+    export_id: str = Field(min_length=1, max_length=200)
+    scope: QcAnnotationScope
+    plate: int = Field(ge=1)
+    well: str = Field(min_length=2, max_length=16, pattern=r"^[A-Za-z]+[0-9]+$")
+    site: int | None = Field(default=None, ge=1)
+    channel: str = Field(min_length=1, max_length=100)
+    label: QcAnnotationLabel
+    confidence: QcAnnotationConfidence
+    note: str = Field(default="", max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "QcAnnotationCreateRequest":
+        if self.scope == "field" and self.site is None:
+            raise ValueError("Field annotations require a site")
+        if self.scope == "well" and self.site is not None:
+            raise ValueError("Well annotations do not accept a site")
+        return self
+
+
+class QcAnnotationRetractionRequest(ApiModel):
+    """Request to append a retraction for a current annotation id."""
+
+    record: Literal["retraction"]
+    export_id: str = Field(min_length=1, max_length=200)
+    id: str = Field(
+        min_length=36,
+        max_length=36,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    )
+
+
+QcAnnotationRequest = Annotated[
+    QcAnnotationCreateRequest | QcAnnotationRetractionRequest,
+    Field(discriminator="record"),
+]
+
+
+class QcAnnotationRecord(ApiModel):
+    """One current, unretracted annotation returned by the server."""
+
+    schema_version: Literal[1]
+    record: Literal["annotation"]
+    id: str
+    time: str
+    reviewer: str
+    export_id: str
+    registry_hash: str
+    scope: QcAnnotationScope
+    plate: int
+    barcode: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    well: str
+    site: int | None
+    channel: str
+    label: QcAnnotationLabel
+    confidence: QcAnnotationConfidence
+    note: str
+    blinded: bool
+    app_version: str
+
+
+class QcAnnotationRetractionRecord(ApiModel):
+    """One append-only retraction audit record."""
+
+    schema_version: Literal[1]
+    record: Literal["retraction"]
+    id: str
+    time: str
+    reviewer: str
+    export_id: str
+    registry_hash: str
+    blinded: bool
+    app_version: str
+
+
+QcAnnotationAuditRecord = Annotated[
+    QcAnnotationRecord | QcAnnotationRetractionRecord,
+    Field(discriminator="record"),
+]
+
+
+class QcAnnotationsResponse(ApiModel):
+    """Current annotations plus the health of the append-only store."""
+
+    export_id: str
+    registry_hash: str
+    blinded: bool
+    writable: bool
+    malformed_lines: int
+    annotations: list[QcAnnotationRecord]
+
+
+class QcAnnotationMutationResponse(ApiModel):
+    """The audit record appended by one successful mutation."""
+
+    export_id: str
+    registry_hash: str
+    blinded: bool
+    record: QcAnnotationAuditRecord
 
 
 class QcRowsResponse(ApiModel):
@@ -70,6 +198,7 @@ class QcFieldsResponse(ApiModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    annotations: list[QcAnnotationRecord] = Field(default_factory=list)
 
 
 class QcFieldResponse(ApiModel):
@@ -84,6 +213,7 @@ class QcFieldResponse(ApiModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    annotations: list[QcAnnotationRecord] = Field(default_factory=list)
 
 
 class OmeZarrInfo(ApiModel):

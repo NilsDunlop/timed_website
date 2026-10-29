@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI, Request
-from timed_connector.app import create_app
+from timed_connector.app import UPSTREAM_KEEPALIVE_EXPIRY_SECONDS, _proxy_client, create_app
 from timed_connector.cli import _first_plate, main
 from timed_connector.dataserver_connection import DataServerConnection
 from timed_connector.local_backend import LocalBackend
@@ -35,6 +35,17 @@ from timed_connector.slurm import QueueStatus, parse_job_id, render_job_script
 from timed_connector.ssh_backend import HostKeyStatus
 
 CLIENT_HEADER = {"X-Timed-Client": "web"}
+
+
+@pytest.mark.asyncio
+async def test_proxy_pool_expires_before_uvicorn_keepalive() -> None:
+    client = _proxy_client()
+    try:
+        pool = client._transport._pool  # type: ignore[attr-defined]
+        assert pool._keepalive_expiry == UPSTREAM_KEEPALIVE_EXPIRY_SECONDS
+        assert 0 < UPSTREAM_KEEPALIVE_EXPIRY_SECONDS < 5
+    finally:
+        await client.aclose()
 
 
 def slurm_profile(**changes: Any) -> Profile:
@@ -834,31 +845,48 @@ async def test_connector_http_guards_and_public_payloads(tmp_path: Path) -> None
     store = ProfileStore([profile], tmp_path / "profiles.yaml")
     session = ConnectorSession(store, FakeBackend(tmp_path), poll_interval=0.001)
     app = create_app(store, session, port=8700)
+    proxy_client = httpx.AsyncClient(timeout=None, trust_env=False)
+    app.state.proxy_client = proxy_client
     transport = httpx.ASGITransport(app=app)
 
-    async with httpx.AsyncClient(
-        transport=transport,
-        base_url="http://127.0.0.1:8700",
-    ) as client:
-        profiles = await client.get("/connector/profiles")
-        assert profiles.status_code == 200
-        serialized = profiles.text.lower()
-        assert "password" not in serialized
-        assert "token" not in serialized
-        assert "access-control-allow-origin" not in profiles.headers
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://127.0.0.1:8700",
+        ) as client:
+            profiles = await client.get("/connector/profiles")
+            assert profiles.status_code == 200
+            serialized = profiles.text.lower()
+            assert "password" not in serialized
+            assert "token" not in serialized
+            assert "access-control-allow-origin" not in profiles.headers
 
-        missing_client_header = await client.post(
-            "/connector/connect",
-            json={"profile_id": profile.id},
-        )
-        assert missing_client_header.status_code == 403
+            missing_proxy_header = await client.post(
+                "/backend/api/datasets",
+                json={"path": "/fixture"},
+            )
+            assert missing_proxy_header.status_code == 403
+            allowed_proxy_write = await client.post(
+                "/backend/api/datasets",
+                headers=CLIENT_HEADER,
+                json={"path": "/fixture"},
+            )
+            assert allowed_proxy_write.status_code == 503
 
-        connected = await client.post(
-            "/connector/connect",
-            headers=CLIENT_HEADER,
-            json={"profile_id": profile.id},
-        )
-        assert connected.status_code == 202
+            missing_client_header = await client.post(
+                "/connector/connect",
+                json={"profile_id": profile.id},
+            )
+            assert missing_client_header.status_code == 403
+
+            connected = await client.post(
+                "/connector/connect",
+                headers=CLIENT_HEADER,
+                json={"profile_id": profile.id},
+            )
+            assert connected.status_code == 202
+    finally:
+        await proxy_client.aclose()
 
     invalid_transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(

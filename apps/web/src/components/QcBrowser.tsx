@@ -9,13 +9,29 @@ import {
 
 import type { components as ConnectorComponents } from "../lib/api/connector-schema";
 import type { components as DataServerComponents } from "../lib/api/dataserver-schema";
-import { apiErrorMessage, connectorClient, dataServerClient } from "../lib/api/client";
+import {
+  apiErrorMessage,
+  connectorClient,
+  dataServerClient,
+  webClientHeaders,
+} from "../lib/api/client";
 import {
   initialCollection,
   readCollectionPreference,
   writeCollectionPreference,
   type DataCollection,
 } from "../lib/collectionNavigation";
+import {
+  parseQcAnnotations,
+  qcAnnotationRowState,
+  type QcAnnotationRowState,
+  type QcCurrentAnnotation,
+} from "../lib/qcAnnotations";
+import {
+  saveQcQueue,
+  type QcQueueEntry,
+  type QcReviewQueue,
+} from "../lib/qcQueue";
 import {
   aggregateQcWells,
   applyQcFilters,
@@ -54,6 +70,11 @@ type LoadedQc = {
   fields: QcFields;
   dictionaryRows: Record<string, unknown>[];
   triageRows: Record<string, unknown>[];
+  reviewRows: Record<string, unknown>[];
+  annotations: QcCurrentAnnotation[];
+  channels: string[];
+  fieldAnnotationCategories: readonly (readonly QcScalar[])[];
+  wellAnnotationCategories: readonly (readonly QcScalar[])[];
   model: QcModel;
 };
 
@@ -135,19 +156,137 @@ function collectionForQc(
 }
 
 function categoryDefinitions(model: QcModel): CategoryDefinition[] {
-  const required = ["cell_line", "plate", "well_type", "is_control", "gene"];
+  const required = [
+    "cell_line",
+    "plate",
+    "well_type",
+    "is_control",
+    "gene",
+    "annotation_status",
+  ];
   const context = model.dictionary
     .filter((definition) => definition.file === "site_metrics.csv" && definition.layer === "context")
     .map((definition) => definition.column);
   const columns = [...new Set([...required, ...context])].filter(
-    (column) => column in model.columns,
+    (column) => column in model.columns || column in model.categoryColumns,
   );
   return columns.flatMap((column) => {
     const values = uniqueQcValues(model, column);
     const always = required.includes(column);
     if (!always && values.length > 50) return [];
-    return [{ column, label: dictionaryLabel(model.dictionary, column), values }];
+    return [{
+      column,
+      label: column === "annotation_status"
+        ? "Annotation status"
+        : dictionaryLabel(model.dictionary, column),
+      values,
+    }];
   });
+}
+
+function annotationDisplay(state: QcAnnotationRowState): string {
+  return state.reviewed
+    ? state.labels.map(humanize).join(", ") || "Reviewed"
+    : "Not reviewed";
+}
+
+function annotationCategories(state: QcAnnotationRowState): readonly QcScalar[] {
+  return [state.status, ...state.labels];
+}
+
+const EMPTY_ANNOTATION_STATE: QcAnnotationRowState = {
+  reviewed: false,
+  status: "not reviewed",
+  labels: [],
+  count: 0,
+};
+
+function annotationKey(
+  scope: "field" | "well",
+  plate: number,
+  barcode: string,
+  well: string,
+  site: number | null,
+): string {
+  return `${scope}:${plate}:${barcode}:${well}:${site ?? ""}`;
+}
+
+function annotationStateIndex(
+  annotations: readonly QcCurrentAnnotation[],
+): Map<string, QcAnnotationRowState> {
+  const grouped = new Map<string, QcCurrentAnnotation[]>();
+  for (const annotation of annotations) {
+    const key = annotationKey(
+      annotation.scope,
+      annotation.plate,
+      annotation.barcode,
+      annotation.well,
+      annotation.site,
+    );
+    const records = grouped.get(key);
+    if (records) records.push(annotation);
+    else grouped.set(key, [annotation]);
+  }
+  return new Map(
+    [...grouped.entries()].map(([key, records]) => {
+      const first = records[0] as QcCurrentAnnotation;
+      return [
+        key,
+        qcAnnotationRowState(records, {
+          scope: first.scope,
+          plate: first.plate,
+          barcode: first.barcode,
+          well: first.well,
+          site: first.site,
+        }),
+      ];
+    }),
+  );
+}
+
+function reviewQueueEntry(
+  row: Record<string, unknown>,
+  model: QcModel,
+  channels: readonly string[],
+): QcQueueEntry | null {
+  const scope = row.scope === "well" ? "well" : row.scope === "field" ? "field" : null;
+  const plate = Number(row.plate);
+  const well = String(row.well ?? "").toUpperCase();
+  const site = scope === "well" ? 1 : Number(row.site);
+  if (
+    !scope ||
+    !Number.isInteger(plate) ||
+    plate <= 0 ||
+    !/^[A-Z]+\d+$/.test(well) ||
+    !Number.isInteger(site) ||
+    site <= 0
+  ) {
+    return null;
+  }
+  let matchingRow = -1;
+  for (let index = 0; index < model.rowCount; index += 1) {
+    if (
+      Number(model.columns.plate?.[index]) === plate &&
+      String(model.columns.well?.[index] ?? "").toUpperCase() === well &&
+      Number(model.columns.site?.[index]) === site
+    ) {
+      matchingRow = index;
+      break;
+    }
+  }
+  if (matchingRow < 0) return null;
+  const plateGroup = String(model.columns.experiment?.[matchingRow] ?? "");
+  const barcode = String(model.columns.plate_barcode?.[matchingRow] ?? "");
+  const requestedChannel = String(row.channel ?? "");
+  return {
+    scope,
+    plateGroup,
+    plate,
+    barcode,
+    well,
+    site,
+    channel: channels.includes(requestedChannel) ? requestedChannel : "all",
+  };
 }
 
 function scalarFromUrl(values: readonly QcScalar[], requested: string): QcScalar | undefined {
@@ -265,11 +404,18 @@ export default function QcBrowser() {
       selection.collection.id,
     );
     const query = { path: selection.collection.path };
-    const [statusResult, dictionaryResult, fieldsResult, triageResult] = await Promise.all([
+    const [
+      statusResult,
+      dictionaryResult,
+      fieldsResult,
+      triageResult,
+      reviewResult,
+    ] = await Promise.all([
       dataServerClient.GET("/api/qc/status", { params: { query } }),
       dataServerClient.GET("/api/qc/dictionary", { params: { query } }),
       dataServerClient.GET("/api/qc/fields", { params: { query } }),
       dataServerClient.GET("/api/qc/triage", { params: { query } }),
+      dataServerClient.GET("/api/qc/review-list", { params: { query } }),
     ]);
     if (!statusResult.data) {
       throw new Error(apiErrorMessage(statusResult.error, "Could not load QC status"));
@@ -277,10 +423,18 @@ export default function QcBrowser() {
     if (!statusResult.data.available || !statusResult.data.core_ready) {
       throw new Error(statusResult.data.error || "The QC export is not ready.");
     }
-    if (!dictionaryResult.data || !fieldsResult.data || !triageResult.data) {
+    if (
+      !dictionaryResult.data ||
+      !fieldsResult.data ||
+      !triageResult.data ||
+      !reviewResult.data
+    ) {
       throw new Error(
         apiErrorMessage(
-          dictionaryResult.error ?? fieldsResult.error ?? triageResult.error,
+          dictionaryResult.error ??
+            fieldsResult.error ??
+            triageResult.error ??
+            reviewResult.error,
           "Could not load the QC export",
         ),
       );
@@ -289,12 +443,66 @@ export default function QcBrowser() {
       dictionaryResult.data,
       fieldsResult.data,
       triageResult.data,
+      reviewResult.data,
     ]);
+    const triageRows = triageResult.data.rows as Record<string, unknown>[];
+    const channels = [
+      ...new Set(
+        triageRows
+          .map((row) => String(row.channel ?? ""))
+          .filter((channel) => channel && channel.toLocaleLowerCase() !== "site"),
+      ),
+    ];
+    const parsedAnnotations = parseQcAnnotations(
+      fieldsResult.data.annotations,
+      channels,
+    );
+    if (parsedAnnotations.invalidRecords > 0) {
+      throw new Error("The QC annotation response is invalid.");
+    }
+    const annotationStates = annotationStateIndex(parsedAnnotations.annotations);
+    const fieldAnnotationCategories: (readonly QcScalar[])[] = [];
+    const wellAnnotationCategories: (readonly QcScalar[])[] = [];
+    const annotationDisplayValues: string[] = [];
+    const plates = fieldsResult.data.columns.plate ?? [];
+    const barcodes = fieldsResult.data.columns.plate_barcode ?? [];
+    const wells = fieldsResult.data.columns.well ?? [];
+    const sites = fieldsResult.data.columns.site ?? [];
+    for (let rowIndex = 0; rowIndex < fieldsResult.data.row_count; rowIndex += 1) {
+      const plate = Number(plates[rowIndex]);
+      const barcode = String(barcodes[rowIndex] ?? "");
+      const well = String(wells[rowIndex] ?? "").toUpperCase();
+      const site = Number(sites[rowIndex]);
+      const fieldState =
+        annotationStates.get(annotationKey("field", plate, barcode, well, site)) ??
+        EMPTY_ANNOTATION_STATE;
+      const wellState =
+        annotationStates.get(annotationKey("well", plate, barcode, well, null)) ??
+        EMPTY_ANNOTATION_STATE;
+      fieldAnnotationCategories.push(annotationCategories(fieldState));
+      wellAnnotationCategories.push(annotationCategories(wellState));
+      annotationDisplayValues.push(annotationDisplay(fieldState));
+    }
+    const fieldsWithAnnotations: QcFields = {
+      ...fieldsResult.data,
+      well_metadata: {
+        ...(fieldsResult.data.well_metadata ?? {}),
+        annotation_status: annotationDisplayValues,
+      },
+    };
     const dictionaryRows = dictionaryResult.data.rows as Record<string, unknown>[];
-    const preliminary = buildQcModel(fieldsResult.data, dictionaryRows);
+    const combinedAnnotationCategories = fieldAnnotationCategories.map(
+      (values, index) => [
+        ...new Set([...values, ...(wellAnnotationCategories[index] ?? [])]),
+      ],
+    );
+    const preliminary = buildQcModel(fieldsWithAnnotations, dictionaryRows, {
+      categoryColumns: { annotation_status: combinedAnnotationCategories },
+    });
     const protectionColumns = semanticProtectionColumns(preliminary.dictionary);
-    const model = buildQcModel(fieldsResult.data, dictionaryRows, {
+    const model = buildQcModel(fieldsWithAnnotations, dictionaryRows, {
       protectionColumns,
+      categoryColumns: { annotation_status: combinedAnnotationCategories },
     });
     const nextCategories = categoryDefinitions(model);
     const parsed = parseQcUrlState(window.location.search, {
@@ -302,13 +510,7 @@ export default function QcBrowser() {
       categoryIds: nextCategories.map((category) => category.column),
       sortableIds: [...Object.keys(model.columns), "flaggedSiteCount", "siteCount"],
       collectionIds: (selection.profile.collections ?? []).map((collection) => collection.id),
-      channels: [
-        ...new Set(
-          (triageResult.data.rows as Record<string, unknown>[])
-            .map((row) => String(row.channel ?? ""))
-            .filter(Boolean),
-        ),
-      ],
+      channels,
       plates: uniqueQcValues(model, "plate").filter(
         (value): value is number => typeof value === "number",
       ),
@@ -317,9 +519,14 @@ export default function QcBrowser() {
       profileId: selection.profile.id,
       collection: selection.collection,
       status: statusResult.data,
-      fields: fieldsResult.data,
+      fields: fieldsWithAnnotations,
       dictionaryRows,
-      triageRows: triageResult.data.rows as Record<string, unknown>[],
+      triageRows,
+      reviewRows: reviewResult.data.rows as Record<string, unknown>[],
+      annotations: parsedAnnotations.annotations,
+      channels,
+      fieldAnnotationCategories,
+      wellAnnotationCategories,
       model,
     });
     setCategories(nextCategories);
@@ -377,9 +584,23 @@ export default function QcBrowser() {
     };
   }, [categoryStates, selectedChannel, selectedPlate, sliderStates]);
 
+  const filteredModel = useMemo<QcModel | null>(() => {
+    if (!loaded) return null;
+    return {
+      ...loaded.model,
+      categoryColumns: {
+        ...loaded.model.categoryColumns,
+        annotation_status:
+          tableMode === "sites"
+            ? loaded.fieldAnnotationCategories
+            : loaded.wellAnnotationCategories,
+      },
+    };
+  }, [loaded, tableMode]);
+
   const result = useMemo(
-    () => (loaded ? applyQcFilters(loaded.model, filterState) : null),
-    [filterState, loaded],
+    () => (filteredModel ? applyQcFilters(filteredModel, filterState) : null),
+    [filterState, filteredModel],
   );
 
   useEffect(() => {
@@ -460,6 +681,10 @@ export default function QcBrowser() {
     () => Object.keys(loaded?.fields.well_metadata ?? {}),
     [loaded],
   );
+  const currentAnnotationStates = useMemo(
+    () => annotationStateIndex(loaded?.annotations ?? []),
+    [loaded],
+  );
   const displayedSliders = useMemo(
     () =>
       loaded?.model.sliders.filter(
@@ -534,18 +759,83 @@ export default function QcBrowser() {
   }, [loaded, result, sortColumn, sortDirection]);
 
   const wells = useMemo(() => {
-    if (!loaded || !result) return [];
+    if (!loaded || !result || !filteredModel) return [];
     const aggregated = aggregateQcWells(
-      loaded.model,
+      filteredModel,
       result,
       filterState,
       wellSummaryColumns,
     );
-    return sortQcWells(aggregated, {
+    const withAnnotationStatus = aggregated.map((well) => {
+      const plate = Number(well.keyValues.plate);
+      const wellName = String(well.keyValues.well ?? "");
+      const first = well.rowIndices[0] ?? -1;
+      const barcode = String(loaded.model.columns.plate_barcode?.[first] ?? "");
+      const state =
+        currentAnnotationStates.get(
+          annotationKey("well", plate, barcode, wellName, null),
+        ) ??
+        EMPTY_ANNOTATION_STATE;
+      return {
+        ...well,
+        values: {
+          ...well.values,
+          annotation_status: annotationDisplay(state),
+        },
+      };
+    });
+    return sortQcWells(withAnnotationStatus, {
       column: sortColumn ?? "plate",
       direction: sortDirection,
     });
-  }, [filterState, loaded, result, sortColumn, sortDirection, wellSummaryColumns]);
+  }, [
+    filterState,
+    filteredModel,
+    currentAnnotationStates,
+    loaded,
+    result,
+    sortColumn,
+    sortDirection,
+    wellSummaryColumns,
+  ]);
+
+  const fileQueueEntries = useMemo(
+    () =>
+      loaded?.reviewRows.map((row) =>
+        reviewQueueEntry(row, loaded.model, loaded.channels),
+      ) ?? [],
+    [loaded],
+  );
+  const validFileQueueEntries = useMemo(
+    () => fileQueueEntries.filter((entry): entry is QcQueueEntry => entry !== null),
+    [fileQueueEntries],
+  );
+  const sessionQueueEntries = useMemo<QcQueueEntry[]>(() => {
+    if (!loaded) return [];
+    if (tableMode === "sites") {
+      return sortedSites.map((rowIndex) => ({
+        scope: "field",
+        plateGroup: String(loaded.model.columns.experiment?.[rowIndex] ?? ""),
+        plate: Number(loaded.model.columns.plate?.[rowIndex]),
+        barcode: String(loaded.model.columns.plate_barcode?.[rowIndex] ?? ""),
+        well: String(loaded.model.columns.well?.[rowIndex] ?? "").toUpperCase(),
+        site: Number(loaded.model.columns.site?.[rowIndex]),
+        channel: "all",
+      }));
+    }
+    return wells.map((well) => {
+      const first = well.rowIndices[0] ?? -1;
+      return {
+        scope: "well",
+        plateGroup: String(loaded.model.columns.experiment?.[first] ?? ""),
+        plate: Number(well.keyValues.plate),
+        barcode: String(loaded.model.columns.plate_barcode?.[first] ?? ""),
+        well: String(well.keyValues.well ?? "").toUpperCase(),
+        site: 1,
+        channel: "all",
+      };
+    });
+  }, [loaded, sortedSites, tableMode, wells]);
 
   function updateSort(column: string) {
     if (sortColumn === column) {
@@ -556,7 +846,12 @@ export default function QcBrowser() {
     }
   }
 
-  async function openTarget(target: QcWellTarget, scope: "field" | "well") {
+  async function openTarget(
+    target: QcWellTarget,
+    scope: "field" | "well",
+    queue?: QcReviewQueue,
+    queueIndex = 0,
+  ) {
     if (!loaded) return;
     setBusy(true);
     setError("");
@@ -564,6 +859,7 @@ export default function QcBrowser() {
       const root = loaded.collection.path.replace(/[\\/]+$/, "");
       const platePath = `${root}/${target.experiment}/${target.plate}`;
       const linked = await dataServerClient.POST("/api/datasets", {
+        headers: webClientHeaders,
         body: { path: platePath },
       });
       if (!linked.data) {
@@ -581,11 +877,58 @@ export default function QcBrowser() {
         qcExport: loaded.status.export_id ?? "",
         qcReturn: `${window.location.pathname}${window.location.search}`,
       });
+      if (queue) {
+        query.set("qcQueue", queue.id);
+        query.set("qcIndex", String(queueIndex));
+      }
       window.location.assign(`/view?${query.toString()}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setBusy(false);
     }
+  }
+
+  async function launchQueue(
+    entries: readonly QcQueueEntry[],
+    source: "review-list" | "session",
+  ) {
+    if (!loaded || !loaded.status.export_id || !loaded.status.registry_hash) return;
+    if (
+      entries.length === 0 ||
+      (source === "review-list" && entries.length !== loaded.reviewRows.length)
+    ) {
+      setError("The review queue contains an invalid image target.");
+      return;
+    }
+    const saved = saveQcQueue(
+      window.sessionStorage,
+      {
+        source,
+        exportId: loaded.status.export_id,
+        registryHash: loaded.status.registry_hash,
+        collectionId: loaded.collection.id,
+        returnHref: `${window.location.pathname}${window.location.search}`,
+        entries: [...entries],
+      },
+      loaded.channels,
+    );
+    if (!saved.ok) {
+      setError("The review queue could not be stored in this browser session.");
+      return;
+    }
+    const first = saved.queue.entries[0];
+    if (!first) return;
+    await openTarget(
+      {
+        experiment: first.plateGroup,
+        plate: first.plate,
+        well: first.well,
+        site: first.site,
+      },
+      first.scope,
+      saved.queue,
+      0,
+    );
   }
 
   if (!initialized) return <p className="muted">Loading QC review\u2026</p>;
@@ -630,16 +973,25 @@ export default function QcBrowser() {
           <h1>{loaded.collection.title}</h1>
           <p className="lede">Review the complete configured export with dictionary-defined metrics.</p>
         </div>
-        <dl className="qc-export-identity">
-          <div>
-            <dt>Export</dt>
-            <dd>{loaded.status.export_id}</dd>
-          </div>
-          <div>
-            <dt>Registry</dt>
-            <dd>{loaded.status.registry_hash?.slice(0, 12)}</dd>
-          </div>
-        </dl>
+        <div className="qc-page-actions">
+          <button
+            type="button"
+            disabled={busy || validFileQueueEntries.length === 0}
+            onClick={() => void launchQueue(validFileQueueEntries, "review-list")}
+          >
+            Review queue
+          </button>
+          <dl className="qc-export-identity">
+            <div>
+              <dt>Export</dt>
+              <dd>{loaded.status.export_id}</dd>
+            </div>
+            <div>
+              <dt>Registry</dt>
+              <dd>{loaded.status.registry_hash?.slice(0, 12)}</dd>
+            </div>
+          </dl>
+        </div>
       </header>
 
       {newExport && (
@@ -654,6 +1006,12 @@ export default function QcBrowser() {
         <div className="notice" role="status">
           {loaded.status.unknown_statuses.length} unrecognised dictionary status
           {loaded.status.unknown_statuses.length === 1 ? " is" : "es are"} hidden.
+        </div>
+      )}
+      {loaded.status.malformed_annotation_lines > 0 && (
+        <div className="notice" role="status">
+          {loaded.status.malformed_annotation_lines.toLocaleString()} malformed annotation
+          {loaded.status.malformed_annotation_lines === 1 ? " line was" : " lines were"} skipped.
         </div>
       )}
       {error && (
@@ -786,7 +1144,7 @@ export default function QcBrowser() {
           </section>
 
           <QcPlateMaps
-            model={loaded.model}
+            model={filteredModel ?? loaded.model}
             result={result}
             selectedPlate={selectedPlate}
             onOpen={(target) => void openTarget(target, "well")}
@@ -798,22 +1156,32 @@ export default function QcBrowser() {
                 <p className="eyebrow">Review set</p>
                 <h2 id="qc-table-heading">{tableMode === "sites" ? "Sites" : "Wells"}</h2>
               </div>
-              <div className="qc-table-mode" role="group" aria-label="Table rows">
+              <div className="qc-table-actions">
+                <div className="qc-table-mode" role="group" aria-label="Table rows">
+                  <button
+                    type="button"
+                    className={tableMode === "wells" ? "" : "secondary"}
+                    aria-pressed={tableMode === "wells"}
+                    onClick={() => setTableMode("wells")}
+                  >
+                    Wells
+                  </button>
+                  <button
+                    type="button"
+                    className={tableMode === "sites" ? "" : "secondary"}
+                    aria-pressed={tableMode === "sites"}
+                    onClick={() => setTableMode("sites")}
+                  >
+                    Sites
+                  </button>
+                </div>
                 <button
                   type="button"
-                  className={tableMode === "wells" ? "" : "secondary"}
-                  aria-pressed={tableMode === "wells"}
-                  onClick={() => setTableMode("wells")}
+                  className="secondary"
+                  disabled={busy || sessionQueueEntries.length === 0}
+                  onClick={() => void launchQueue(sessionQueueEntries, "session")}
                 >
-                  Wells
-                </button>
-                <button
-                  type="button"
-                  className={tableMode === "sites" ? "" : "secondary"}
-                  aria-pressed={tableMode === "sites"}
-                  onClick={() => setTableMode("sites")}
-                >
-                  Sites
+                  Review these
                 </button>
               </div>
             </div>

@@ -141,6 +141,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/qc/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Qc Annotations */
+        get: operations["qc_annotations_api_qc_annotations_get"];
+        put?: never;
+        /** Write Qc Annotation */
+        post: operations["write_qc_annotation_api_qc_annotations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/qc/dictionary": {
         parameters: {
             query?: never;
@@ -592,10 +610,187 @@ export interface components {
             zarr_format: 2 | 3;
         };
         /**
+         * QcAnnotationCreateRequest
+         * @description Operator-entered fields for one append-only annotation.
+         */
+        QcAnnotationCreateRequest: {
+            /** Channel */
+            channel: string;
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+            /** Export Id */
+            export_id: string;
+            /**
+             * Label
+             * @enum {string}
+             */
+            label: "ok" | "blurred" | "partial_blur" | "saturated" | "debris" | "dark_or_bubble" | "uneven_illumination" | "dim_or_staining" | "noisy" | "misregistered" | "sparse_biological" | "known_fixed_shadow" | "other" | "unsure";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Plate */
+            plate: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            record: "annotation";
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "field" | "well";
+            /** Site */
+            site?: number | null;
+            /** Well */
+            well: string;
+        };
+        /**
+         * QcAnnotationMutationResponse
+         * @description The audit record appended by one successful mutation.
+         */
+        QcAnnotationMutationResponse: {
+            /** Blinded */
+            blinded: boolean;
+            /** Export Id */
+            export_id: string;
+            /** Record */
+            record: components["schemas"]["QcAnnotationRecord"] | components["schemas"]["QcAnnotationRetractionRecord"];
+            /** Registry Hash */
+            registry_hash: string;
+        };
+        /**
+         * QcAnnotationRecord
+         * @description One current, unretracted annotation returned by the server.
+         */
+        QcAnnotationRecord: {
+            /** App Version */
+            app_version: string;
+            /** Barcode */
+            barcode?: string | null;
+            /** Blinded */
+            blinded: boolean;
+            /** Channel */
+            channel: string;
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+            /** Export Id */
+            export_id: string;
+            /** Id */
+            id: string;
+            /**
+             * Label
+             * @enum {string}
+             */
+            label: "ok" | "blurred" | "partial_blur" | "saturated" | "debris" | "dark_or_bubble" | "uneven_illumination" | "dim_or_staining" | "noisy" | "misregistered" | "sparse_biological" | "known_fixed_shadow" | "other" | "unsure";
+            /** Note */
+            note: string;
+            /** Plate */
+            plate: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            record: "annotation";
+            /** Registry Hash */
+            registry_hash: string;
+            /** Reviewer */
+            reviewer: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "field" | "well";
+            /** Site */
+            site: number | null;
+            /** Time */
+            time: string;
+            /** Well */
+            well: string;
+        };
+        /**
+         * QcAnnotationRetractionRecord
+         * @description One append-only retraction audit record.
+         */
+        QcAnnotationRetractionRecord: {
+            /** App Version */
+            app_version: string;
+            /** Blinded */
+            blinded: boolean;
+            /** Export Id */
+            export_id: string;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            record: "retraction";
+            /** Registry Hash */
+            registry_hash: string;
+            /** Reviewer */
+            reviewer: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Time */
+            time: string;
+        };
+        /**
+         * QcAnnotationRetractionRequest
+         * @description Request to append a retraction for a current annotation id.
+         */
+        QcAnnotationRetractionRequest: {
+            /** Export Id */
+            export_id: string;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            record: "retraction";
+        };
+        /**
+         * QcAnnotationsResponse
+         * @description Current annotations plus the health of the append-only store.
+         */
+        QcAnnotationsResponse: {
+            /** Annotations */
+            annotations: components["schemas"]["QcAnnotationRecord"][];
+            /** Blinded */
+            blinded: boolean;
+            /** Export Id */
+            export_id: string;
+            /** Malformed Lines */
+            malformed_lines: number;
+            /** Registry Hash */
+            registry_hash: string;
+            /** Writable */
+            writable: boolean;
+        };
+        /**
          * QcFieldResponse
          * @description One QC field with its applicable dictionary definitions.
          */
         QcFieldResponse: {
+            /** Annotations */
+            annotations?: components["schemas"]["QcAnnotationRecord"][];
             /** Blinded */
             blinded: boolean;
             /** Dictionary */
@@ -620,6 +815,8 @@ export interface components {
          * @description The browser-filtered QC site table in columnar form.
          */
         QcFieldsResponse: {
+            /** Annotations */
+            annotations?: components["schemas"]["QcAnnotationRecord"][];
             /** Blinded */
             blinded: boolean;
             /** Columns */
@@ -675,6 +872,11 @@ export interface components {
              * @enum {string}
              */
             hash_check: "unavailable" | "ok" | "error";
+            /**
+             * Malformed Annotation Lines
+             * @default 0
+             */
+            malformed_annotation_lines: number;
             /** Missing Contract */
             missing_contract?: string[];
             /** Registry Hash */
@@ -1033,6 +1235,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HandshakeResponse"];
+                };
+            };
+        };
+    };
+    qc_annotations_api_qc_annotations_get: {
+        parameters: {
+            query: {
+                path: string;
+                blind?: boolean;
+            };
+            header?: {
+                "accept-encoding"?: string | null;
+                "if-none-match"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QcAnnotationsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_qc_annotation_api_qc_annotations_post: {
+        parameters: {
+            query: {
+                path: string;
+                blind?: boolean;
+            };
+            header?: {
+                "accept-encoding"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QcAnnotationCreateRequest"] | components["schemas"]["QcAnnotationRetractionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QcAnnotationMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

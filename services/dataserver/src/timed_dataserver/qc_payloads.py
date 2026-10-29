@@ -75,6 +75,18 @@ def _records(table: pa.Table) -> list[dict[str, JsonScalar]]:
     return [_record(row) for row in table.to_pylist()]
 
 
+def annotation_record_payload(
+    record: Mapping[str, object],
+    *,
+    blind: bool,
+) -> dict[str, JsonScalar]:
+    """Project one stored annotation record into its response mode."""
+    payload = _record(record)
+    if blind:
+        payload.pop("barcode", None)
+    return payload
+
+
 def _applicable_dictionary_rows(
     snapshot: QcExportSnapshot,
     *,
@@ -189,6 +201,7 @@ def fields_payload(
     metadata: WellMetadata,
     *,
     blind: bool = False,
+    annotations: tuple[Mapping[str, object], ...] = (),
 ) -> JsonObject:
     """Return the full site table in a browser-efficient columnar layout."""
     _require_core(snapshot)
@@ -197,6 +210,9 @@ def fields_payload(
         **_envelope(snapshot, blind=blind),
         "row_count": table.num_rows,
         "columns": {name: _column(table[name]) for name in table.column_names},
+        "annotations": [
+            annotation_record_payload(row, blind=blind) for row in annotations
+        ],
     }
     if not blind:
         payload["well_metadata"] = _metadata_payload(table, metadata)
@@ -211,6 +227,7 @@ def field_payload(
     well: str,
     site: int,
     blind: bool = False,
+    annotations: tuple[Mapping[str, object], ...] = (),
 ) -> JsonObject:
     """Return one field and its applicable site dictionary rows."""
     _require_core(snapshot)
@@ -225,6 +242,19 @@ def field_payload(
     if selected.num_rows != 1:
         raise QcFieldNotFoundError("QC field does not exist")
     field = _record(selected.to_pylist()[0])
+    identity_table = snapshot.table("site_metrics.csv")
+    identity_selected = identity_table.filter(
+        pc.and_(
+            pc.and_(
+                pc.equal(identity_table["plate"], plate),
+                pc.equal(identity_table["well"], canonical_well),
+            ),
+            pc.equal(identity_table["site"], site),
+        )
+    )
+    if identity_selected.num_rows != 1:
+        raise QcFieldNotFoundError("QC field does not exist")
+    field_barcode = str(identity_selected["plate_barcode"][0].as_py() or "")
     payload: JsonObject = {
         **_envelope(snapshot, blind=blind),
         "field": field,
@@ -233,6 +263,20 @@ def field_payload(
             blind=blind,
             filename="site_metrics.csv",
         ),
+        "annotations": [
+            annotation_record_payload(annotation, blind=blind)
+            for annotation in annotations
+            if annotation.get("plate") == plate
+            and annotation.get("barcode") == field_barcode
+            and str(annotation.get("well") or "").upper() == canonical_well
+            and (
+                annotation.get("scope") == "well"
+                or (
+                    annotation.get("scope") == "field"
+                    and annotation.get("site") == site
+                )
+            )
+        ],
     }
     if not blind:
         payload["well_metadata"] = {

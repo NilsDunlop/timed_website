@@ -1023,10 +1023,434 @@
         "title": "PlateSummary",
         "type": "object"
       },
+      "QcAnnotationCreateRequest": {
+        "additionalProperties": false,
+        "description": "Operator-entered fields for one append-only annotation.",
+        "properties": {
+          "channel": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Channel",
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "export_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Export Id",
+            "type": "string"
+          },
+          "label": {
+            "enum": [
+              "ok",
+              "blurred",
+              "partial_blur",
+              "saturated",
+              "debris",
+              "dark_or_bubble",
+              "uneven_illumination",
+              "dim_or_staining",
+              "noisy",
+              "misregistered",
+              "sparse_biological",
+              "known_fixed_shadow",
+              "other",
+              "unsure"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "plate": {
+            "minimum": 1.0,
+            "title": "Plate",
+            "type": "integer"
+          },
+          "record": {
+            "const": "annotation",
+            "default": "annotation",
+            "title": "Record",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "field",
+              "well"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site"
+          },
+          "well": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[A-Za-z]+[0-9]+$",
+            "title": "Well",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export_id",
+          "scope",
+          "plate",
+          "well",
+          "channel",
+          "label",
+          "confidence"
+        ],
+        "title": "QcAnnotationCreateRequest",
+        "type": "object"
+      },
+      "QcAnnotationMutationResponse": {
+        "additionalProperties": false,
+        "description": "The audit record appended by one successful mutation.",
+        "properties": {
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "record": {
+            "discriminator": {
+              "mapping": {
+                "annotation": "#/components/schemas/QcAnnotationRecord",
+                "retraction": "#/components/schemas/QcAnnotationRetractionRecord"
+              },
+              "propertyName": "record"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QcAnnotationRecord"
+              },
+              {
+                "$ref": "#/components/schemas/QcAnnotationRetractionRecord"
+              }
+            ],
+            "title": "Record"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export_id",
+          "registry_hash",
+          "blinded",
+          "record"
+        ],
+        "title": "QcAnnotationMutationResponse",
+        "type": "object"
+      },
+      "QcAnnotationRecord": {
+        "additionalProperties": false,
+        "description": "One current, unretracted annotation returned by the server.",
+        "properties": {
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "barcode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Barcode"
+          },
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "enum": [
+              "ok",
+              "blurred",
+              "partial_blur",
+              "saturated",
+              "debris",
+              "dark_or_bubble",
+              "uneven_illumination",
+              "dim_or_staining",
+              "noisy",
+              "misregistered",
+              "sparse_biological",
+              "known_fixed_shadow",
+              "other",
+              "unsure"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "plate": {
+            "title": "Plate",
+            "type": "integer"
+          },
+          "record": {
+            "const": "annotation",
+            "title": "Record",
+            "type": "string"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "reviewer": {
+            "title": "Reviewer",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "field",
+              "well"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          },
+          "well": {
+            "title": "Well",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "record",
+          "id",
+          "time",
+          "reviewer",
+          "export_id",
+          "registry_hash",
+          "scope",
+          "plate",
+          "well",
+          "site",
+          "channel",
+          "label",
+          "confidence",
+          "note",
+          "blinded",
+          "app_version"
+        ],
+        "title": "QcAnnotationRecord",
+        "type": "object"
+      },
+      "QcAnnotationRetractionRecord": {
+        "additionalProperties": false,
+        "description": "One append-only retraction audit record.",
+        "properties": {
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "record": {
+            "const": "retraction",
+            "title": "Record",
+            "type": "string"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "reviewer": {
+            "title": "Reviewer",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "record",
+          "id",
+          "time",
+          "reviewer",
+          "export_id",
+          "registry_hash",
+          "blinded",
+          "app_version"
+        ],
+        "title": "QcAnnotationRetractionRecord",
+        "type": "object"
+      },
+      "QcAnnotationRetractionRequest": {
+        "additionalProperties": false,
+        "description": "Request to append a retraction for a current annotation id.",
+        "properties": {
+          "export_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Export Id",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 36,
+            "minLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "record": {
+            "const": "retraction",
+            "title": "Record",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record",
+          "export_id",
+          "id"
+        ],
+        "title": "QcAnnotationRetractionRequest",
+        "type": "object"
+      },
+      "QcAnnotationsResponse": {
+        "additionalProperties": false,
+        "description": "Current annotations plus the health of the append-only store.",
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/QcAnnotationRecord"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "malformed_lines": {
+            "title": "Malformed Lines",
+            "type": "integer"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "export_id",
+          "registry_hash",
+          "blinded",
+          "writable",
+          "malformed_lines",
+          "annotations"
+        ],
+        "title": "QcAnnotationsResponse",
+        "type": "object"
+      },
       "QcFieldResponse": {
         "additionalProperties": false,
         "description": "One QC field with its applicable dictionary definitions.",
         "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/QcAnnotationRecord"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
           "blinded": {
             "title": "Blinded",
             "type": "boolean"
@@ -1079,6 +1503,13 @@
         "additionalProperties": false,
         "description": "The browser-filtered QC site table in columnar form.",
         "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/QcAnnotationRecord"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
           "blinded": {
             "title": "Blinded",
             "type": "boolean"
@@ -1213,6 +1644,11 @@
             ],
             "title": "Hash Check",
             "type": "string"
+          },
+          "malformed_annotation_lines": {
+            "default": 0,
+            "title": "Malformed Annotation Lines",
+            "type": "integer"
           },
           "missing_contract": {
             "items": {
@@ -1575,7 +2011,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.5.0.dev3"
+    "version": "0.5.0.dev4"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1978,6 +2414,187 @@
           }
         ],
         "summary": "Handshake"
+      }
+    },
+    "/api/qc/annotations": {
+      "get": {
+        "operationId": "qc_annotations_api_qc_annotations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcAnnotationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Annotations"
+      },
+      "post": {
+        "operationId": "write_qc_annotation_api_qc_annotations_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "discriminator": {
+                  "mapping": {
+                    "annotation": "#/components/schemas/QcAnnotationCreateRequest",
+                    "retraction": "#/components/schemas/QcAnnotationRetractionRequest"
+                  },
+                  "propertyName": "record"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/QcAnnotationCreateRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/QcAnnotationRetractionRequest"
+                  }
+                ],
+                "title": "Command"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcAnnotationMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Write Qc Annotation"
       }
     },
     "/api/qc/dictionary": {

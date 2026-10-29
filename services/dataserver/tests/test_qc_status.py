@@ -73,6 +73,7 @@ def test_qc_status_loads_valid_export_and_redacts_hidden_statuses(
         "hash_check": "ok",
         "missing_contract": [],
         "unknown_statuses": ["fixture_future_status", "fixture_hidden_future_status"],
+        "malformed_annotation_lines": 0,
         "error": None,
     }
     assert len(payload["registry_hash"]) == 64

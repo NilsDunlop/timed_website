@@ -24,6 +24,8 @@ from .profiles import ProfileStore
 from .proxy import proxy_request
 from .session import ConnectorSession, SessionError
 
+UPSTREAM_KEEPALIVE_EXPIRY_SECONDS = 4.0
+
 
 def _proxy_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
@@ -31,20 +33,25 @@ def _proxy_client() -> httpx.AsyncClient:
         limits=httpx.Limits(
             max_connections=32,
             max_keepalive_connections=16,
-            keepalive_expiry=30.0,
+            # Uvicorn closes idle keep-alive connections after five seconds.
+            keepalive_expiry=UPSTREAM_KEEPALIVE_EXPIRY_SECONDS,
         ),
         trust_env=False,
     )
 
 
-def _client_header(
-    x_timed_client: Annotated[str | None, Header(alias="X-Timed-Client")] = None,
-) -> None:
-    if x_timed_client != "web":
+def _require_client_header(value: str | None) -> None:
+    if value != "web":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="X-Timed-Client: web is required",
         )
+
+
+def _client_header(
+    x_timed_client: Annotated[str | None, Header(alias="X-Timed-Client")] = None,
+) -> None:
+    _require_client_header(x_timed_client)
 
 
 def create_app(
@@ -139,7 +146,16 @@ def create_app(
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
         include_in_schema=False,
     )
-    async def backend(request: Request, path: str):
+    async def backend(
+        request: Request,
+        path: str,
+        x_timed_client: Annotated[
+            str | None,
+            Header(alias="X-Timed-Client"),
+        ] = None,
+    ):
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            _require_client_header(x_timed_client)
         return await proxy_request(
             request,
             path,

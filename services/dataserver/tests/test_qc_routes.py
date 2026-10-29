@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 import timed_dataserver.app as app_module
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
+from timed_dataserver.qc_annotations import QcAnnotationUnavailableError
 from timed_dataserver.qc_config import QcPathConfig
 from timed_dataserver.qc_export import QcExportSnapshot, inspect_qc_export
 
@@ -132,6 +134,7 @@ def _route_specs(index: Path, *, blind: bool) -> tuple[tuple[str, dict[str, obje
         ("triage", common),
         ("display-ranges", common),
         ("review-list", common),
+        ("annotations", common),
     )
 
 
@@ -195,6 +198,9 @@ def test_core_qc_routes_preserve_export_columns_metadata_and_order(
         "display_ranges.csv"
     ).num_rows
     assert payloads["status"]["core_ready"] is True
+    assert payloads["annotations"]["annotations"] == []
+    assert fields["annotations"] == []
+    assert field["annotations"] == []
 
 
 def test_every_blind_qc_route_removes_private_and_header_tokens(
@@ -233,6 +239,467 @@ def test_every_blind_qc_route_removes_private_and_header_tokens(
         for row in blind_payloads["dictionary"]["rows"]
         if row["file"] == "site_metrics.csv"
     }.intersection(non_navigation_keys)
+
+
+def test_qc_annotation_routes_append_join_retract_and_change_etags(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "state"),
+        TOKEN,
+    )
+    field_command = {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": "field",
+        "plate": 14610,
+        "well": "a01",
+        "site": 1,
+        "channel": "DNA",
+        "label": "blurred",
+        "confidence": "high",
+        "note": "Fixture field review.",
+    }
+    well_command = {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": "well",
+        "plate": 14610,
+        "well": "A01",
+        "site": None,
+        "channel": "all",
+        "label": "ok",
+        "confidence": "medium",
+        "note": "Fixture well review.",
+    }
+
+    with TestClient(app) as client:
+        before_annotations = client.get(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+        )
+        before_fields = client.get(
+            "/api/qc/fields",
+            headers=AUTH,
+            params=_params(index),
+        )
+        field_write = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json=field_command,
+        )
+        well_write = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json=well_command,
+        )
+        current = client.get(
+            "/api/qc/annotations",
+            headers={**AUTH, "If-None-Match": before_annotations.headers["etag"]},
+            params=_params(index),
+        )
+        fields = client.get(
+            "/api/qc/fields",
+            headers={**AUTH, "If-None-Match": before_fields.headers["etag"]},
+            params=_params(index),
+        )
+        first_field = client.get(
+            "/api/qc/field",
+            headers=AUTH,
+            params=_field_params(index, site=1),
+        )
+        second_field = client.get(
+            "/api/qc/field",
+            headers=AUTH,
+            params=_field_params(index, site=2),
+        )
+        retraction = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json={
+                "record": "retraction",
+                "export_id": snapshot.export_id,
+                "id": field_write.json()["record"]["id"],
+            },
+        )
+        after_retraction = client.get(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+        )
+
+    assert field_write.status_code == 201
+    assert field_write.headers["content-encoding"] == "gzip"
+    field_record = field_write.json()["record"]
+    assert field_record["blinded"] is False
+    assert field_record["well"] == "A01"
+    assert field_record["export_id"] == snapshot.export_id
+    assert field_record["registry_hash"] == snapshot.registry_hash
+    assert field_record["app_version"]
+    assert well_write.status_code == 201
+    assert current.status_code == 200
+    assert current.headers["etag"] != before_annotations.headers["etag"]
+    assert len(current.json()["annotations"]) == 2
+    assert fields.status_code == 200
+    assert fields.headers["etag"] != before_fields.headers["etag"]
+    assert len(fields.json()["annotations"]) == 2
+    assert len(first_field.json()["annotations"]) == 2
+    assert [record["scope"] for record in second_field.json()["annotations"]] == ["well"]
+    assert retraction.status_code == 201
+    assert retraction.json()["record"]["record"] == "retraction"
+    assert [record["scope"] for record in after_retraction.json()["annotations"]] == [
+        "well"
+    ]
+
+
+def test_blind_annotation_routes_omit_barcode_and_derive_write_mode(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "state"),
+        TOKEN,
+    )
+    command = {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": "field",
+        "plate": 14610,
+        "well": "A01",
+        "site": 1,
+        "channel": "DNA",
+        "label": "ok",
+        "confidence": "high",
+        "note": "Fixture review.",
+    }
+
+    with TestClient(app) as client:
+        core_write = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json=command,
+        )
+        blind_write = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index, blind=True),
+            json={**command, "channel": "ER"},
+        )
+        core_payloads = {
+            "annotations": client.get(
+                "/api/qc/annotations", headers=AUTH, params=_params(index)
+            ).json(),
+            "fields": client.get(
+                "/api/qc/fields", headers=AUTH, params=_params(index)
+            ).json(),
+            "field": client.get(
+                "/api/qc/field", headers=AUTH, params=_field_params(index)
+            ).json(),
+        }
+        blind_payloads = {
+            "annotations": client.get(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=_params(index, blind=True),
+            ).json(),
+            "fields": client.get(
+                "/api/qc/fields",
+                headers=AUTH,
+                params=_params(index, blind=True),
+            ).json(),
+            "field": client.get(
+                "/api/qc/field",
+                headers=AUTH,
+                params=_field_params(index, blind=True),
+            ).json(),
+        }
+
+    assert core_write.status_code == 201
+    assert core_write.json()["record"]["blinded"] is False
+    assert "barcode" in core_write.json()["record"]
+    assert blind_write.status_code == 201
+    assert blind_write.json()["record"]["blinded"] is True
+    assert "barcode" not in blind_write.json()["record"]
+    for payload in core_payloads.values():
+        assert payload["annotations"]
+        assert all("barcode" in record for record in payload["annotations"])
+    for payload in blind_payloads.values():
+        assert payload["annotations"]
+        assert all("barcode" not in record for record in payload["annotations"])
+
+
+def test_qc_annotation_routes_reject_invalid_or_stale_writes_without_appending(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "state"),
+        TOKEN,
+    )
+    command = {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": "field",
+        "plate": 14610,
+        "well": "A01",
+        "site": 1,
+        "channel": "not-a-channel",
+        "label": "blurred",
+        "confidence": "medium",
+        "note": "",
+    }
+
+    with TestClient(app) as client:
+        invalid = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json=command,
+        )
+        stale = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json={**command, "channel": "DNA", "export_id": "stale-export"},
+        )
+        spoofed = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json={**command, "channel": "DNA", "reviewer": "spoofed"},
+        )
+
+    assert invalid.status_code == 422
+    assert stale.status_code == 409
+    assert spoofed.status_code == 422
+    assert list(annotations.iterdir()) == []
+
+
+def test_qc_annotation_write_does_not_reread_after_durable_append(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "state"),
+        TOKEN,
+    )
+    with TestClient(app) as client:
+        initial = client.get(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+        )
+        assert initial.status_code == 200
+        store = app.state.qc_annotation_stores[index.resolve()]
+
+        def fail_read() -> object:
+            raise QcAnnotationUnavailableError("forced post-append read failure")
+
+        monkeypatch.setattr(store, "read", fail_read)
+        response = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json={
+                "record": "annotation",
+                "export_id": snapshot.export_id,
+                "scope": "field",
+                "plate": 14610,
+                "well": "A01",
+                "site": 1,
+                "channel": "DNA",
+                "label": "ok",
+                "confidence": "medium",
+                "note": "",
+            },
+        )
+
+    assert response.status_code == 201
+    lines = next(annotations.glob("annotations_*.jsonl")).read_text(
+        encoding="utf-8"
+    ).splitlines()
+    assert len(lines) == 1
+
+
+def test_qc_annotations_handle_missing_storage_and_report_malformed_lines(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    missing = tmp_path / "missing-annotations"
+    missing_app = create_app(
+        _settings(packed_root, index, export, missing, tmp_path / "missing-state"),
+        TOKEN,
+    )
+    command = {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": "well",
+        "plate": 14610,
+        "well": "A01",
+        "site": None,
+        "channel": "all",
+        "label": "ok",
+        "confidence": "low",
+        "note": "",
+    }
+    with TestClient(missing_app) as client:
+        unavailable = client.get(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+        )
+        rejected = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json=command,
+        )
+
+    assert unavailable.status_code == 200
+    assert unavailable.json()["writable"] is False
+    assert unavailable.json()["annotations"] == []
+    assert rejected.status_code == 503
+    assert not missing.exists()
+
+    annotations = tmp_path / "malformed-annotations"
+    annotations.mkdir()
+    (annotations / "external.jsonl").write_text("not-json\n", encoding="utf-8")
+    malformed_app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "malformed-state"),
+        TOKEN,
+    )
+    with TestClient(malformed_app) as client:
+        status_response = client.get(
+            "/api/qc/status",
+            headers=AUTH,
+            params=_params(index),
+        )
+        annotation_response = client.get(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+        )
+
+    assert status_response.json()["malformed_annotation_lines"] == 1
+    assert annotation_response.json()["malformed_lines"] == 1
+
+
+def test_qc_annotations_handle_read_only_storage_without_disabling_review(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "read-only-annotations"
+    annotations.mkdir()
+    real_access = os.access
+
+    def access(path: object, mode: int) -> bool:
+        if Path(path) == annotations and mode == os.R_OK | os.W_OK | os.X_OK:
+            return False
+        return real_access(path, mode)
+
+    monkeypatch.setattr("timed_dataserver.qc_config.os.access", access)
+    app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "state"),
+        TOKEN,
+    )
+    command = {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": "well",
+        "plate": 14610,
+        "well": "A01",
+        "site": None,
+        "channel": "all",
+        "label": "ok",
+        "confidence": "low",
+        "note": "",
+    }
+
+    with TestClient(app) as client:
+        handshake = client.get("/api/handshake", headers=AUTH)
+        status_response = client.get(
+            "/api/qc/status", headers=AUTH, params=_params(index)
+        )
+        annotation_response = client.get(
+            "/api/qc/annotations", headers=AUTH, params=_params(index)
+        )
+        rejected = client.post(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+            json=command,
+        )
+
+    assert handshake.json()["capabilities"]["qc_review"] is True
+    assert handshake.json()["capabilities"]["qc_annotations_writable"] is False
+    assert status_response.status_code == 200
+    assert status_response.json()["available"] is True
+    assert status_response.json()["annotations_writable"] is False
+    assert annotation_response.status_code == 200
+    assert annotation_response.json()["writable"] is False
+    assert rejected.status_code == 503
+    assert list(annotations.iterdir()) == []
+
+
+def test_qc_annotation_etag_changes_with_live_writability(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    packed_root, index, export, _shared_annotations, _snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(
+        _settings(packed_root, index, export, annotations, tmp_path / "state"),
+        TOKEN,
+    )
+    with TestClient(app) as client:
+        writable = client.get(
+            "/api/qc/annotations",
+            headers=AUTH,
+            params=_params(index),
+        )
+        real_access = os.access
+
+        def access(path: object, mode: int) -> bool:
+            if Path(path) == annotations and mode == os.R_OK | os.W_OK | os.X_OK:
+                return False
+            return real_access(path, mode)
+
+        monkeypatch.setattr("timed_dataserver.qc_config.os.access", access)
+        read_only = client.get(
+            "/api/qc/annotations",
+            headers={**AUTH, "If-None-Match": writable.headers["etag"]},
+            params=_params(index),
+        )
+
+    assert writable.status_code == 200
+    assert writable.json()["writable"] is True
+    assert read_only.status_code == 200
+    assert read_only.json()["writable"] is False
+    assert read_only.headers["etag"] != writable.headers["etag"]
 
 
 def test_qc_field_normalizes_well_reports_missing_and_separates_etags(

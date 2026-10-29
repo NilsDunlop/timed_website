@@ -103,17 +103,15 @@ def test_qc_config_is_guarded_and_not_browsable(tmp_path: Path) -> None:
     assert isinstance(configured_paths, MappingProxyType)
 
 
-def test_nested_qc_folders_are_filtered_and_their_descendants_are_forbidden(
+def test_nested_qc_export_is_filtered_and_its_descendants_are_forbidden(
     tmp_path: Path,
 ) -> None:
-    root, index, _outside_export, _outside_annotations = _paths(tmp_path)
+    root, index, _outside_export, annotations = _paths(tmp_path)
     parent = root / "review-support"
     export = parent / "private-export"
-    annotations = parent / "private-annotations"
     nested = export / "nested"
     visible = parent / "visible"
     nested.mkdir(parents=True)
-    annotations.mkdir()
     visible.mkdir()
     packed_looking = export / "hidden.index.parquet"
     packed_looking.write_bytes(b"private")
@@ -140,7 +138,6 @@ def test_nested_qc_folders_are_filtered_and_their_descendants_are_forbidden(
             for value in (
                 str(export),
                 str(nested),
-                str(annotations),
                 str(packed_looking),
                 str(export.relative_to(root)),
             )
@@ -166,13 +163,75 @@ def test_nested_qc_folders_are_filtered_and_their_descendants_are_forbidden(
     assert all(response.status_code == 403 for response in forbidden)
 
 
+@pytest.mark.parametrize("location", ("equal", "inside", "contains"))
+def test_annotations_cannot_overlap_a_data_root(
+    tmp_path: Path,
+    location: str,
+) -> None:
+    root, index, export, _annotations = _paths(tmp_path)
+    annotations = {
+        "equal": root,
+        "inside": root / "annotations",
+        "contains": tmp_path,
+    }[location]
+    settings = ServerSettings(
+        data_roots=(root,),
+        state_dir=tmp_path / "state",
+        environment="local",
+        qc_paths=(QcPathConfig(index, export, annotations),),
+    )
+
+    with pytest.raises(QcConfigurationError, match="cannot overlap a data root"):
+        create_app(settings, TOKEN)
+
+
+@pytest.mark.parametrize("location", ("equal", "inside", "contains"))
+def test_annotations_cannot_overlap_any_qc_export(
+    tmp_path: Path,
+    location: str,
+) -> None:
+    root, index, _export, _annotations = _paths(tmp_path)
+    support = tmp_path / "qc-support"
+    export = support / "export"
+    export.mkdir(parents=True)
+    second_index = root / "second.index.parquet"
+    second_index.write_bytes(b"second")
+    second_export = tmp_path / "second-export"
+    second_export.mkdir()
+    annotations = {
+        "equal": export,
+        "inside": export / "annotations",
+        "contains": support,
+    }[location]
+    settings = ServerSettings(
+        data_roots=(root,),
+        state_dir=tmp_path / "state",
+        environment="local",
+        qc_paths=(
+            QcPathConfig(index, export, annotations),
+            QcPathConfig(
+                second_index,
+                second_export,
+                tmp_path / "second-annotations",
+            ),
+        ),
+    )
+
+    with pytest.raises(QcConfigurationError, match="cannot overlap a QC export"):
+        create_app(settings, TOKEN)
+
+
 @pytest.mark.parametrize("private_parent", ("root", "ancestor"))
 def test_qc_folder_cannot_equal_or_contain_a_data_root(
     tmp_path: Path,
     private_parent: str,
 ) -> None:
-    root, index, _export, annotations = _paths(tmp_path)
+    root, index, _export, default_annotations = _paths(tmp_path)
     export = root if private_parent == "root" else tmp_path
+    annotations = default_annotations
+    if private_parent == "ancestor":
+        annotations = tmp_path.parent / f"{tmp_path.name}-annotations"
+        annotations.mkdir()
     settings = ServerSettings(
         data_roots=(root,),
         state_dir=tmp_path / "state",

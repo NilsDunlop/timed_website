@@ -20,6 +20,12 @@
   margin-bottom: 0;
 }
 
+.qc-page-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.65rem;
+}
+
 .qc-export-identity {
   display: grid;
   grid-template-columns: repeat(2, minmax(8rem, 1fr));
@@ -462,6 +468,14 @@
   gap: 0.35rem;
 }
 
+.qc-table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
 .qc-table-scroll {
   border: 1px solid #d5ddd4;
   border-radius: 0.35rem;
@@ -509,6 +523,15 @@
 @media (max-width: 48rem) {
   .qc-page-heading {
     display: grid;
+  }
+
+  .qc-page-actions {
+    justify-items: stretch;
+  }
+
+  .qc-table-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .qc-export-identity,
