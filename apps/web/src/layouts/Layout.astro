@@ -1,4 +1,6 @@
 ---
+import PrimaryNavigation from "../components/PrimaryNavigation";
+
 interface Props {
   title: string;
 }
@@ -17,11 +19,7 @@ const { title } = Astro.props;
   <body>
     <header>
       <a class="brand" href="/">TIMED</a>
-      <nav aria-label="Primary navigation">
-        <a href="/" aria-current={Astro.url.pathname === "/" ? "page" : undefined}>Connect</a>
-        <a href="/data" aria-current={Astro.url.pathname === "/data" ? "page" : undefined}>Data</a>
-        <a href="/view" aria-current={Astro.url.pathname === "/view" ? "page" : undefined}>View</a>
-      </nav>
+      <PrimaryNavigation currentPath={Astro.url.pathname} client:load />
     </header>
     <main>
       <slot />

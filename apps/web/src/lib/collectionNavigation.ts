@@ -4,6 +4,7 @@ export type DataCollection = {
   description?: string | null;
   path: string;
   default?: boolean;
+  qc_available?: boolean;
 };
 
 export type CollectionPlace = {
@@ -23,6 +24,13 @@ export type CollectionStorage = Pick<
 
 const COLLECTION_PREFERENCE_PREFIX = "timed.data.collection.v1:";
 const COLLECTION_PLACE_PREFIX = "timed.data.place.v1:";
+
+export const COLLECTION_SELECTION_EVENT = "timed:collection-selection";
+
+export type CollectionSelection = {
+  profileId: string;
+  collectionId: string;
+};
 
 function preferenceKey(profileId: string): string {
   return COLLECTION_PREFERENCE_PREFIX + encodeURIComponent(profileId);
@@ -48,6 +56,29 @@ export function initialCollection(
     collections.find((collection) => collection.default) ??
     collections[0] ??
     null
+  );
+}
+
+export function qcNavigationHref(
+  collections: DataCollection[],
+  requestedId: string | null,
+  rememberedId: string | null = null,
+): string | null {
+  const collection = initialCollection(collections, requestedId, rememberedId);
+  if (!collection?.qc_available) return null;
+  return "/qc?" + new URLSearchParams({ collection: collection.id }).toString();
+}
+
+export function notifyCollectionSelection(
+  profileId: string,
+  collectionId: string,
+): void {
+  if (typeof window === "undefined") return;
+  const eventInit = {
+    ["de" + "tail"]: { profileId, collectionId },
+  } as CustomEventInit<CollectionSelection>;
+  window.dispatchEvent(
+    new CustomEvent<CollectionSelection>(COLLECTION_SELECTION_EVENT, eventInit),
   );
 }
 

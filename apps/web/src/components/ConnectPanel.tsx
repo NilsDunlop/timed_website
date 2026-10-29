@@ -9,6 +9,7 @@ import {
 import {
   dataSelectionHref,
   initialCollection,
+  notifyCollectionSelection,
   readCollectionPreference,
   writeCollectionPreference,
 } from "../lib/collectionNavigation";
@@ -158,12 +159,15 @@ export default function ConnectPanel() {
 
   function chooseProfile(nextProfileId: string) {
     const nextProfile = profiles.find((profile) => profile.id === nextProfileId);
+    const nextCollectionId = nextProfile ? preferredCollectionId(nextProfile) : "";
     setProfileId(nextProfileId);
-    setCollectionId(nextProfile ? preferredCollectionId(nextProfile) : "");
+    setCollectionId(nextCollectionId);
+    notifyCollectionSelection(nextProfileId, nextCollectionId);
   }
 
   function chooseCollection(nextCollectionId: string) {
     setCollectionId(nextCollectionId);
+    notifyCollectionSelection(profileId, nextCollectionId);
     try {
       writeCollectionPreference(
         window.localStorage,

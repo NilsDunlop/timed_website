@@ -8,6 +8,7 @@ import {
   dataSelectionHref,
   initialCollection,
   pathIsInCollection,
+  qcNavigationHref,
   readCollectionPlace,
   readCollectionPreference,
   viewerReturnHref,
@@ -22,11 +23,13 @@ const collections: DataCollection[] = [
     title: "TIMED",
     path: "/data/timed",
     default: true,
+    qc_available: false,
   },
   {
     id: "idr0080",
     title: "idr0080",
     path: "/data/idr0080/idr0080-raw.index.parquet",
+    qc_available: true,
   },
 ];
 
@@ -68,6 +71,20 @@ test("remembers collection choices separately for each profile", () => {
   expect(readCollectionPreference(storage, "profile-a")).toBe("idr0080");
   expect(readCollectionPreference(storage, "profile-b")).toBe("timed");
   expect(readCollectionPreference(storage, "profile-c")).toBeNull();
+});
+
+test("shows QC navigation only for the active collection that advertises it", () => {
+  expect(qcNavigationHref(collections, "idr0080", "timed")).toBe(
+    "/qc?collection=idr0080",
+  );
+  expect(qcNavigationHref(collections, "timed", "idr0080")).toBeNull();
+  expect(qcNavigationHref(collections, null, null)).toBeNull();
+  expect(
+    qcNavigationHref(
+      collections.map(({ qc_available: _, ...collection }) => collection),
+      "idr0080",
+    ),
+  ).toBeNull();
 });
 
 test("remembers and clears a plate and well for each collection", () => {
