@@ -1023,6 +1023,146 @@
         "title": "PlateSummary",
         "type": "object"
       },
+      "QcFieldResponse": {
+        "additionalProperties": false,
+        "description": "One QC field with its applicable dictionary definitions.",
+        "properties": {
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "dictionary": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Dictionary",
+            "type": "array"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "field": {
+            "additionalProperties": true,
+            "title": "Field",
+            "type": "object"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "well_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Well Metadata"
+          }
+        },
+        "required": [
+          "export_id",
+          "registry_hash",
+          "blinded",
+          "field",
+          "dictionary"
+        ],
+        "title": "QcFieldResponse",
+        "type": "object"
+      },
+      "QcFieldsResponse": {
+        "additionalProperties": false,
+        "description": "The browser-filtered QC site table in columnar form.",
+        "properties": {
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "columns": {
+            "additionalProperties": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "Columns",
+            "type": "object"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "well_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Well Metadata"
+          }
+        },
+        "required": [
+          "export_id",
+          "registry_hash",
+          "blinded",
+          "row_count",
+          "columns"
+        ],
+        "title": "QcFieldsResponse",
+        "type": "object"
+      },
+      "QcRowsResponse": {
+        "additionalProperties": false,
+        "description": "An export-ordered QC table represented as JSON records.",
+        "properties": {
+          "blinded": {
+            "title": "Blinded",
+            "type": "boolean"
+          },
+          "export_id": {
+            "title": "Export Id",
+            "type": "string"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "export_id",
+          "registry_hash",
+          "blinded",
+          "rows"
+        ],
+        "title": "QcRowsResponse",
+        "type": "object"
+      },
       "QcStatusResponse": {
         "additionalProperties": false,
         "description": "Operational state for one configured QC export.",
@@ -1435,7 +1575,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.5.0.dev0"
+    "version": "0.5.0.dev1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1840,6 +1980,473 @@
         "summary": "Handshake"
       }
     },
+    "/api/qc/dictionary": {
+      "get": {
+        "operationId": "qc_dictionary_api_qc_dictionary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcRowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Dictionary"
+      }
+    },
+    "/api/qc/display-ranges": {
+      "get": {
+        "operationId": "qc_display_ranges_api_qc_display_ranges_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcRowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Display Ranges"
+      }
+    },
+    "/api/qc/field": {
+      "get": {
+        "operationId": "qc_field_api_qc_field_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "plate",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Plate",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "well",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 2,
+              "pattern": "^[A-Za-z]+[0-9]+$",
+              "title": "Well",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "site",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Site",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcFieldResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Field"
+      }
+    },
+    "/api/qc/fields": {
+      "get": {
+        "operationId": "qc_fields_api_qc_fields_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcFieldsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Fields"
+      }
+    },
+    "/api/qc/review-list": {
+      "get": {
+        "operationId": "qc_review_list_api_qc_review_list_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcRowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Review List"
+      }
+    },
     "/api/qc/status": {
       "get": {
         "operationId": "qc_status_api_qc_status_get",
@@ -1862,6 +2469,38 @@
               "default": false,
               "title": "Blind",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
             }
           }
         ],
@@ -1893,6 +2532,93 @@
           }
         ],
         "summary": "Qc Status"
+      }
+    },
+    "/api/qc/triage": {
+      "get": {
+        "operationId": "qc_triage_api_qc_triage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "blind",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Blind",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "accept-encoding",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accept-Encoding"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QcRowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qc Triage"
       }
     },
     "/zarr/{dataset_id}/{resource_path}": {

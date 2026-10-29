@@ -83,7 +83,7 @@ The export is at `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc
 **First step of Part B: document the export.**
 
 1. Add `docs/data/qc-export/` to `.gitignore` if Part A has not.
-2. From the local copy, write `docs/data/QC_EXPORT.md`. It describes every file's columns and types, and the values used in `columns.csv`'s `channel`, `scale`, `direction`, `layer`, `gate`, `status` and `blind`. It also covers the context columns, the triage and display-range layouts, and the structure of `version.json`.
+2. From the local copy, write `docs/data/QC_EXPORT.md`. It describes every file's columns and types, and the values used in `columns.csv`'s `channel`, `scale`, `worse`, `layer`, `gate`, `status` and `blind`. It also covers the context columns, the triage and display-range layouts, and the structure of `version.json`.
 3. For hidden columns, record only how many there are, never their names or values.
 4. Stop and ask about anything whose meaning is still unclear after
    `QC_EXPORT.md` and the recorded Part B decisions, or if the next export does
@@ -104,6 +104,9 @@ Metric columns are named `<metric>__<channel>__<scale>`. The channel is a stain 
 - `panel` rows describe plate- or well-level views.
 - `key` and `review` retain their identifier and review-list roles.
 - `retired` rows are never shown. Rows with status `retired`, `dropped`, or an unrecognised value are hidden; unrecognised values are listed in QC status. `pending_review` is shown with a badge.
+
+The next-export contract currently defines 19 primary sliders. Its only
+automatic gate is the upstream D62 decision on `focus_score_normvar`.
 
 A metric added or retired in the export appears or disappears on reload, with no code change.
 
@@ -206,7 +209,7 @@ selector of its own. The core page makes unblinded requests.
 - **Categorical filters:** cell line, plate, well type and controls, gene, D62
   state, protection and annotation status (not reviewed, reviewed, or a
   specific label).
-- **Live counts:** fields, wells, controls and protection counts, both overall
+- **Live counts:** fields, wells, controls and fields under protection, both overall
   and per flag slider.
 - **Tables:** a **Wells | Sites** toggle changes the virtualised, sortable
   table.
@@ -218,9 +221,9 @@ selector of its own. The core page makes unblinded requests.
     summaries, and annotation status.
 - **Actions:** "Review these" opens the current site or well rows as a session
   queue (section 4.7).
-- **State in the URL:** slider bounds, categorical filters, plate and channel
-  scope, Wells/Sites mode and sorting, so reloads and shared links restore the
-  view.
+- **State in the URL:** every interactive QC-page choice, including slider
+  search and bounds, categorical filters, plate and channel scope, Wells/Sites
+  mode and sorting, so reloads and shared links restore the view.
 - **Speed:** filtering runs in the browser and must update in under 100 ms for
   31,104 sites.
 

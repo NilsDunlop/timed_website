@@ -280,7 +280,7 @@ dictionary-driven categorical data rather than hard-coding their encoding.
 Site and well tables expose every export attribute in the unblinded core view.
 The Wells table aggregates the nine sites: it shows the flagged-site count and
 the worst site value for each active slider. Both tables carry annotation
-status. Live counts report fields, wells, controls, and protection totals both
+status. Live counts report fields, wells, controls, and fields under protection both
 overall and per active flag slider.
 
 Annotations are the only write. They may have field or well scope and record

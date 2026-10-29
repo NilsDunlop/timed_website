@@ -49,6 +49,43 @@ class QcStatusResponse(ApiModel):
     error: str | None = None
 
 
+class QcRowsResponse(ApiModel):
+    """An export-ordered QC table represented as JSON records."""
+
+    export_id: str
+    registry_hash: str
+    blinded: bool
+    rows: list[dict[str, object]]
+
+
+class QcFieldsResponse(ApiModel):
+    """The browser-filtered QC site table in columnar form."""
+
+    export_id: str
+    registry_hash: str
+    blinded: bool
+    row_count: int
+    columns: dict[str, list[object]]
+    well_metadata: dict[str, list[object]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+
+class QcFieldResponse(ApiModel):
+    """One QC field with its applicable dictionary definitions."""
+
+    export_id: str
+    registry_hash: str
+    blinded: bool
+    field: dict[str, object]
+    dictionary: list[dict[str, object]]
+    well_metadata: dict[str, object] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+
 class OmeZarrInfo(ApiModel):
     kind: Literal["plate", "well", "image"]
     version: str

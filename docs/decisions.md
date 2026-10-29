@@ -596,8 +596,10 @@ direction. Unknown statuses, along with retired and dropped rows, are hidden
 and reported by the status endpoint; `pending_review` remains visible with a
 badge.
 
-One primary column per metric and channel creates a slider. Automatic gates
-show upstream registered markers and are never recomputed by TIMED. Review
+One primary column per metric and channel creates a slider; the next-export
+contract currently defines 19. The sole automatic gate is the upstream D62
+decision on `focus_score_normvar`: automatic gates show registered markers and
+are never recomputed by TIMED. Review
 gates start from the exported flag bounds and report flagged counts. None gates
 start fully open and filter without flagging or feeding queues. Filter ranges
 combine with AND; active flag sliders additionally keep rows beyond at least
@@ -607,10 +609,12 @@ come from the Phase 1 EMPTY-control metadata.
 
 The core page combines the dictionary-labelled plate/channel overview with all
 nine 384-well PlateGrids, Sites and Wells tables, categorical filters, live
-overall and per-slider counts, and URL-restorable state. A well view opens at
-site 1 and retains a site stepper. Review-list order is authoritative; session
-queues may contain sites or wells. Plate/channel image bounds are plain linear
-windows, while their quantiles and reference-field counts are provenance.
+overall and per-slider counts, and fully URL-restorable interactive state.
+Browser filtering must update in under 100 ms for 31,104 sites. A well view
+opens at site 1 and retains a site stepper. Review-list order is authoritative;
+session queues may contain sites or wells. Plate/channel image bounds are plain
+linear windows, while their quantiles and reference-field counts are
+provenance.
 
 Annotations are the data server's only write. Field- and well-scoped records
 are append-only and include whether the request was blinded. The core view
