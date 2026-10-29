@@ -411,7 +411,7 @@
 
 .qc-counts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(8rem, 1fr));
+  grid-template-columns: repeat(3, minmax(8rem, 1fr));
   gap: 0.6rem;
   margin: 0;
 }
@@ -440,6 +440,57 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.8rem;
+}
+
+.qc-map-legend {
+  display: grid;
+  grid-template-columns: auto auto 4.5rem auto auto;
+  align-items: center;
+  gap: 0.35rem;
+  color: #56665a;
+  font-size: 0.78rem;
+}
+
+.qc-map-legend-scale {
+  height: 0.65rem;
+  border: 1px solid #c8d1c7;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #dce8dd, hsl(8 68% 36%));
+}
+
+.qc-info-button {
+  position: relative;
+  width: 1.3rem;
+  min-width: 1.3rem;
+  min-height: 1.3rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.qc-info-button::after {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 0.45rem);
+  display: none;
+  width: min(19rem, 75vw);
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.35rem;
+  color: #fff;
+  background: #203c27;
+  box-shadow: 0 0.3rem 1rem rgb(20 45 27 / 24%);
+  content: attr(data-tooltip);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.qc-info-button:hover::after,
+.qc-info-button:focus-visible::after {
+  display: block;
 }
 
 .qc-plate-map {

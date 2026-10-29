@@ -14,6 +14,7 @@ export type QcQueueEntry = {
   site: number;
   channel: string;
   reason?: string;
+  flaggedSites?: readonly number[];
 };
 
 export type QcReviewQueue = {
@@ -66,7 +67,8 @@ type StoredEntry = [
   well: string,
   site: number,
   channel: string,
-  reasonIndex?: number,
+  reasonIndex?: number | null,
+  flaggedSites?: string,
 ];
 
 type StoredQueue = [
@@ -117,6 +119,16 @@ function safeReason(value: unknown): value is string {
   );
 }
 
+function safeFlaggedSites(value: unknown): value is readonly number[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 100 &&
+    value.every(positiveInteger) &&
+    new Set(value).size === value.length
+  );
+}
+
 export function safeQcReturnHref(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 8192 || value.includes("\\")) {
     return false;
@@ -160,7 +172,9 @@ function validEntry(
     positiveInteger(entry.site) &&
     (entry.scope !== "well" || entry.site === 1) &&
     validChannel(entry.channel, channels) &&
-    (entry.reason === undefined || safeReason(entry.reason))
+    (entry.reason === undefined || safeReason(entry.reason)) &&
+    (entry.flaggedSites === undefined ||
+      (entry.scope === "well" && safeFlaggedSites(entry.flaggedSites)))
   );
 }
 
@@ -195,7 +209,11 @@ function storedEntry(
     entry.channel,
   ];
   const reasonIndex = entry.reason ? reasonIndexes.get(entry.reason) : undefined;
-  if (reasonIndex !== undefined) stored.push(reasonIndex);
+  if (entry.flaggedSites?.length) {
+    stored.push(reasonIndex ?? null, entry.flaggedSites.join(","));
+  } else if (reasonIndex !== undefined) {
+    stored.push(reasonIndex);
+  }
   return stored;
 }
 
@@ -239,15 +257,24 @@ function queueFromStored(value: unknown, channels: Set<string>): QcReviewQueue |
 
   const entries: QcQueueEntry[] = [];
   for (const row of rows) {
-    if (!Array.isArray(row) || (row.length !== 7 && row.length !== 8)) return null;
-    const [scope, plateGroup, plate, barcode, well, site, channel, reasonIndex] = row;
+    if (!Array.isArray(row) || row.length < 7 || row.length > 9) return null;
+    const [scope, plateGroup, plate, barcode, well, site, channel, reasonIndex, rawFlaggedSites] = row;
     if (
       reasonIndex !== undefined &&
+      reasonIndex !== null &&
       (!Number.isSafeInteger(reasonIndex) || !safeReason(reasons[Number(reasonIndex)]))
     ) {
       return null;
     }
-    const reason = reasonIndex === undefined ? undefined : reasons[Number(reasonIndex)];
+    const reason =
+      reasonIndex === undefined || reasonIndex === null
+        ? undefined
+        : reasons[Number(reasonIndex)];
+    const flaggedSites =
+      typeof rawFlaggedSites === "string" && /^\d+(?:,\d+)*$/.test(rawFlaggedSites)
+        ? rawFlaggedSites.split(",").map(Number)
+        : undefined;
+    if (rawFlaggedSites !== undefined && !safeFlaggedSites(flaggedSites)) return null;
     const entry: QcQueueEntry = {
       scope: scope === "f" ? "field" : scope === "w" ? "well" : ("" as QcQueueScope),
       plateGroup: typeof plateGroup === "string" ? plateGroup : "",
@@ -257,6 +284,7 @@ function queueFromStored(value: unknown, channels: Set<string>): QcReviewQueue |
       site: typeof site === "number" ? site : Number.NaN,
       channel: typeof channel === "string" ? channel : "",
       ...(safeReason(reason) ? { reason } : {}),
+      ...(safeFlaggedSites(flaggedSites) ? { flaggedSites } : {}),
     };
     if (!validEntry(entry, channels)) return null;
     entries.push(entry);
@@ -303,7 +331,10 @@ export function saveQcQueue(
     registryHash: input.registryHash,
     collectionId: input.collectionId,
     returnHref: input.returnHref,
-    entries: input.entries.map((entry) => ({ ...entry })),
+    entries: input.entries.map((entry) => ({
+      ...entry,
+      ...(entry.flaggedSites ? { flaggedSites: [...entry.flaggedSites] } : {}),
+    })),
   };
   try {
     storage.setItem(QC_QUEUE_STORAGE_KEY, JSON.stringify(storedQueue(queue)));

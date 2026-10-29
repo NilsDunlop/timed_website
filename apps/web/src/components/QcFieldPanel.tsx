@@ -3,7 +3,7 @@ import { useMemo, type ReactNode } from "react";
 import {
   buildQcFieldView,
   qcDisplayLabel,
-  type QcDisplayRange,
+  type QcFieldMetric,
   type QcFieldPayloadLike,
   type QcSiteOption,
   type QcSiteStepper,
@@ -18,14 +18,10 @@ import QcAnnotationPanel, {
   type QcAnnotationFormValue,
 } from "./QcAnnotationPanel";
 
-export type QcDisplayRangeMode = "qc" | "dataset";
-
 type Props = {
   payload: QcFieldPayloadLike;
-  ranges: readonly QcDisplayRange[];
-  rangeMode: QcDisplayRangeMode;
-  onRangeModeChange: (mode: QcDisplayRangeMode) => void;
   siteStepper?: QcSiteStepper | null;
+  flaggedSites?: readonly number[];
   onSiteChange?: (site: QcSiteOption) => void;
   annotationScope: QcQueueScope;
   annotationChannels: readonly string[];
@@ -34,7 +30,6 @@ type Props = {
   annotationsWritable: boolean;
   annotationSubmitting: boolean;
   annotationDefaultChannel?: string;
-  reviewReason?: string;
   annotationError?: string;
   annotationStatus?: string;
   onSaveAnnotation: (value: QcAnnotationFormValue) => void;
@@ -50,16 +45,21 @@ function displayValue(value: QcViewerScalar): ReactNode {
   return value;
 }
 
-function formatNumber(value: number): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+function dictionaryBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  return ["1", "true", "yes"].includes(String(value ?? "").trim().toLowerCase());
+}
+
+function metricOrder(metric: QcFieldMetric): number {
+  const order = ["DNA", "ER", "AGP", "RNA", "Mito"];
+  const index = order.indexOf(metric.channel);
+  return index >= 0 ? index : metric.channel === "Site" ? order.length + 1 : order.length;
 }
 
 export default function QcFieldPanel({
   payload,
-  ranges,
-  rangeMode,
-  onRangeModeChange,
   siteStepper = null,
+  flaggedSites = [],
   onSiteChange,
   annotationScope,
   annotationChannels,
@@ -68,13 +68,31 @@ export default function QcFieldPanel({
   annotationsWritable,
   annotationSubmitting,
   annotationDefaultChannel = "all",
-  reviewReason = "",
   annotationError = "",
   annotationStatus = "",
   onSaveAnnotation,
   onRetractAnnotation,
 }: Props) {
   const view = useMemo(() => buildQcFieldView(payload), [payload]);
+  const reviewColumns = useMemo(
+    () =>
+      new Set(
+        payload.dictionary.flatMap((definition) =>
+          String(definition.gate ?? "").trim().toLowerCase() === "review" &&
+          dictionaryBoolean(definition.primary)
+            ? [String(definition.column ?? "")]
+            : [],
+        ),
+      ),
+    [payload.dictionary],
+  );
+  const reviewMetrics = view.metricGroups
+    .flatMap((group) => group.metrics)
+    .filter((metric) => reviewColumns.has(metric.column))
+    .sort((left, right) => metricOrder(left) - metricOrder(right));
+  const flaggedSiteOptions = siteStepper
+    ? siteStepper.options.filter((option) => flaggedSites.includes(option.site))
+    : [];
   const plate = displayValue(
     typeof payload.field.plate === "number" || typeof payload.field.plate === "string"
       ? payload.field.plate
@@ -116,13 +134,6 @@ export default function QcFieldPanel({
         </dl>
       </div>
 
-      {reviewReason && (
-        <section className="qc-review-reason-card" aria-label="Review reason">
-          <span>Flagged by</span>
-          <strong>{reviewReason}</strong>
-        </section>
-      )}
-
       {siteStepper && (
         <div
           className="qc-site-stepper"
@@ -139,7 +150,7 @@ export default function QcFieldPanel({
             Previous site
           </button>
           <strong role="status" aria-live="polite">
-            Site {siteStepper.index + 1} of {siteStepper.options.length}
+            Site {siteStepper.current.site} of {siteStepper.options.length}
           </strong>
           <button
             type="button"
@@ -152,123 +163,91 @@ export default function QcFieldPanel({
         </div>
       )}
 
-      <details
-        className="qc-field-section qc-field-disclosure"
-        data-testid="qc-display-provenance"
-      >
-        <summary id="qc-display-provenance-heading">Image display settings</summary>
-        <div className="stack qc-field-disclosure-content">
-        <div className="section-heading">
-          <div>
-            <h3>
-              QC display range · export {payload.export_id}
-            </h3>
-            <p className="muted">
-              Plain linear plate-by-channel windows from the configured export.
-            </p>
+      {siteStepper &&
+        (flaggedSiteOptions.length > 0 ? (
+          <div className="qc-flagged-sites" data-testid="qc-flagged-sites">
+            <strong>Flagged sites</strong>
+            <div>
+              {flaggedSiteOptions.map((option) => (
+                <button
+                  key={option.site}
+                  type="button"
+                  className="secondary compact-button"
+                  aria-current={option.site === siteStepper.current.site ? "true" : undefined}
+                  onClick={() => onSiteChange?.(option)}
+                >
+                  {option.site}
+                </button>
+              ))}
+            </div>
           </div>
-          <label className="qc-range-toggle">
-            <input
-              type="checkbox"
-              checked={rangeMode === "qc"}
-              onChange={(event) =>
-                onRangeModeChange(event.target.checked ? "qc" : "dataset")
-              }
-            />
-            <span>Use QC display ranges</span>
-          </label>
-        </div>
-        {rangeMode === "qc" && (
-          <p id="qc-range-locked-hint" className="muted">
-            Contrast controls are locked while exact QC display ranges are active.
+        ) : (
+          <p className="muted qc-well-review-note">
+            Well-level review; this queue does not identify individual flagged sites.
           </p>
-        )}
-        <ul className="qc-range-list">
-          {ranges.map((range) => (
-            <li key={range.channel} data-qc-range-channel={range.channel}>
-              <strong>{range.channel}</strong>
-              <span>
-                {formatNumber(range.low)}–{formatNumber(range.high)}
-              </span>
-              <small>
-                Quantiles {formatNumber(range.quantileLow)}–
-                {formatNumber(range.quantileHigh)} · {range.referenceFields.toLocaleString()} reference
-                {range.referenceFields === 1 ? " field" : " fields"} · {range.displayMode}
-              </small>
-            </li>
-          ))}
-        </ul>
-        </div>
-      </details>
+        ))}
 
-      <details className="qc-field-section qc-field-disclosure">
-        <summary id="qc-field-metrics-heading">
-          All metrics ({view.metricGroups.reduce((total, group) => total + group.metrics.length, 0)})
-        </summary>
-        <div className="qc-field-disclosure-content">
-        <div className="qc-metric-groups">
-          {view.metricGroups.map((group) => (
-            <section key={group.channel} aria-label={`${group.channel} metrics`}>
-              <h4>{group.channel}</h4>
-              <dl className="qc-field-list">
-                {group.metrics.map((metric) => (
-                  <div key={metric.column} data-qc-metric-column={metric.column}>
-                    <dt>{qcDisplayLabel(metric.label)}</dt>
-                    <dd>
-                      <span>
-                        {metric.scale ? `${qcDisplayLabel(metric.scale)} ` : ""}
-                        <strong>{displayValue(metric.value)}</strong>
-                      </span>
-                      {metric.rawColumn && (
-                        <span className="qc-raw-value">
-                          Raw <strong>{displayValue(metric.rawValue)}</strong>
+      {reviewMetrics.length > 0 && (
+        <section className="qc-review-metrics" aria-labelledby="qc-review-metrics-heading">
+          <div className="section-heading">
+            <div>
+              <h3 id="qc-review-metrics-heading">Review metrics</h3>
+              <p className="muted">Only metrics registered as review rules are shown.</p>
+            </div>
+          </div>
+          <div className="qc-review-metrics-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Channel</th>
+                  <th scope="col">Metric</th>
+                  <th scope="col">Values</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reviewMetrics.map((metric) => {
+                  const siteValue = metric.rawColumn ? metric.rawValue : metric.value;
+                  const comparisonValue = metric.rawColumn ? metric.value : null;
+                  const label = qcDisplayLabel(metric.label);
+                  return (
+                    <tr key={metric.column} data-qc-metric-column={metric.column}>
+                      <th scope="row">
+                        {metric.channel === "Site" ? "Whole field" : metric.channel}
+                      </th>
+                      <td>
+                        <span className="qc-metric-name">
+                          {label}
+                          {metric.question && (
+                            <button
+                              type="button"
+                              className="qc-info-button"
+                              aria-label={`${label}: ${metric.question}`}
+                              data-tooltip={metric.question}
+                            >
+                              i
+                            </button>
+                          )}
                         </span>
-                      )}
-                      {metric.direction && <small>Worse {metric.direction}</small>}
-                      {metric.question && <p>{metric.question}</p>}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
-        </div>
-        </div>
-      </details>
-
-      {view.context.length > 0 && (
-        <details className="qc-field-section qc-field-disclosure">
-          <summary id="qc-field-context-heading">Context ({view.context.length})</summary>
-          <div className="qc-field-disclosure-content">
-          <dl className="qc-field-list">
-            {view.context.map((item) => (
-              <div key={item.column} data-qc-context-column={item.column}>
-                <dt>{qcDisplayLabel(item.label)}</dt>
-                <dd>
-                  <strong>{displayValue(item.value)}</strong>
-                  {item.question && <p>{item.question}</p>}
-                </dd>
-              </div>
-            ))}
-          </dl>
+                      </td>
+                      <td>
+                        <span className="qc-metric-value-line">
+                          <small>Site value</small>
+                          <strong>{displayValue(siteValue)}</strong>
+                        </span>
+                        {comparisonValue !== null && (
+                          <span className="qc-metric-value-line">
+                            <small>{qcDisplayLabel(metric.scale || "Review value")}</small>
+                            <strong>{displayValue(comparisonValue)}</strong>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </details>
-      )}
-
-      {view.attributes.length > 0 && (
-        <details className="qc-field-section qc-field-disclosure">
-          <summary id="qc-field-attributes-heading">Attributes ({view.attributes.length})</summary>
-          <div className="qc-field-disclosure-content">
-          <dl className="qc-field-list">
-            {view.attributes.map((item) => (
-              <div key={item.column} data-qc-attribute={item.column}>
-                <dt>{qcDisplayLabel(item.label)}</dt>
-                <dd>{displayValue(item.value)}</dd>
-              </div>
-            ))}
-          </dl>
-          </div>
-        </details>
+        </section>
       )}
 
       <QcAnnotationPanel

@@ -228,15 +228,21 @@ export default function QcAnnotationPanel({
                 <div>
                   <strong>{displayToken(annotation.label)}</strong>
                   <span>
-                    {annotation.scope === "field" ? "Field" : "Whole well"} \u00b7{" "}
-                    {annotation.channel === "all" ? "All channels" : annotation.channel} \u00b7{" "}
+                    {annotation.scope === "field" ? "Field" : "Whole well"}
+                    {" · "}
+                    {annotation.channel === "all" ? "All channels" : annotation.channel}
+                    {" · "}
                     {displayToken(annotation.confidence)} confidence
                   </span>
                   <span>
-                    {annotation.reviewer} \u00b7 <time dateTime={annotation.time}>{annotation.time}</time>
+                    {annotation.reviewer}
+                    {" · "}
+                    <time dateTime={annotation.time}>{annotation.time}</time>
                   </span>
                   <span>
-                    Export {annotation.exportId} \u00b7 {annotation.blinded ? "Blinded" : "Core"}
+                    Export {annotation.exportId}
+                    {" · "}
+                    {annotation.blinded ? "Blinded" : "Core"}
                   </span>
                   {annotation.note && <p>{annotation.note}</p>}
                 </div>

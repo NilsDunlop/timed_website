@@ -684,11 +684,11 @@ count: 55 hidden site columns and ten hidden review-list columns.
 ## 2026-10-29: make QC review progressive and reason-first
 
 The QC export remains complete and dictionary-driven, but its full schema is
-not the default presentation. The core review screen now uses progressive
-disclosure: export identity, the plate overview, secondary categorical filters,
-additional table columns, image-display provenance, all metrics, context and
-attributes are available on demand instead of competing with the review task.
-No export column or endpoint was removed.
+not the default presentation. This first compact pass used progressive
+disclosure for export identity, the plate overview, secondary categorical
+filters, additional table columns and viewer details. The later review-only
+decision below removes nonessential viewer details entirely. No export column
+or endpoint was removed.
 
 The metric search is replaced by a channel-grouped dropdown with readable
 labels and one control card at a time. The plate overview similarly shows one
@@ -710,3 +710,36 @@ shown before secondary details. Queue storage deduplicates repeated reason
 strings so a complete 31,104-field session queue remains within a conservative
 browser-storage quota while retaining the existing export, registry,
 collection and target validation.
+
+## 2026-10-29: keep the QC interface review-only
+
+The final Part B review surface removes information that does not help decide
+the current image. The overview calls individual acquisitions **Sites** and
+shows Sites, Wells and Control sites; protection is neither a count nor a
+filter. Cell line and plate remain primary filters, while Control status, Gene
+and Annotation status live under **More filters**. Dataset-internal well-type
+and arbitrary context fields are not offered as operator filters. Plate maps
+pair their colour ramp with a numeric legend and an information tooltip, and a
+well hover names only the sites and metrics that actually triggered an active
+review rule.
+
+The QC export's plate-by-channel display windows are now always applied in the
+viewer. They are the upstream review presentation, so allowing an alternate
+dataset window would make two operators judge different renderings. The exact
+minimum and maximum remain visible in the locked channel controls; the former
+range switch and display-provenance panel are removed.
+
+Field review shows one compact, review-only metric table. Stain channels come
+first, whole-field metrics last, and each row pairs the site/raw value with its
+control-relative or median-relative review value. Dictionary questions are
+focusable information tooltips. Unrelated Otsu measures, context, attributes
+and protection details are intentionally absent. Whole-field metrics remain
+because they account for most entries in the supplied review queue; removing
+them would hide the primary review reason rather than reduce noise.
+
+Well queues carry their exact flagged site numbers when the active filters can
+provide them. The field viewer makes those sites direct navigation targets; a
+file-supplied well entry without site identities says so explicitly. The queue
+bar is progress on the left, flag reason in the middle and Previous/Next on the
+right. Left and Right Arrow replace bracket shortcuts, and the duplicate Back
+to QC action is removed while the global QC navigation remains available.

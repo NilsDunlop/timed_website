@@ -192,15 +192,17 @@ selector of its own. The core page makes unblinded requests.
   plate and channel.
 - **Plate maps:** all nine 384-well plates appear as small shared `PlateGrid`
   maps in a 3 × 3 layout. Each well is shaded by the number of its nine sites
-  flagged under the current sliders. Hover lists flagged sites and their
-  values; clicking opens the well.
+  flagged under the current sliders. A zero-to-nine legend and information
+  button explain the shading and exact count badge. Hover lists only the sites
+  and metrics that actually triggered active review rules; clicking opens the
+  well.
 - **Metric controls:** exactly one control exists per site-review metric and
   channel, chosen by `primary=true`. A readable, channel-grouped **Metric**
   dropdown selects one control card at a time; operators never need to search
   for an underscored column id. The card shows its dictionary label and
   question, primary scale and `worse` direction, gate and status, histogram,
   and bounds. Raw companion values remain available in the expanded table and
-  field details.
+  the compact field-review metric table.
   - `automatic` was decided upstream by a registered rule. The website never
     recomputes or changes it. Registered thresholds from `markers` are shown on
     the slider.
@@ -217,12 +219,12 @@ selector of its own. The core page makes unblinded requests.
 - **Combining sliders:** the table contains sites inside every filter range. If
   any flag slider is active, it contains only sites beyond at least one active
   flag slider.
-- **Categorical filters:** cell line, plate and annotation status (not reviewed,
-  reviewed, or a specific label) remain immediately visible. Secondary context
-  such as well type, controls, gene, automatic-exclusion state and protection
-  is available under **More filters**.
-- **Live counts:** fields, wells, controls and fields under protection, both overall
-  and per flag slider.
+- **Categorical filters:** cell line and plate remain immediately visible.
+  **More filters** contains control status, gene and annotation status (not
+  reviewed, reviewed, or a specific label). Dataset-internal well-type and
+  protection fields are not operator filters.
+- **Live counts:** sites, wells and control sites, both overall and per flag
+  slider. The UI calls individual acquisitions **sites**, not fields.
 - **Tables:** a **Wells | Sites** toggle changes the virtualised, sortable
   table. The default table is deliberately compact and includes a prominent
   **Flagged by** column naming the active review metric or metrics for each row.
@@ -255,19 +257,26 @@ The existing viewer with a QC panel, opened from the QC page or a queue
 - **Review reason.** Queue navigation places **Flagged by** above the secondary
   field details so the operator immediately sees why the image is being
   reviewed.
-- **Display ranges.** Each channel uses its plate × channel low/high range from
-  `display_ranges.csv` as a plain linear mapping, labelled "QC display range ·
-  export <id>". **Image display settings** contains its quantiles,
-  reference-field count and the toggle back to dataset-default windows.
-- **Secondary details.** **All metrics**, **Context**, **Attributes**, and
-  **Image display settings** are collapsed by default. Site metrics remain
-  grouped by channel, with field-level rows under "Site"; each retains its
-  dictionary label, primary-scale value, raw companion, direction and question.
+- **Display ranges.** Each channel always uses its plate × channel low/high
+  range from `display_ranges.csv` as a plain linear mapping. These windows are
+  fixed during QC review so every operator sees the upstream review
+  presentation; the exact minimum and maximum remain visible beside the locked
+  channel sliders. There is no competing dataset-range selector.
+- **Review metrics.** A compact table contains only primary metrics registered
+  as review rules. Stain rows come first in DNA, ER, AGP, RNA and Mito order;
+  whole-field rows come last. Each row shows the site/raw value and its
+  control-relative or median-relative review value when supplied. The
+  dictionary question moves into a focusable information button. Otsu and
+  unrelated context or attribute rows are not part of the review surface.
+- **Well site cues.** A well opened from the active QC results names its exact
+  flagged sites and links directly to each one. A review-list well that does
+  not identify sites says so explicitly.
 - **Annotation form:**
   - scope is the current field or whole well; channel is All or one stain;
   - label, confidence (low, medium or high), and an optional note, then Save;
   - current annotations show time, export id and mode, each with Retract.
-- **Keys:** `[` and `]` move to the previous and next queue entry.
+- **Keys:** Left Arrow and Right Arrow move to the previous and next queue
+  entry unless focus is in an interactive editing control.
 
 ### 4.7 Review queues
 
@@ -275,8 +284,8 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   in file order. A field entry opens its site. A well entry opens site 1 and
   retains the site stepper. Each queue entry carries the readable metric and
   channel that caused the review. The viewer shows that reason prominently,
-  followed by the QC panel and a review bar:
-  "Review 3 of N", Previous, Next and Back to QC. It also shows how many
+  followed by the QC panel and a three-part review bar: progress on the left,
+  the flag reason in the middle, and Previous/Next on the right. It also shows how many
   entries already have a current annotation for the same scope and target.
   Target identity includes both the numeric plate and its barcode, so a later
   export cannot inherit reviews from a different plate that reused the number. An
@@ -284,7 +293,8 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   mark an All-channel composite entry.
 - **Session queue.** "Review these" does the same for the current Sites or Wells
   table rows, in their displayed order, preserving the active review reason or
-  reasons. One compact, validated queue is stored in `sessionStorage`; repeated
+  reasons. Well entries also retain the exact sites that matched the active
+  review rules. One compact, validated queue is stored in `sessionStorage`; repeated
   reason strings are deduplicated so all 31,104 fields remain within a
   conservative browser quota. Stale export, collection, or queue identities
   fail safely back to QC.
@@ -394,14 +404,20 @@ expected 0.5.0 development version.
 1. The QC page shows the export id from the new `version.json`.
 2. The collapsed triage overview, all nine plate maps, readable Metric dropdown,
    core and More filters, Sites/Wells toggle and live counts behave as expected.
+   Annotation status is under More filters. Plate shading has a numeric legend
+   and its information button explains that the badge is the exact flagged-site count.
 3. A triage cell narrows the overview, maps and table to its plate and channel.
 4. The compact table names **Flagged by** and expands its additional columns on
-   request. The overview calls the D62-derived operator measure **Automatic
-   exclusion**.
-5. Site and well views put **Flagged by** first. Their disclosures show metrics
-   with questions, context, attributes and plain-linear QC display ranges with
-   the right channel names. A well starts at site 1 and steps through its sites.
-6. Both queues preserve order and move with buttons and `[` / `]`.
+   request. The overview calls the operator measure **Automatic exclusion**.
+5. Site and well views put **Flagged by** first. The compact table shows only
+   review metrics, channel rows before whole-field rows, site/raw and
+   comparison values, and information buttons. The plain-linear QC display
+   ranges are fixed and their exact channel minima/maxima are visible. A well
+   starts at site 1, names any flagged sites supplied by the queue, and steps
+   through all sites.
+6. Both queues preserve order and move with buttons and Left/Right Arrow keys.
+   The review bar has progress, flag reason and navigation in three columns and
+   no duplicate Back to QC action.
 7. Annotate fields and wells and retract one annotation. On Arrhenius, inspect
    the annotation file and check the records, unblinded mode and export id.
    Reload and see the current annotations in the website.

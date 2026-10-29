@@ -3,7 +3,6 @@ type Props = {
   total: number;
   annotated: number;
   reason?: string;
-  backHref: string;
   busy?: boolean;
   warning?: string;
   onPrevious: () => void;
@@ -15,7 +14,6 @@ export default function QcReviewBar({
   total,
   annotated,
   reason = "",
-  backHref,
   busy = false,
   warning = "",
   onPrevious,
@@ -54,7 +52,7 @@ export default function QcReviewBar({
           disabled={previousDisabled}
           onClick={onPrevious}
         >
-          Previous
+          ← Previous
         </button>
         <button
           type="button"
@@ -62,13 +60,9 @@ export default function QcReviewBar({
           disabled={nextDisabled}
           onClick={onNext}
         >
-          Next
+          Next →
         </button>
-        <a href={backHref}>Back to QC</a>
       </div>
-      <p className="muted qc-review-shortcuts">
-        Use <kbd>[</kbd> and <kbd>]</kbd> to move between review entries.
-      </p>
       {warning && (
         <p className="notice error qc-review-warning" role="alert">
           {warning}

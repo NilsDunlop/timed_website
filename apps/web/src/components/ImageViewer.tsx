@@ -67,9 +67,7 @@ import {
   copyQcContrastChannels,
   qcSiteHref,
   qcSiteOptions,
-  restoreDatasetContrasts,
   selectQcDisplayRanges,
-  type QcDisplayRange,
   type QcSiteStepper,
 } from "../lib/qcViewer";
 import PlateMetadataPanel, {
@@ -79,7 +77,7 @@ import PlateMetadataPanel, {
   type PlateMetadata,
   wellIdFromPath,
 } from "./PlateMetadataPanel";
-import QcFieldPanel, { type QcDisplayRangeMode } from "./QcFieldPanel";
+import QcFieldPanel from "./QcFieldPanel";
 import type { QcAnnotationFormValue } from "./QcAnnotationPanel";
 import QcReviewBar from "./QcReviewBar";
 
@@ -140,6 +138,7 @@ type QcViewerRequest = {
   well: string;
   site: number;
   scope: "field" | "well";
+  flaggedSites: readonly number[];
 };
 
 type PendingQcViewerContext = {
@@ -154,13 +153,13 @@ type PendingQcViewerContext = {
 
 type QcViewerContext = {
   payload: QcFieldResponse;
-  ranges: readonly QcDisplayRange[];
   annotations: readonly QcCurrentAnnotation[];
   annotationLabels: readonly QcAnnotationLabelDefinition[];
   annotationsWritable: boolean;
   collectionPath: string;
   scope: "field" | "well";
   siteStepper: QcSiteStepper | null;
+  flaggedSites: readonly number[];
 };
 
 type QcQueueContext = {
@@ -183,6 +182,10 @@ function qcRequestFromQuery(
   const plate = Number(query.get("qcPlate"));
   const well = query.get("qcWell")?.trim().toUpperCase() ?? "";
   const site = Number(query.get("qcSite"));
+  const rawFlaggedSites = query.get("qcFlaggedSites")?.trim() ?? "";
+  const flaggedSites = rawFlaggedSites
+    ? rawFlaggedSites.split(",").map(Number)
+    : [];
   if (
     !collectionId ||
     !expectedExport ||
@@ -193,7 +196,9 @@ function qcRequestFromQuery(
     site <= 0 ||
     sourceCount !== 1 ||
     wellIdFromPath(selectedPath) !== well ||
-    Number(siteIdFromPath(selectedPath)) !== site
+    Number(siteIdFromPath(selectedPath)) !== site ||
+    flaggedSites.some((candidate) => !Number.isInteger(candidate) || candidate <= 0) ||
+    new Set(flaggedSites).size !== flaggedSites.length
   ) {
     throw new Error("The QC viewer link is invalid");
   }
@@ -204,6 +209,7 @@ function qcRequestFromQuery(
     well,
     site,
     scope: query.get("qcScope") === "well" ? "well" : "field",
+    flaggedSites,
   };
 }
 
@@ -606,10 +612,8 @@ export default function ImageViewer() {
   });
   const [viewerSources, setViewerSources] = useState<ViewerSourceState[]>([]);
   const [channels, setChannels] = useState<ChannelState[]>([]);
-  const [datasetDefaultChannels, setDatasetDefaultChannels] = useState<ChannelState[]>([]);
   const [qcContext, setQcContext] = useState<QcViewerContext | null>(null);
   const [qcQueue, setQcQueue] = useState<QcQueueContext | null>(null);
-  const [qcRangeMode, setQcRangeMode] = useState<QcDisplayRangeMode>("dataset");
   const [qcError, setQcError] = useState("");
   const [qcQueueBusy, setQcQueueBusy] = useState(false);
   const [qcAnnotationBusy, setQcAnnotationBusy] = useState(false);
@@ -832,7 +836,6 @@ export default function ImageViewer() {
           throw new Error("The selected images have no comparable channels.");
         }
         initialChannels = initialChannels.slice(0, commonChannelCount);
-        const datasetDefaults = copyQcContrastChannels(initialChannels);
         let displayedChannels = copyQcContrastChannels(initialChannels);
         let loadedQcContext: QcViewerContext | null = null;
         const qcOutcome = await qcOutcomePromise;
@@ -874,13 +877,13 @@ export default function ImageViewer() {
             }
             loadedQcContext = {
               payload: qcOutcome.value.payload,
-              ranges,
               annotations: parsedAnnotations.annotations,
               annotationLabels: parsedLabels.labels,
               annotationsWritable: qcOutcome.value.annotationsWritable,
               collectionPath: qcOutcome.value.collectionPath,
               scope: qcRequest?.scope ?? "field",
               siteStepper: qcOutcome.value.siteStepper,
+              flaggedSites: qcRequest?.flaggedSites ?? [],
             };
             if (requestedQueueId && qcRequest) {
               const queueResult = loadQcQueue(window.sessionStorage, {
@@ -943,10 +946,8 @@ export default function ImageViewer() {
         setDisplayedTime(null);
         setJumpFrames(1);
         setViewerSources(loadedSources);
-        setDatasetDefaultChannels(datasetDefaults);
         setQcContext(loadedQcContext);
         setQcQueue(loadedQcQueue);
-        setQcRangeMode(loadedQcContext ? "qc" : "dataset");
         setQcQueueBusy(false);
         setQcAnnotationBusy(false);
         setQcAnnotationError("");
@@ -1355,22 +1356,6 @@ export default function ImageViewer() {
     );
   }
 
-  function chooseQcRangeMode(mode: QcDisplayRangeMode) {
-    if (!qcContext) return;
-    try {
-      setChannels((current) =>
-        mode === "qc"
-          ? applyQcDisplayRanges(current, qcContext.ranges)
-          : restoreDatasetContrasts(current, datasetDefaultChannels),
-      );
-      setQcRangeMode(mode);
-    } catch {
-      setQcError(
-        "QC display ranges could not be applied. Return to QC and reload the export.",
-      );
-    }
-  }
-
   async function refreshQcAnnotations(context: QcViewerContext): Promise<void> {
     const result = await dataServerClient.GET("/api/qc/annotations", {
       params: { query: { path: context.collectionPath } },
@@ -1556,6 +1541,11 @@ export default function ImageViewer() {
       query.set("qcReturn", queue.returnHref);
       query.set("qcQueue", queue.id);
       query.set("qcIndex", String(nextIndex));
+      if (entry.flaggedSites?.length) {
+        query.set("qcFlaggedSites", entry.flaggedSites.join(","));
+      } else {
+        query.delete("qcFlaggedSites");
+      }
       window.location.assign(`/view?${query.toString()}`);
     } catch (cause) {
       setQcQueueBusy(false);
@@ -1693,7 +1683,7 @@ export default function ImageViewer() {
         ((event.ctrlKey || event.altKey) &&
           !(event.ctrlKey && event.altKey) &&
           !event.getModifierState("AltGraph")) ||
-        (event.key !== "[" && event.key !== "]")
+        (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
       ) {
         return;
       }
@@ -1704,7 +1694,7 @@ export default function ImageViewer() {
       ) {
         return;
       }
-      const nextIndex = qcQueue.index + (event.key === "[" ? -1 : 1);
+      const nextIndex = qcQueue.index + (event.key === "ArrowLeft" ? -1 : 1);
       if (nextIndex < 0 || nextIndex >= queue.entries.length) return;
       event.preventDefault();
       void moveQcQueue(nextIndex);
@@ -1916,6 +1906,12 @@ export default function ImageViewer() {
           </h3>
         )}
 
+        {qcContext && (
+          <p id="qc-range-locked-hint" className="muted viewer-qc-range-note">
+            Fixed QC display range; the exact minimum and maximum are shown below.
+          </p>
+        )}
+
         {channelControlIndexes.map((index) => {
           const channel = channels[index];
           if (!channel) return null;
@@ -1953,12 +1949,10 @@ export default function ImageViewer() {
                 <input
                   aria-label={channel.name + " contrast minimum"}
                   aria-describedby={
-                    qcContext && qcRangeMode === "qc"
-                      ? "qc-range-locked-hint"
-                      : undefined
+                    qcContext ? "qc-range-locked-hint" : undefined
                   }
                   type="range"
-                  disabled={Boolean(qcContext && qcRangeMode === "qc")}
+                  disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
                   step={qcMode ? "any" : step}
@@ -1976,12 +1970,10 @@ export default function ImageViewer() {
                 <input
                   aria-label={channel.name + " contrast maximum"}
                   aria-describedby={
-                    qcContext && qcRangeMode === "qc"
-                      ? "qc-range-locked-hint"
-                      : undefined
+                    qcContext ? "qc-range-locked-hint" : undefined
                   }
                   type="range"
-                  disabled={Boolean(qcContext && qcRangeMode === "qc")}
+                  disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
                   step={qcMode ? "any" : step}
@@ -2053,7 +2045,6 @@ export default function ImageViewer() {
             total={qcQueue.queue?.entries.length ?? 0}
             annotated={annotatedQueueEntries}
             reason={activeQueueEntry?.reason}
-            backHref={qcQueue.backHref}
             busy={qcQueueBusy}
             warning={qcQueue.warning}
             onPrevious={() => void moveQcQueue(qcQueue.index - 1)}
@@ -2208,10 +2199,8 @@ export default function ImageViewer() {
         {qcContext && !comparing && (
           <QcFieldPanel
             payload={qcContext.payload}
-            ranges={qcContext.ranges}
-            rangeMode={qcRangeMode}
-            onRangeModeChange={chooseQcRangeMode}
             siteStepper={qcContext.siteStepper}
+            flaggedSites={qcContext.flaggedSites}
             onSiteChange={(option) =>
               window.location.assign(qcSiteHref(window.location.search, option))
             }
@@ -2222,7 +2211,6 @@ export default function ImageViewer() {
             annotationsWritable={qcContext.annotationsWritable}
             annotationSubmitting={qcAnnotationBusy}
             annotationDefaultChannel={activeQueueEntry?.channel ?? "all"}
-            reviewReason={activeQueueEntry?.reason}
             annotationError={qcAnnotationError}
             annotationStatus={qcAnnotationStatus}
             onSaveAnnotation={(value) => void saveQcAnnotation(value)}

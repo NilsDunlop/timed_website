@@ -172,28 +172,25 @@ function categoryDefinitions(model: QcModel): CategoryDefinition[] {
   const required = [
     "cell_line",
     "plate",
-    "well_type",
     "is_control",
     "gene",
     "annotation_status",
   ];
-  const context = model.dictionary
-    .filter((definition) => definition.file === "site_metrics.csv" && definition.layer === "context")
-    .map((definition) => definition.column);
-  const columns = [...new Set([...required, ...context])].filter(
+  const columns = required.filter(
     (column) => column in model.columns || column in model.categoryColumns,
   );
   return columns.flatMap((column) => {
     const values = uniqueQcValues(model, column);
-    const always = required.includes(column);
-    if (!always && values.length > 50) return [];
+    const primary = column === "cell_line" || column === "plate";
     return [{
       column,
       label: column === "annotation_status"
         ? "Annotation status"
+        : column === "is_control"
+          ? "Control status"
         : dictionaryLabel(model.dictionary, column),
       values,
-      advanced: !always,
+      advanced: !primary,
     }];
   });
 }
@@ -899,7 +896,7 @@ export default function QcBrowser() {
     [fileQueueEntries],
   );
   const sessionQueueEntries = useMemo<QcQueueEntry[]>(() => {
-    if (!loaded) return [];
+    if (!loaded || !result) return [];
     if (tableMode === "sites") {
       return sortedSites.map((rowIndex) => ({
         scope: "field",
@@ -912,6 +909,7 @@ export default function QcBrowser() {
         reason: flaggedReason(filteredModel ?? loaded.model, filterState, rowIndex) || "Current QC filters",
       }));
     }
+    const flaggedRows = new Set(result.flaggedRowIndices);
     return wells.map((well) => {
       const first = well.rowIndices[0] ?? -1;
       return {
@@ -930,9 +928,14 @@ export default function QcBrowser() {
               )
               .filter(Boolean),
           )].join(", ") || "Current QC filters",
+        flaggedSites: well.rowIndices
+          .filter((rowIndex) => flaggedRows.has(rowIndex))
+          .map((rowIndex) => Number(loaded.model.columns.site?.[rowIndex]))
+          .filter((site) => Number.isInteger(site) && site > 0)
+          .sort((left, right) => left - right),
       };
     });
-  }, [filterState, filteredModel, loaded, sortedSites, tableMode, wells]);
+  }, [filterState, filteredModel, loaded, result, sortedSites, tableMode, wells]);
 
   function updateSort(column: string) {
     if (sortColumn === column) {
@@ -978,6 +981,9 @@ export default function QcBrowser() {
         query.set("qcQueue", queue.id);
         query.set("qcIndex", String(queueIndex));
       }
+      if (target.flaggedSites?.length) {
+        query.set("qcFlaggedSites", target.flaggedSites.join(","));
+      }
       window.location.assign(`/view?${query.toString()}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -1021,6 +1027,7 @@ export default function QcBrowser() {
         plate: first.plate,
         well: first.well,
         site: first.site,
+        flaggedSites: first.flaggedSites,
       },
       first.scope,
       saved.queue,
@@ -1066,7 +1073,7 @@ export default function QcBrowser() {
     );
   }
 
-  if (!initialized) return <p className="muted">Loading QC review\u2026</p>;
+  if (!initialized) return <p className="muted">Loading QC review…</p>;
   if (!loaded || !result) {
     return (
       <section className="panel stack">
@@ -1270,7 +1277,7 @@ export default function QcBrowser() {
             )}
             <dl className="qc-counts" data-testid="qc-counts">
               <div>
-                <dt>Fields</dt>
+                <dt>Sites</dt>
                 <dd>{result.counts.fields.toLocaleString()}</dd>
               </div>
               <div>
@@ -1278,12 +1285,8 @@ export default function QcBrowser() {
                 <dd>{result.counts.wells.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Control fields</dt>
+                <dt>Control sites</dt>
                 <dd>{result.counts.controls.toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt>Fields under protection</dt>
-                <dd>{result.counts.fieldsUnderProtection.toLocaleString()}</dd>
               </div>
             </dl>
           </section>
@@ -1291,6 +1294,7 @@ export default function QcBrowser() {
           <QcPlateMaps
             model={filteredModel ?? loaded.model}
             result={result}
+            filterState={filterState}
             selectedPlate={selectedPlate}
             onOpen={(target) => void openTarget(target, "well")}
           />
@@ -1387,7 +1391,7 @@ export default function QcBrowser() {
                 }}
               />
             )}
-            {busy && <p className="muted">Opening viewer\u2026</p>}
+            {busy && <p className="muted">Opening viewer…</p>}
           </section>
         </div>
       </div>

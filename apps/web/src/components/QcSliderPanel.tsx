@@ -274,7 +274,10 @@ export default function QcSliderPanel({
                     <div>
                       <strong>{qcDisplayLabel(selected.label)}</strong>
                       <span className="muted">
-                        {selected.channel || "Site"} \u00b7 {qcDisplayLabel(selected.scale || "value")} \u00b7 worse {selected.direction}
+                        {selected.channel || "Site"}
+                        {" · "}
+                        {qcDisplayLabel(selected.scale || "value")}
+                        {" · "}worse {selected.direction}
                       </span>
                     </div>
                     <span className={`qc-gate-badge qc-gate-${selected.gate}`}>{selected.gate}</span>
@@ -306,7 +309,7 @@ export default function QcSliderPanel({
                       />
                       <dl className="qc-slider-counts">
                         <div>
-                          <dt>Fields</dt>
+                          <dt>Sites</dt>
                           <dd>{flagged.toLocaleString()}</dd>
                         </div>
                         <div>
@@ -316,10 +319,6 @@ export default function QcSliderPanel({
                         <div>
                           <dt>Controls</dt>
                           <dd>{(counts?.controls ?? 0).toLocaleString()}</dd>
-                        </div>
-                        <div>
-                          <dt>Protected</dt>
-                          <dd>{(counts?.fieldsUnderProtection ?? 0).toLocaleString()}</dd>
                         </div>
                       </dl>
                     </>

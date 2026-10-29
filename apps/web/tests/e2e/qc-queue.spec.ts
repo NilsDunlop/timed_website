@@ -73,6 +73,7 @@ const well: QcQueueEntry = {
   well: "B02",
   site: 1,
   channel: "all",
+  flaggedSites: [1, 4, 9],
 };
 
 function queueInput(entries: QcQueueEntry[] = [field, well]): QcQueueInput {
@@ -115,7 +116,7 @@ function annotationRecord(overrides: Record<string, unknown> = {}) {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    app_version: "0.5.0.dev6",
+    app_version: "0.5.0.dev7",
     ...overrides,
   };
 }
@@ -163,6 +164,9 @@ test("rejects unsafe targets and return paths without writing", () => {
     { ...field, site: Number.NaN },
     { ...field, channel: "unknown" },
     { ...well, site: 2 },
+    { ...field, flaggedSites: [1] },
+    { ...well, flaggedSites: [0] },
+    { ...well, flaggedSites: [1, 1] },
   ];
   for (const entry of invalidEntries) {
     const storage = new MemoryStorage();
@@ -309,7 +313,7 @@ test("parses current annotation records from supplied channel names", () => {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    appVersion: "0.5.0.dev6",
+    appVersion: "0.5.0.dev7",
   });
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), ["new-stain"])).not.toBeNull();
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), channels)).toBeNull();
