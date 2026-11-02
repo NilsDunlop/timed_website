@@ -737,7 +737,8 @@ focusable information tooltips. Unrelated Otsu measures, context, attributes
 and protection details are intentionally absent. A repeated metric exposes its
 question only on the first channel row. Internal rule-family prefixes are
 removed from ordinary operator-facing metric labels and help questions, while the established
-**Automatic exclusion** alias remains. Whole-field metrics remain
+**Automatic exclusion** alias remains. The first help tooltip opens below its
+icon so the table boundary cannot clip it. Whole-field metrics remain
 because they account for most entries in the supplied review queue; removing
 them would hide the primary review reason rather than reduce noise.
 

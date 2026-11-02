@@ -108,6 +108,12 @@ response removes them before serialisation.
 `worse` is the API's direction: `low`, `high`, or two-sided `both`; `context`
 describes a non-slider context value. Layers have these roles:
 
+`control_z` is an upstream control-relative standardised score using the
+EMPTY-control population. Zero is the producer's control centre; negative and
+positive values lie below and above it. The export does not encode whether the
+producer used a conventional or robust estimator, and TIMED does not recompute
+the value.
+
 - `site_review`: per-field metrics with sliders;
 - `context`: values shown and sortable beside slider metrics, without sliders;
 - `triage`: structural plate and channel keys for the overview;

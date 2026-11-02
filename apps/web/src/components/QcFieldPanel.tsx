@@ -93,6 +93,7 @@ export default function QcFieldPanel({
     .filter((metric) => reviewColumns.has(metric.column))
     .sort((left, right) => metricOrder(left) - metricOrder(right));
   const questionColumns = qcMetricQuestionColumns(reviewMetrics);
+  const firstQuestionColumn = questionColumns.values().next().value;
   const flaggedSiteOptions = siteStepper
     ? siteStepper.options.filter((option) => flaggedSites.includes(option.site))
     : [];
@@ -227,6 +228,9 @@ export default function QcFieldPanel({
                               className="qc-info-button"
                               aria-label={`${label}: ${question}`}
                               data-tooltip={question}
+                              data-tooltip-placement={
+                                metric.column === firstQuestionColumn ? "below" : undefined
+                              }
                             >
                               i
                             </button>

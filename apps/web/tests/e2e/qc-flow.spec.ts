@@ -330,11 +330,11 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(focusMetric).toContainText("Site value");
   await expect(focusMetric).toContainText("0.81");
   await expect(focusMetric).toContainText("Control Z");
-  await expect(
-    focusMetric.getByRole("button", {
-      name: /Is the synthetic DNA focus below the review bound\?/,
-    }),
-  ).toBeVisible();
+  const focusHelp = focusMetric.getByRole("button", {
+    name: /Is the synthetic DNA focus below the review bound\?/,
+  });
+  await expect(focusHelp).toBeVisible();
+  await expect(focusHelp).toHaveAttribute("data-tooltip-placement", "below");
   await expect(qcPanel.getByText(/^Context \(/)).toHaveCount(0);
   await expect(qcPanel.getByText(/^Attributes \(/)).toHaveCount(0);
   await expect(qcPanel.getByText("Image display settings", { exact: true })).toHaveCount(0);

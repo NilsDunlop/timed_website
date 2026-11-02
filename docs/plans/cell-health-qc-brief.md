@@ -270,7 +270,8 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   whole-field rows come last. Each row shows the site/raw value and its
   control-relative or median-relative review value when supplied. The
   dictionary question moves into a focusable information button. When the same
-  metric repeats across channels, only its first row carries that button. Otsu and
+  metric repeats across channels, only its first row carries that button. The
+  first tooltip opens below its icon so the table boundary cannot clip it. Otsu and
   unrelated context or attribute rows are not part of the review surface.
   Internal rule-family names are translated out of both labels and questions.
 - **Well site cues.** A well opened from the active QC results names its exact

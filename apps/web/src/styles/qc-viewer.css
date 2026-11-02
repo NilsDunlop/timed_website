@@ -164,6 +164,11 @@
   display: block;
 }
 
+.qc-info-button[data-tooltip-placement="below"]::after {
+  top: calc(100% + 0.45rem);
+  bottom: auto;
+}
+
 .qc-review-warning {
   grid-column: 1 / -1;
 }
