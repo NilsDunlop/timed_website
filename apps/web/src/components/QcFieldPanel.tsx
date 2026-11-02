@@ -3,6 +3,7 @@ import { useMemo, type ReactNode } from "react";
 import {
   buildQcFieldView,
   qcDisplayLabel,
+  qcDisplayQuestion,
   qcMetricQuestionColumns,
   type QcFieldMetric,
   type QcFieldPayloadLike,
@@ -211,6 +212,7 @@ export default function QcFieldPanel({
                   const siteValue = metric.rawColumn ? metric.rawValue : metric.value;
                   const comparisonValue = metric.rawColumn ? metric.value : null;
                   const label = qcDisplayLabel(metric.label);
+                  const question = qcDisplayQuestion(metric.question);
                   return (
                     <tr key={metric.column} data-qc-metric-column={metric.column}>
                       <th scope="row">
@@ -223,8 +225,8 @@ export default function QcFieldPanel({
                             <button
                               type="button"
                               className="qc-info-button"
-                              aria-label={`${label}: ${metric.question}`}
-                              data-tooltip={metric.question}
+                              aria-label={`${label}: ${question}`}
+                              data-tooltip={question}
                             >
                               i
                             </button>

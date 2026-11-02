@@ -184,7 +184,7 @@ mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/a
 Disconnect with job cancellation enabled, confirm the previous TIMED Slurm job
 has ended, and then reconnect so a genuinely fresh job installs and runs the
 new data server. Do not reuse an existing job. Before treating any observation
-as A2 evidence, confirm the connection handshake reports `0.5.0.dev8`.
+as A2 evidence, confirm the connection handshake reports `0.5.0.dev9`.
 
 Confirm that the QC header reports export `d77939bbbf42`; any earlier export or
 the “unsupported file hashes” message means the fresh job is not running this

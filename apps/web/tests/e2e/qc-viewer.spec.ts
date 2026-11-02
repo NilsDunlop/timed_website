@@ -6,6 +6,7 @@ import {
   buildQcSiteStepper,
   copyQcContrastChannels,
   qcDisplayLabel,
+  qcDisplayQuestion,
   qcMetricQuestionColumns,
   qcSiteHref,
   qcSiteOptions,
@@ -22,6 +23,13 @@ test("uses operator-facing labels for automatic exclusion measures", () => {
     "Flagged for review",
   );
   expect(qcDisplayLabel("D62: Focus Score Normvar")).toBe("Focus Score Normvar");
+  expect(
+    qcDisplayQuestion(
+      "Is the field's DNA normalised variance below the D62 share of the plate's clean-EMPTY median?",
+    ),
+  ).toBe(
+    "Is the field's DNA normalised variance below the configured share of the plate's clean-EMPTY median?",
+  );
 });
 
 test("shows one explanation for repeated channel instances of a metric", () => {

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import type { QcColumnDefinition } from "../lib/qcModel";
-import { qcDisplayLabel } from "../lib/qcViewer";
+import { qcDisplayLabel, qcDisplayQuestion } from "../lib/qcViewer";
 
 type QcRow = Record<string, unknown>;
 
@@ -104,7 +104,9 @@ export default function QcOverview({
         )}
       </div>
       {selectedDefinition?.question && (
-        <p className="muted qc-overview-question">{selectedDefinition.question}</p>
+        <p className="muted qc-overview-question">
+          {qcDisplayQuestion(selectedDefinition.question)}
+        </p>
       )}
       <div className="qc-overview-scroll">
         <table className="qc-overview-table" data-testid="qc-overview">
@@ -142,7 +144,11 @@ export default function QcOverview({
                           className={active ? "qc-triage-cell active" : "qc-triage-cell"}
                           aria-pressed={active}
                           aria-label={`Plate ${plate}, ${channel}: ${summary}`}
-                          title={selectedDefinition?.question ?? summary}
+                          title={
+                            selectedDefinition?.question
+                              ? qcDisplayQuestion(selectedDefinition.question)
+                              : summary
+                          }
                           onClick={() => onSelect(active ? null : plate, active ? null : channel)}
                         >
                           {selectedDefinition && (

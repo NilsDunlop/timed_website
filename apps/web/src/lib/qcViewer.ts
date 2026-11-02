@@ -115,6 +115,12 @@ export function qcDisplayLabel(value: string): string {
   return label.replace(/^D62\b\s*:?\s*/i, "") || label;
 }
 
+export function qcDisplayQuestion(value: string): string {
+  return value
+    .replace(/\bD62\s+share\b/gi, "configured share")
+    .replace(/\bD62\b/gi, "automatic-exclusion rule");
+}
+
 export function qcMetricQuestionColumns(
   metrics: readonly QcFieldMetric[],
 ): ReadonlySet<string> {

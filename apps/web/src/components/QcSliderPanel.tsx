@@ -6,7 +6,7 @@ import type {
   QcSliderDefinition,
   QcSliderState,
 } from "../lib/qcModel";
-import { qcDisplayLabel } from "../lib/qcViewer";
+import { qcDisplayLabel, qcDisplayQuestion } from "../lib/qcViewer";
 
 type Props = {
   model: QcModel;
@@ -285,7 +285,7 @@ export default function QcSliderPanel({
                       <span className="qc-status-badge">Pending review</span>
                     )}
                   </div>
-                  <p>{selected.question}</p>
+                  <p>{qcDisplayQuestion(selected.question)}</p>
                   <Histogram model={model} slider={selected} />
                   {selected.gate === "review" ? (
                     <>

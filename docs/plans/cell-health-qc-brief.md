@@ -272,6 +272,7 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   dictionary question moves into a focusable information button. When the same
   metric repeats across channels, only its first row carries that button. Otsu and
   unrelated context or attribute rows are not part of the review surface.
+  Internal rule-family names are translated out of both labels and questions.
 - **Well site cues.** A well opened from the active QC results names its exact
   flagged sites and links directly to each one. A review-list well that does
   not identify sites says so explicitly.

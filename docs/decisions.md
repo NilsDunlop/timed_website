@@ -736,7 +736,7 @@ control-relative or median-relative review value. Dictionary questions are
 focusable information tooltips. Unrelated Otsu measures, context, attributes
 and protection details are intentionally absent. A repeated metric exposes its
 question only on the first channel row. Internal rule-family prefixes are
-removed from ordinary operator-facing metric labels, while the established
+removed from ordinary operator-facing metric labels and help questions, while the established
 **Automatic exclusion** alias remains. Whole-field metrics remain
 because they account for most entries in the supplied review queue; removing
 them would hide the primary review reason rather than reduce noise.
