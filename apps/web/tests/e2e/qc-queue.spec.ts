@@ -116,7 +116,7 @@ function annotationRecord(overrides: Record<string, unknown> = {}) {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    app_version: "0.5.0.dev10",
+    app_version: "0.5.0.dev11",
     ...overrides,
   };
 }
@@ -313,7 +313,7 @@ test("parses current annotation records from supplied channel names", () => {
     confidence: "high",
     note: "Fixture note.",
     blinded: false,
-    appVersion: "0.5.0.dev10",
+    appVersion: "0.5.0.dev11",
   });
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), ["new-stain"])).not.toBeNull();
   expect(parseQcAnnotation(annotationRecord({ channel: "new-stain" }), channels)).toBeNull();

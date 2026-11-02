@@ -196,7 +196,10 @@ export default function QcFieldPanel({
           <div className="section-heading">
             <div>
               <h3 id="qc-review-metrics-heading">Review metrics</h3>
-              <p className="muted">Only metrics registered as review rules are shown.</p>
+              <p className="muted">
+                A value of 0 is typical of EMPTY controls, while negative values are lower and
+                positive values are higher.
+              </p>
             </div>
           </div>
           <div className="qc-review-metrics-scroll">

@@ -169,7 +169,7 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
     siteTable.getByRole("columnheader", { name: /Perturbation Type/ }),
   ).toBeVisible();
   await expect(
-    siteTable.getByRole("columnheader", { name: /Fixture Focus \(Control Z\)/ }),
+    siteTable.getByRole("columnheader", { name: /Fixture Focus \(Relative to controls\)/ }),
   ).toBeVisible();
   await expect(
     siteTable.getByRole("columnheader", { name: /Fixture Focus \(Raw\)/ }),
@@ -329,7 +329,10 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(focusMetric).toContainText("-2.489");
   await expect(focusMetric).toContainText("Site value");
   await expect(focusMetric).toContainText("0.81");
-  await expect(focusMetric).toContainText("Control Z");
+  await expect(focusMetric).toContainText("Relative to controls");
+  await expect(qcPanel).toContainText(
+    "A value of 0 is typical of EMPTY controls, while negative values are lower and positive values are higher.",
+  );
   const focusHelp = focusMetric.getByRole("button", {
     name: /Is the synthetic DNA focus below the review bound\?/,
   });

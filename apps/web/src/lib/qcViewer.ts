@@ -106,6 +106,9 @@ export function qcDisplayLabel(value: string): string {
     .replace(/__/g, " · ")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+  if (/^Control Z$/i.test(label)) {
+    return "Relative to controls";
+  }
   if (/^D62:\s*Share Excluded Automatically$/i.test(label)) {
     return "Automatic exclusion";
   }

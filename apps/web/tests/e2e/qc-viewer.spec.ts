@@ -16,6 +16,7 @@ import {
 } from "../../src/lib/qcViewer";
 
 test("uses operator-facing labels for automatic exclusion measures", () => {
+  expect(qcDisplayLabel("control_z")).toBe("Relative to controls");
   expect(qcDisplayLabel("D62: share excluded automatically")).toBe(
     "Automatic exclusion",
   );

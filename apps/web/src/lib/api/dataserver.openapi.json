@@ -2024,7 +2024,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.5.0.dev10"
+    "version": "0.5.0.dev11"
   },
   "openapi": "3.1.0",
   "paths": {

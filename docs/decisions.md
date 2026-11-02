@@ -732,7 +732,10 @@ range switch, display-provenance panel and explanatory banner are removed.
 
 Field review shows one compact, review-only metric table. Stain channels come
 first, whole-field metrics last, and each row pairs the site/raw value with its
-control-relative or median-relative review value. Dictionary questions are
+control-relative or median-relative review value. The UI calls `control_z`
+**Relative to controls** and states that zero is typical of EMPTY controls while
+negative and positive values are lower and higher. This removes statistical
+jargon without implying a percentage or fold change. Dictionary questions are
 focusable information tooltips. Unrelated Otsu measures, context, attributes
 and protection details are intentionally absent. A repeated metric exposes its
 question only on the first channel row. Internal rule-family prefixes are
