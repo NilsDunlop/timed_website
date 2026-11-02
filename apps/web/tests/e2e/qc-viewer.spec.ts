@@ -6,6 +6,7 @@ import {
   buildQcSiteStepper,
   copyQcContrastChannels,
   qcDisplayLabel,
+  qcMetricQuestionColumns,
   qcSiteHref,
   qcSiteOptions,
   restoreDatasetContrasts,
@@ -20,6 +21,29 @@ test("uses operator-facing labels for automatic exclusion measures", () => {
   expect(qcDisplayLabel("D62: share flagged for review")).toBe(
     "Flagged for review",
   );
+  expect(qcDisplayLabel("D62: Focus Score Normvar")).toBe("Focus Score Normvar");
+});
+
+test("shows one explanation for repeated channel instances of a metric", () => {
+  const metric = (column: string, channel: string, metricName: string) => ({
+    column,
+    label: metricName,
+    metric: metricName,
+    channel,
+    scale: "control_z",
+    direction: "low",
+    question: `How should ${metricName} be interpreted?`,
+    value: 0,
+    rawColumn: null,
+    rawValue: null,
+  });
+  expect(
+    [...qcMetricQuestionColumns([
+      metric("focus_dna", "DNA", "focus"),
+      metric("focus_er", "ER", "focus"),
+      metric("brightness_site", "Site", "brightness"),
+    ])],
+  ).toEqual(["focus_dna", "brightness_site"]);
 });
 
 const fieldPayload: QcFieldPayloadLike = {

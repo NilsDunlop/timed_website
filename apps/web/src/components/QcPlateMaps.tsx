@@ -53,10 +53,14 @@ export default function QcPlateMaps({
 }: Props) {
   const plates = useMemo(
     () =>
-      [...new Set((model.columns.plate ?? []).map(Number).filter(Number.isFinite))].sort(
-        (left, right) => left - right,
-      ),
-    [model],
+      [
+        ...new Set(
+          result.baseRowIndices
+            .map((rowIndex) => Number(model.columns.plate?.[rowIndex]))
+            .filter(Number.isFinite),
+        ),
+      ].sort((left, right) => left - right),
+    [model, result.baseRowIndices],
   );
   const included = useMemo(() => new Set(result.baseRowIndices), [result.baseRowIndices]);
   const flagged = useMemo(() => new Set(result.flaggedRowIndices), [result.flaggedRowIndices]);

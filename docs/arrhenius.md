@@ -184,7 +184,7 @@ mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/a
 Disconnect with job cancellation enabled, confirm the previous TIMED Slurm job
 has ended, and then reconnect so a genuinely fresh job installs and runs the
 new data server. Do not reuse an existing job. Before treating any observation
-as A2 evidence, confirm the connection handshake reports `0.5.0.dev7`.
+as A2 evidence, confirm the connection handshake reports `0.5.0.dev8`.
 
 Confirm that the QC header reports export `d77939bbbf42`; any earlier export or
 the “unsupported file hashes” message means the fresh job is not running this
@@ -203,7 +203,9 @@ In a well review, confirm that the flagged site numbers are explicit and open
 the expected sites. The field-review table contains only review metrics, puts
 stain channels before whole-field checks, and moves each metric explanation to
 an information button. QC contrast windows are fixed, with their exact minima
-and maxima visible in the channel controls. In a queue, confirm the three-part
+and maxima visible in the channel controls but no separate range banner. A
+metric repeated across channels has one information button on its first row.
+Selecting A549 leaves only plates 14610–14612 visible. In a queue, confirm the three-part
 progress/reason/navigation bar and Left/Right Arrow navigation.
 
 ## Troubleshooting

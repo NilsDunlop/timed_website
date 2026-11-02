@@ -112,7 +112,21 @@ export function qcDisplayLabel(value: string): string {
   if (/^D62:\s*Share Flagged For Review$/i.test(label)) {
     return "Flagged for review";
   }
-  return label.replace(/^D62\b/i, "Automatic exclusion");
+  return label.replace(/^D62\b\s*:?\s*/i, "") || label;
+}
+
+export function qcMetricQuestionColumns(
+  metrics: readonly QcFieldMetric[],
+): ReadonlySet<string> {
+  const seen = new Set<string>();
+  const columns = new Set<string>();
+  for (const metric of metrics) {
+    const identity = metric.metric || qcDisplayLabel(metric.label);
+    if (!metric.question || seen.has(identity)) continue;
+    seen.add(identity);
+    columns.add(metric.column);
+  }
+  return columns;
 }
 
 function applicable(row: Record<string, unknown>): boolean {

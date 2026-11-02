@@ -190,8 +190,10 @@ selector of its own. The core page makes unblinded requests.
   to **Automatic exclusion** when that measure exists. Labels and questions
   come from the dictionary. Clicking a cell limits everything below it to that
   plate and channel.
-- **Plate maps:** all nine 384-well plates appear as small shared `PlateGrid`
-  maps in a 3 × 3 layout. Each well is shaded by the number of its nine sites
+- **Plate maps:** before filtering, all nine 384-well plates appear as small
+  shared `PlateGrid` maps in a 3 × 3 layout. Category and range filters hide
+  plates with no included sites, so selecting A549 leaves plates 14610–14612.
+  Each well is shaded by the number of its nine sites
   flagged under the current sliders. A zero-to-nine legend and information
   button explain the shading and exact count badge. Hover lists only the sites
   and metrics that actually triggered active review rules; clicking opens the
@@ -261,12 +263,14 @@ The existing viewer with a QC panel, opened from the QC page or a queue
   range from `display_ranges.csv` as a plain linear mapping. These windows are
   fixed during QC review so every operator sees the upstream review
   presentation; the exact minimum and maximum remain visible beside the locked
-  channel sliders. There is no competing dataset-range selector.
+  channel sliders without a separate explanatory banner. There is no competing
+  dataset-range selector.
 - **Review metrics.** A compact table contains only primary metrics registered
   as review rules. Stain rows come first in DNA, ER, AGP, RNA and Mito order;
   whole-field rows come last. Each row shows the site/raw value and its
   control-relative or median-relative review value when supplied. The
-  dictionary question moves into a focusable information button. Otsu and
+  dictionary question moves into a focusable information button. When the same
+  metric repeats across channels, only its first row carries that button. Otsu and
   unrelated context or attribute rows are not part of the review surface.
 - **Well site cues.** A well opened from the active QC results names its exact
   flagged sites and links directly to each one. A review-list well that does
@@ -411,7 +415,7 @@ expected 0.5.0 development version.
    request. The overview calls the operator measure **Automatic exclusion**.
 5. Site and well views put **Flagged by** first. The compact table shows only
    review metrics, channel rows before whole-field rows, site/raw and
-   comparison values, and information buttons. The plain-linear QC display
+   comparison values, and one information button per unique metric. The plain-linear QC display
    ranges are fixed and their exact channel minima/maxima are visible. A well
    starts at site 1, names any flagged sites supplied by the queue, and steps
    through all sites.

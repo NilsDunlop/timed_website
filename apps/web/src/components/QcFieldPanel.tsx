@@ -3,6 +3,7 @@ import { useMemo, type ReactNode } from "react";
 import {
   buildQcFieldView,
   qcDisplayLabel,
+  qcMetricQuestionColumns,
   type QcFieldMetric,
   type QcFieldPayloadLike,
   type QcSiteOption,
@@ -90,6 +91,7 @@ export default function QcFieldPanel({
     .flatMap((group) => group.metrics)
     .filter((metric) => reviewColumns.has(metric.column))
     .sort((left, right) => metricOrder(left) - metricOrder(right));
+  const questionColumns = qcMetricQuestionColumns(reviewMetrics);
   const flaggedSiteOptions = siteStepper
     ? siteStepper.options.filter((option) => flaggedSites.includes(option.site))
     : [];
@@ -217,7 +219,7 @@ export default function QcFieldPanel({
                       <td>
                         <span className="qc-metric-name">
                           {label}
-                          {metric.question && (
+                          {questionColumns.has(metric.column) && (
                             <button
                               type="button"
                               className="qc-info-button"

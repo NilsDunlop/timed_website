@@ -242,7 +242,9 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await page.getByRole("button", { name: /Plate 14610, DNA:/ }).click();
   await expect(fieldCount).toHaveText("1");
   await expect(siteTable.locator("tbody tr")).toHaveCount(1);
-  await expect(page.locator('[data-qc-plate="14611"]')).toHaveClass(/qc-plate-map-dimmed/);
+  await expect(page.locator("[data-qc-plate]")).toHaveCount(1);
+  await expect(page.locator('[data-qc-plate="14610"]')).toBeVisible();
+  await expect(page.locator('[data-qc-plate="14611"]')).toHaveCount(0);
   await expect(page).toHaveURL(/qc\.plate=14610/);
   await expect(page).toHaveURL(/qc\.channel=DNA/);
 
@@ -264,15 +266,16 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   const cellLine = page.getByRole("listbox", { name: "Cell Line" });
   await cellLine.selectOption("A549");
   await expect(fieldCount).toHaveText("2");
-  await expect(
-    page
-      .locator('[data-qc-plate="14616"]')
-      .getByRole("button", { name: "Well A1", exact: true }),
-  ).toHaveClass(/well-dimmed/);
+  await expect(page.locator("[data-qc-plate]")).toHaveCount(3);
+  for (const plate of [14610, 14611, 14612]) {
+    await expect(page.locator(`[data-qc-plate="${plate}"]`)).toBeVisible();
+  }
+  await expect(page.locator('[data-qc-plate="14616"]')).toHaveCount(0);
   const plateFilter = page.getByRole("listbox", { name: "Plate" });
   await plateFilter.selectOption(["14610", "14612"]);
   await expect(plateFilter).toHaveValues(["14610", "14612"]);
   await expect(fieldCount).toHaveText("2");
+  await expect(page.locator("[data-qc-plate]")).toHaveCount(2);
   const wellRows = wellsTable.locator("tbody tr").filter({
     has: page.getByRole("button", { name: /^Open well/ }),
   });
@@ -335,7 +338,7 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(qcPanel.getByText(/^Context \(/)).toHaveCount(0);
   await expect(qcPanel.getByText(/^Attributes \(/)).toHaveCount(0);
   await expect(qcPanel.getByText("Image display settings", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(/Fixed QC display range/)).toBeVisible();
+  await expect(page.getByText(/Fixed QC display range/)).toHaveCount(0);
   await expect(page.getByTestId("qc-display-provenance")).toHaveCount(0);
   for (const [channel, low, high] of [
     ["DNA", "101", "5250"],

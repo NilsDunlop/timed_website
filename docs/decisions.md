@@ -721,19 +721,23 @@ and Annotation status live under **More filters**. Dataset-internal well-type
 and arbitrary context fields are not offered as operator filters. Plate maps
 pair their colour ramp with a numeric legend and an information tooltip, and a
 well hover names only the sites and metrics that actually triggered an active
-review rule.
+review rule. Plate visibility follows category and range filters: the unfiltered
+view has all nine plates, while A549 shows only its three plates.
 
 The QC export's plate-by-channel display windows are now always applied in the
 viewer. They are the upstream review presentation, so allowing an alternate
 dataset window would make two operators judge different renderings. The exact
 minimum and maximum remain visible in the locked channel controls; the former
-range switch and display-provenance panel are removed.
+range switch, display-provenance panel and explanatory banner are removed.
 
 Field review shows one compact, review-only metric table. Stain channels come
 first, whole-field metrics last, and each row pairs the site/raw value with its
 control-relative or median-relative review value. Dictionary questions are
 focusable information tooltips. Unrelated Otsu measures, context, attributes
-and protection details are intentionally absent. Whole-field metrics remain
+and protection details are intentionally absent. A repeated metric exposes its
+question only on the first channel row. Internal rule-family prefixes are
+removed from ordinary operator-facing metric labels, while the established
+**Automatic exclusion** alias remains. Whole-field metrics remain
 because they account for most entries in the supplied review queue; removing
 them would hide the primary review reason rather than reduce noise.
 

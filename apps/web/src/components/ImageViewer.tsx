@@ -1906,12 +1906,6 @@ export default function ImageViewer() {
           </h3>
         )}
 
-        {qcContext && (
-          <p id="qc-range-locked-hint" className="muted viewer-qc-range-note">
-            Fixed QC display range; the exact minimum and maximum are shown below.
-          </p>
-        )}
-
         {channelControlIndexes.map((index) => {
           const channel = channels[index];
           if (!channel) return null;
@@ -1948,9 +1942,6 @@ export default function ImageViewer() {
                 <span>Contrast minimum: {Math.round(channel.contrast[0])}</span>
                 <input
                   aria-label={channel.name + " contrast minimum"}
-                  aria-describedby={
-                    qcContext ? "qc-range-locked-hint" : undefined
-                  }
                   type="range"
                   disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
@@ -1969,9 +1960,6 @@ export default function ImageViewer() {
                 <span>Contrast maximum: {Math.round(channel.contrast[1])}</span>
                 <input
                   aria-label={channel.name + " contrast maximum"}
-                  aria-describedby={
-                    qcContext ? "qc-range-locked-hint" : undefined
-                  }
                   type="range"
                   disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
