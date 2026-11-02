@@ -333,6 +333,11 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(qcPanel).toContainText(
     "A value of 0 is typical of EMPTY controls, while negative values are lower and positive values are higher.",
   );
+  const valueStarts = await focusMetric.locator(".qc-metric-value-line strong").evaluateAll(
+    (values) => values.map((value) => value.getBoundingClientRect().left),
+  );
+  expect(valueStarts).toHaveLength(2);
+  expect(Math.abs(valueStarts[0] - valueStarts[1])).toBeLessThan(1);
   const focusHelp = focusMetric.getByRole("button", {
     name: /Is the synthetic DNA focus below the review bound\?/,
   });

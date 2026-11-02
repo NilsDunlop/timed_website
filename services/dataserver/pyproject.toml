@@ -1,6 +1,6 @@
 [project]
 name = "timed-dataserver"
-version = "0.5.0.dev11"
+version = "0.5.0.dev12"
 description = "Token-protected OME-Zarr data service for TIMED"
 requires-python = ">=3.12"
 dependencies = [

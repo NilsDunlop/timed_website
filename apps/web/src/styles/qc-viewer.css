@@ -124,7 +124,7 @@
 }
 
 .qc-metric-value-line small {
-  min-width: 6rem;
+  flex: 0 0 9rem;
   color: #667168;
 }
 
