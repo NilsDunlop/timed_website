@@ -15,10 +15,10 @@ class ApiModel(BaseModel):
 
 class SlurmProfile(ApiModel):
     account: str
-    partition: str
+    partition: str | None = None
     time: str
     cpus: int = Field(gt=0)
-    mem: str
+    mem: str | None = None
 
 
 class CollectionConfig(ApiModel):

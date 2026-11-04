@@ -252,9 +252,9 @@ export interface components {
             /** Cpus */
             cpus: number;
             /** Mem */
-            mem: string;
+            mem?: string | null;
             /** Partition */
-            partition: string;
+            partition?: string | null;
             /** Time */
             time: string;
         };
