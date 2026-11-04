@@ -26,6 +26,7 @@ type Props = {
   wells: ReadonlyMap<string, PlateGridWell>;
   onSelect: (well: PlateGridWell) => void;
   ariaLabel?: string;
+  density?: "default" | "compact";
 };
 
 export function plateGridKey(row: string, column: string): string {
@@ -38,17 +39,19 @@ export default function PlateGrid({
   wells,
   onSelect,
   ariaLabel = "Plate wells",
+  density = "default",
 }: Props) {
+  const compact = density === "compact";
   return (
     <div
-      className="well-grid"
+      className={compact ? "well-grid well-grid-compact" : "well-grid"}
       role="grid"
       aria-label={ariaLabel}
       style={{
         gridTemplateColumns:
-          "minmax(2.5rem, auto) repeat(" +
+          (compact ? "minmax(1.1rem, auto) repeat(" : "minmax(2.5rem, auto) repeat(") +
           String(columns.length) +
-          ", minmax(3rem, 1fr))",
+          (compact ? ", minmax(0.65rem, 1fr))" : ", minmax(3rem, 1fr))"),
       }}
     >
       <span aria-hidden="true" />
@@ -101,7 +104,7 @@ export default function PlateGrid({
               title={well.title}
               onClick={() => onSelect(well)}
             >
-              {label}
+              <span className="well-address">{label}</span>
               {well.badge != null && (
                 <span className="well-badge">{well.badge}</span>
               )}

@@ -1,25 +1,34 @@
-"""FastAPI application for authenticated, read-only OME-Zarr access."""
+"""FastAPI application for OME-Zarr access and isolated QC annotations."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
 import platform
 import re
 import socket
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC
 from email.utils import formatdate, parsedate_to_datetime
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
 
 import anyio
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
+import pyarrow.compute as pc
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import API_VERSION, __version__
 from .auth import bearer_auth
@@ -36,6 +45,14 @@ from .models import (
     MatchMode,
     OmeZarrInfo,
     PlateMetadataResponse,
+    QcAnnotationCreateRequest,
+    QcAnnotationMutationResponse,
+    QcAnnotationRequest,
+    QcAnnotationsResponse,
+    QcFieldResponse,
+    QcFieldsResponse,
+    QcRowsResponse,
+    QcStatusResponse,
     WellFieldsResponse,
 )
 from .omezarr import (
@@ -79,6 +96,30 @@ from .packed_profiles import (
 )
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
 from .plate_metadata import PlateMetadataCatalog, PlateMetadataError
+from .qc_annotations import (
+    QcAnnotationDraft,
+    QcAnnotationState,
+    QcAnnotationStore,
+    QcAnnotationTarget,
+    QcAnnotationUnavailableError,
+    QcAnnotationValidationError,
+    QcRetractionDraft,
+)
+from .qc_config import QcPathConfig, resolve_qc_path_configs
+from .qc_export import QcExportSnapshot, QcExportStore
+from .qc_http import qc_json_response
+from .qc_payloads import (
+    QcFieldNotFoundError,
+    QcPayloadError,
+    annotation_labels_payload,
+    annotation_record_payload,
+    dictionary_payload,
+    display_ranges_payload,
+    field_payload,
+    fields_payload,
+    review_list_payload,
+    triage_payload,
+)
 from .registry import DatasetRegistry
 
 RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
@@ -100,6 +141,18 @@ class ServerSettings:
     environment: Literal["local", "hpc"]
     metadata_root: Path | None = None
     packed_cache_mb: int = 1024
+    qc_paths: tuple[QcPathConfig, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class QcRuntime:
+    """Loaded index context for one configured QC export."""
+
+    config: QcPathConfig
+    catalogue: PackedCatalogue
+    profile: PackedDatasetProfile
+    store: QcExportStore
+    annotations: QcAnnotationStore
 
 
 def _forbidden(exc: Exception) -> HTTPException:
@@ -108,6 +161,10 @@ def _forbidden(exc: Exception) -> HTTPException:
 
 def _not_found(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+
+
+def _service_unavailable(message: str) -> HTTPException:
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message)
 
 
 def _unprocessable(exc: Exception) -> HTTPException:
@@ -309,6 +366,14 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     if settings.packed_cache_mb <= 0:
         raise ValueError("Packed cache size must be greater than zero")
     guard = RootGuard(settings.data_roots)
+    qc_paths = resolve_qc_path_configs(settings.qc_paths, guard)
+    qc_private_roots = frozenset(
+        private_path
+        for config in qc_paths.values()
+        for private_path in (config.export_path, config.annotations_path)
+    )
+    qc_stores: dict[Path, tuple[object, QcExportStore]] = {}
+    qc_annotation_stores: dict[Path, QcAnnotationStore] = {}
     registry = DatasetRegistry(settings.state_dir)
     packed_catalogues = PackedCatalogueCache()
     packed_reader = PackedReader(cache_bytes=settings.packed_cache_mb * 1024 * 1024)
@@ -342,6 +407,52 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         dependencies=[Depends(require_token)],
         lifespan=lifespan,
     )
+
+    async def qc_error_response(request: Request, response: Response) -> Response:
+        if not request.url.path.startswith("/api/qc/"):
+            return response
+        try:
+            payload = json.loads(response.body)
+        except (AttributeError, UnicodeError, json.JSONDecodeError):
+            payload = {"error": "QC request failed"}
+        blind = request.query_params.get("blind", "").casefold() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
+        state_identity = f"{response.status_code}:{response.body!r}"
+        return await anyio.to_thread.run_sync(
+            partial(
+                qc_json_response,
+                lambda: payload,
+                export_id=f"{__version__}:error",
+                endpoint=request.url.path,
+                blind=blind,
+                accept_encoding=request.headers.get("accept-encoding"),
+                if_none_match=request.headers.get("if-none-match"),
+                state=state_identity,
+                status_code=response.status_code,
+                extra_headers=dict(response.headers),
+            )
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def timed_http_exception_handler(
+        request: Request,
+        exc: StarletteHTTPException,
+    ) -> Response:
+        response = await http_exception_handler(request, exc)
+        return await qc_error_response(request, response)
+
+    @app.exception_handler(RequestValidationError)
+    async def timed_validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> Response:
+        response = await request_validation_exception_handler(request, exc)
+        return await qc_error_response(request, response)
+
     app.state.settings = settings
     app.state.guard = guard
     app.state.registry = registry
@@ -349,6 +460,28 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
     app.state.packed_catalogues = packed_catalogues
     app.state.packed_reader = packed_reader
     app.state.packed_metadata = packed_metadata
+    app.state.qc_paths = qc_paths
+    app.state.qc_private_roots = qc_private_roots
+    app.state.qc_stores = qc_stores
+    app.state.qc_annotation_stores = qc_annotation_stores
+
+    def is_private_qc_path(path: Path) -> bool:
+        return any(path == root or path.is_relative_to(root) for root in qc_private_roots)
+
+    def is_raw_private_qc_path(raw: str) -> bool:
+        try:
+            supplied = Path(raw).expanduser()
+            candidates = (
+                (supplied,)
+                if supplied.is_absolute()
+                else tuple(root / supplied for root in guard.roots)
+            )
+            return any(
+                is_private_qc_path(candidate.resolve(strict=False))
+                for candidate in candidates
+            )
+        except (OSError, ValueError):
+            return False
 
     def infer_packed_profile(packed: PackedVirtualPath) -> PackedDatasetProfile:
         index_signature = packed.catalogue.signature
@@ -418,6 +551,189 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         except PackedIndexError as exc:
             raise _unprocessable(exc) from exc
 
+    async def configured_qc_runtime(
+        raw: str,
+    ) -> tuple[QcPathConfig, QcRuntime | None, str | None]:
+        try:
+            index_path = await anyio.to_thread.run_sync(guard.resolve, raw)
+        except PathForbiddenError as exc:
+            raise _forbidden(exc) from exc
+        except PathNotFoundError as exc:
+            raise _not_found(str(exc)) from exc
+        config = qc_paths.get(index_path)
+        if config is None:
+            raise _not_found("No QC export is configured for this index")
+
+        try:
+            catalogue = await get_catalogue_in_thread(
+                index_path,
+                cache=packed_catalogues,
+            )
+            profile = profile_for_index(index_path.name, catalogue.row_count)
+            if profile is None:
+                profile = await anyio.to_thread.run_sync(
+                    infer_packed_profile,
+                    PackedVirtualPath(index_path=index_path, catalogue=catalogue),
+                )
+        except (OSError, PackedIndexError, PackedProfileError):
+            return config, None, "Configured QC index could not be loaded"
+
+        cached = qc_stores.get(index_path)
+        if cached is None or cached[0] != catalogue.signature:
+            store = QcExportStore(config.export_path, catalogue, profile)
+            qc_stores[index_path] = (catalogue.signature, store)
+        else:
+            store = cached[1]
+        annotation_store = qc_annotation_stores.get(index_path)
+        if annotation_store is None:
+            annotation_store = QcAnnotationStore(config.annotations_path)
+            qc_annotation_stores[index_path] = annotation_store
+        return (
+            config,
+            QcRuntime(
+                config=config,
+                catalogue=catalogue,
+                profile=profile,
+                store=store,
+                annotations=annotation_store,
+            ),
+            None,
+        )
+
+    async def ready_qc_snapshot(raw: str) -> tuple[QcRuntime, QcExportSnapshot]:
+        _config, runtime, index_error = await configured_qc_runtime(raw)
+        if runtime is None:
+            raise _service_unavailable(index_error or "Configured QC index is unavailable")
+        snapshot = await anyio.to_thread.run_sync(runtime.store.refresh)
+        if snapshot is None:
+            raise _service_unavailable(runtime.store.status.error or "QC export is unavailable")
+        if not snapshot.core_ready:
+            raise _service_unavailable(
+                "QC export does not satisfy the core response contract; see QC status"
+            )
+        return runtime, snapshot
+
+    def qc_well_metadata(
+        runtime: QcRuntime,
+    ) -> tuple[dict[tuple[str, int, str], dict[str, object]], str]:
+        metadata: dict[tuple[str, int, str], dict[str, object]] = {}
+        for experiment, plate in sorted(runtime.catalogue.plates):
+            response = packed_metadata.for_plate(
+                runtime.catalogue.index_path,
+                runtime.profile,
+                experiment,
+                plate,
+            )
+            if not response.available:
+                raise PackedMetadataError("Phase 1 metadata is unavailable")
+            for well in response.wells:
+                metadata[(experiment, plate, well.well)] = {
+                    "gene": well.compound,
+                    "well_type": well.moa,
+                    "perturbation_type": well.well_type,
+                    "is_control": well.is_control,
+                }
+        serialized = json.dumps(
+            [
+                [experiment, plate, well, values]
+                for (experiment, plate, well), values in sorted(metadata.items())
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        identity = hashlib.blake2s(serialized, digest_size=16).hexdigest()
+        return metadata, identity
+
+    async def ready_qc_metadata(
+        runtime: QcRuntime,
+        *,
+        blind: bool,
+    ) -> tuple[dict[tuple[str, int, str], dict[str, object]], str | None]:
+        if blind:
+            return {}, None
+        try:
+            return await anyio.to_thread.run_sync(qc_well_metadata, runtime)
+        except PackedMetadataError as exc:
+            raise _service_unavailable("Phase 1 metadata is unavailable or invalid") from exc
+
+    def annotation_state(runtime: QcRuntime) -> QcAnnotationState:
+        try:
+            return runtime.annotations.read()
+        except QcAnnotationUnavailableError:
+            return QcAnnotationState(
+                current=(),
+                malformed_lines=0,
+                revision="unavailable",
+            )
+
+    def annotation_target(
+        runtime: QcRuntime,
+        snapshot: QcExportSnapshot,
+        command: QcAnnotationCreateRequest,
+    ) -> QcAnnotationTarget:
+        canonical_well = command.well.upper()
+        table = snapshot.table("site_metrics.csv")
+        selected = table.filter(
+            pc.and_(
+                pc.equal(table["plate"], command.plate),
+                pc.equal(table["well"], canonical_well),
+            )
+        )
+        if command.scope == "field":
+            selected = selected.filter(pc.equal(selected["site"], command.site))
+            if selected.num_rows != 1:
+                raise QcAnnotationValidationError("Annotation field does not exist")
+        elif selected.num_rows == 0:
+            raise QcAnnotationValidationError("Annotation well does not exist")
+
+        channels = {
+            str(value) for value in snapshot.table("channels.csv")["channel"].to_pylist()
+        }
+        if command.channel != "all" and command.channel not in channels:
+            raise QcAnnotationValidationError("Annotation channel is invalid")
+        return QcAnnotationTarget(
+            scope=command.scope,
+            plate=command.plate,
+            barcode=runtime.profile.plate_name(command.plate),
+            well=canonical_well,
+            site=command.site,
+            channel=command.channel,
+        )
+
+    async def qc_payload_response(
+        snapshot: QcExportSnapshot,
+        payload: Callable[[], object],
+        *,
+        endpoint: str,
+        blind: bool,
+        accept_encoding: str | None,
+        if_none_match: str | None,
+        state: str | None = None,
+        status_code: int = status.HTTP_200_OK,
+    ) -> Response:
+        identity = f"{__version__}:{snapshot.export_id}:{snapshot.registry_hash}"
+        try:
+            return await anyio.to_thread.run_sync(
+                partial(
+                    qc_json_response,
+                    payload,
+                    export_id=identity,
+                    endpoint=endpoint,
+                    blind=blind,
+                    accept_encoding=accept_encoding,
+                    if_none_match=if_none_match,
+                    state=state,
+                    status_code=status_code,
+                )
+            )
+        except QcFieldNotFoundError as exc:
+            raise _not_found(str(exc)) from exc
+        except PackedMetadataError as exc:
+            raise _service_unavailable("Phase 1 metadata is unavailable or invalid") from exc
+        except QcPayloadError as exc:
+            raise _service_unavailable(str(exc)) from exc
+
     async def displayed_dataset(record: DatasetRecord) -> DatasetRecord:
         try:
             packed = await packed_path(record.path)
@@ -471,7 +787,312 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             capabilities=Capabilities(
                 plate_metadata=metadata_catalog is not None,
                 packed_datasets=True,
+                qc_review=any(config.export_readable for config in qc_paths.values()),
+                qc_annotations_writable=any(
+                    config.annotations_writable for config in qc_paths.values()
+                ),
             ),
+        )
+
+    @app.get("/api/qc/status", response_model=QcStatusResponse)
+    async def qc_status(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        config, runtime, index_error = await configured_qc_runtime(path)
+        export_readable, annotations_writable = await anyio.to_thread.run_sync(
+            lambda: (config.export_readable, config.annotations_writable)
+        )
+        if runtime is None:
+            response = QcStatusResponse(
+                available=False,
+                core_ready=False,
+                export_readable=export_readable,
+                annotations_writable=annotations_writable,
+                hash_check="unavailable",
+                error=index_error,
+            )
+        else:
+            await anyio.to_thread.run_sync(runtime.store.refresh)
+            annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
+            store_status = runtime.store.status_for(blind=blind)
+            response = QcStatusResponse(
+                available=store_status.available,
+                core_ready=store_status.core_ready,
+                export_readable=export_readable,
+                annotations_writable=annotations_writable,
+                export_id=store_status.export_id,
+                registry_hash=store_status.registry_hash,
+                row_count=store_status.row_count,
+                hash_check=store_status.hash_check,
+                missing_contract=list(store_status.missing_contract),
+                unknown_statuses=list(store_status.unknown_statuses),
+                malformed_annotation_lines=annotations.malformed_lines,
+                error=store_status.error,
+            )
+        payload = response.model_dump(mode="json")
+        state_identity = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        export_identity = (
+            f"{__version__}:{response.export_id}:{response.registry_hash}"
+            if response.export_id is not None
+            else f"{__version__}:unavailable:{path}"
+        )
+        return await anyio.to_thread.run_sync(
+            partial(
+                qc_json_response,
+                lambda: payload,
+                export_id=export_identity,
+                endpoint="status",
+                blind=blind,
+                accept_encoding=accept_encoding,
+                if_none_match=if_none_match,
+                state=state_identity,
+            )
+        )
+
+    @app.get("/api/qc/dictionary", response_model=QcRowsResponse)
+    async def qc_dictionary(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _runtime, snapshot = await ready_qc_snapshot(path)
+        return await qc_payload_response(
+            snapshot,
+            lambda: dictionary_payload(snapshot, blind=blind),
+            endpoint="dictionary",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+        )
+
+    @app.get("/api/qc/fields", response_model=QcFieldsResponse)
+    async def qc_fields(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        runtime, snapshot = await ready_qc_snapshot(path)
+        metadata, metadata_identity = await ready_qc_metadata(runtime, blind=blind)
+        annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
+
+        return await qc_payload_response(
+            snapshot,
+            lambda: fields_payload(
+                snapshot,
+                metadata,
+                blind=blind,
+                annotations=annotations.current,
+            ),
+            endpoint="fields",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+            state=f"{metadata_identity or ''}:{annotations.revision}",
+        )
+
+    @app.get("/api/qc/field", response_model=QcFieldResponse)
+    async def qc_field(
+        path: Annotated[str, Query(min_length=1)],
+        plate: Annotated[int, Query(ge=1)],
+        well: Annotated[
+            str,
+            Query(min_length=2, max_length=16, pattern=r"^[A-Za-z]+[0-9]+$"),
+        ],
+        site: Annotated[int, Query(ge=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        runtime, snapshot = await ready_qc_snapshot(path)
+        canonical_well = well.upper()
+        metadata, metadata_identity = await ready_qc_metadata(runtime, blind=blind)
+        annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
+
+        def payload() -> object:
+            return field_payload(
+                snapshot,
+                metadata,
+                plate=plate,
+                well=canonical_well,
+                site=site,
+                blind=blind,
+                annotations=annotations.current,
+            )
+
+        return await qc_payload_response(
+            snapshot,
+            payload,
+            endpoint="field",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+            state=(
+                f"{plate}:{canonical_well}:{site}:{metadata_identity or ''}:"
+                f"{annotations.revision}"
+            ),
+        )
+
+    @app.get("/api/qc/triage", response_model=QcRowsResponse)
+    async def qc_triage(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _runtime, snapshot = await ready_qc_snapshot(path)
+        return await qc_payload_response(
+            snapshot,
+            lambda: triage_payload(snapshot, blind=blind),
+            endpoint="triage",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+        )
+
+    @app.get("/api/qc/display-ranges", response_model=QcRowsResponse)
+    async def qc_display_ranges(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _runtime, snapshot = await ready_qc_snapshot(path)
+        return await qc_payload_response(
+            snapshot,
+            lambda: display_ranges_payload(snapshot, blind=blind),
+            endpoint="display-ranges",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+        )
+
+    @app.get("/api/qc/review-list", response_model=QcRowsResponse)
+    async def qc_review_list(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _runtime, snapshot = await ready_qc_snapshot(path)
+        return await qc_payload_response(
+            snapshot,
+            lambda: review_list_payload(snapshot, blind=blind),
+            endpoint="review-list",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+        )
+
+    @app.get("/api/qc/annotations", response_model=QcAnnotationsResponse)
+    async def qc_annotations(
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        runtime, snapshot = await ready_qc_snapshot(path)
+        annotations = await anyio.to_thread.run_sync(annotation_state, runtime)
+        writable = await anyio.to_thread.run_sync(
+            lambda: runtime.config.annotations_writable
+        )
+        return await qc_payload_response(
+            snapshot,
+            lambda: {
+                "export_id": snapshot.export_id,
+                "registry_hash": snapshot.registry_hash,
+                "blinded": blind,
+                "writable": writable,
+                "malformed_lines": annotations.malformed_lines,
+                "labels": annotation_labels_payload(snapshot),
+                "annotations": [
+                    annotation_record_payload(record, blind=blind)
+                    for record in annotations.current
+                ],
+            },
+            endpoint="annotations",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=if_none_match,
+            state=f"{annotations.revision}:{int(writable)}",
+        )
+
+    @app.post(
+        "/api/qc/annotations",
+        response_model=QcAnnotationMutationResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def write_qc_annotation(
+        command: QcAnnotationRequest,
+        path: Annotated[str, Query(min_length=1)],
+        blind: Annotated[bool, Query()] = False,
+        accept_encoding: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        runtime, snapshot = await ready_qc_snapshot(path)
+        if command.export_id != snapshot.export_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The QC export changed; reload the review before saving",
+            )
+        writable = await anyio.to_thread.run_sync(
+            lambda: runtime.config.annotations_writable
+        )
+        if not writable:
+            raise _service_unavailable("QC annotations are not writable")
+
+        def append() -> dict[str, object]:
+            if isinstance(command, QcAnnotationCreateRequest):
+                target = annotation_target(runtime, snapshot, command)
+                record = runtime.annotations.append_annotation(
+                    QcAnnotationDraft(
+                        export_id=snapshot.export_id,
+                        registry_hash=snapshot.registry_hash,
+                        target=target,
+                        label=command.label,
+                        confidence=command.confidence,
+                        note=command.note,
+                        blinded=blind,
+                        app_version=__version__,
+                    ),
+                    allowed_labels=snapshot.annotation_label_names,
+                )
+            else:
+                record = runtime.annotations.append_retraction(
+                    QcRetractionDraft(
+                        annotation_id=command.id,
+                        export_id=snapshot.export_id,
+                        registry_hash=snapshot.registry_hash,
+                        blinded=blind,
+                        app_version=__version__,
+                    )
+                )
+            return dict(record)
+
+        try:
+            record = await anyio.to_thread.run_sync(append)
+        except QcAnnotationValidationError as exc:
+            raise _unprocessable(exc) from exc
+        except QcAnnotationUnavailableError as exc:
+            raise _service_unavailable("QC annotations are not writable") from exc
+
+        return await qc_payload_response(
+            snapshot,
+            lambda: {
+                "export_id": snapshot.export_id,
+                "registry_hash": snapshot.registry_hash,
+                "blinded": blind,
+                "record": annotation_record_payload(record, blind=blind),
+            },
+            endpoint="annotations:write",
+            blind=blind,
+            accept_encoding=accept_encoding,
+            if_none_match=None,
+            state=f"{record['record']}:{record['id']}:{record['time']}",
+            status_code=status.HTTP_201_CREATED,
         )
 
     @app.get("/api/fs/list", response_model=FilesystemListResponse)
@@ -489,6 +1110,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
                     for root in guard.roots
                 ],
             )
+        if is_raw_private_qc_path(path):
+            raise _forbidden(PathForbiddenError("Configured QC folders are not browsable"))
         packed = await packed_path(path)
         if packed is not None:
             if packed.plate is not None:
@@ -537,6 +1160,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             raise _forbidden(exc) from exc
         except PathNotFoundError as exc:
             raise _not_found(str(exc)) from exc
+        if is_private_qc_path(target):
+            raise _forbidden(PathForbiddenError("Configured QC folders are not browsable"))
         if not target.is_dir():
             raise HTTPException(status_code=400, detail="Only directories can be listed")
 
@@ -559,6 +1184,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             try:
                 safe_child = guard.resolve(str(child))
             except (PathForbiddenError, PathNotFoundError):
+                continue
+            if is_private_qc_path(safe_child):
                 continue
             is_directory = safe_child.is_dir()
             packed_index = not is_directory and await anyio.to_thread.run_sync(

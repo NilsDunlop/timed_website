@@ -8,6 +8,7 @@ import {
   dataSelectionHref,
   initialCollection,
   pathIsInCollection,
+  qcNavigationHref,
   readCollectionPlace,
   readCollectionPreference,
   viewerReturnHref,
@@ -22,11 +23,13 @@ const collections: DataCollection[] = [
     title: "TIMED",
     path: "/data/timed",
     default: true,
+    qc_available: false,
   },
   {
     id: "idr0080",
     title: "idr0080",
     path: "/data/idr0080/idr0080-raw.index.parquet",
+    qc_available: true,
   },
 ];
 
@@ -68,6 +71,20 @@ test("remembers collection choices separately for each profile", () => {
   expect(readCollectionPreference(storage, "profile-a")).toBe("idr0080");
   expect(readCollectionPreference(storage, "profile-b")).toBe("timed");
   expect(readCollectionPreference(storage, "profile-c")).toBeNull();
+});
+
+test("shows QC navigation only for the active collection that advertises it", () => {
+  expect(qcNavigationHref(collections, "idr0080", "timed")).toBe(
+    "/qc?collection=idr0080",
+  );
+  expect(qcNavigationHref(collections, "timed", "idr0080")).toBeNull();
+  expect(qcNavigationHref(collections, null, null)).toBeNull();
+  expect(
+    qcNavigationHref(
+      collections.map(({ qc_available: _, ...collection }) => collection),
+      "idr0080",
+    ),
+  ).toBeNull();
 });
 
 test("remembers and clears a plate and well for each collection", () => {
@@ -159,6 +176,58 @@ test("returns from a comparison to the dataset that launched it", () => {
     "/data?collection=idr0080&dataset=primary",
   );
   expect(viewerReturnHref("?dataset=local")).toBe("/data");
+});
+
+test("returns a QC viewer to a safe local QC page", () => {
+  const requested = "/qc?collection=idr0080&qc.table=wells&qc.category.plate=14610";
+  expect(
+    viewerReturnHref(
+      new URLSearchParams({
+        qc: "1",
+        collection: "idr0080",
+        qcReturn: requested,
+      }).toString(),
+    ),
+  ).toBe(requested);
+  expect(viewerReturnHref("?qc=1&qcReturn=%2Fqc")).toBe("/qc");
+  expect(viewerReturnHref("?qc=1&collection=cell+health")).toBe(
+    "/qc?collection=cell+health",
+  );
+  expect(viewerReturnHref("?qc=1")).toBe("/qc");
+});
+
+test("rejects unsafe and confusing QC return paths", () => {
+  const unsafe = [
+    "https://example.test/qc",
+    "//example.test/qc",
+    "/qcx",
+    "/qc/other",
+    "/qc-archive",
+    "/qc#outside",
+    "/qc\\example.test",
+    " /qc",
+  ];
+  for (const qcReturn of unsafe) {
+    expect(
+      viewerReturnHref(
+        new URLSearchParams({
+          qc: "1",
+          collection: "idr0080",
+          qcReturn,
+        }).toString(),
+      ),
+    ).toBe("/qc?collection=idr0080");
+  }
+
+  expect(
+    viewerReturnHref(
+      new URLSearchParams({
+        collection: "idr0080",
+        dataset: "plate-a",
+        qcReturn: "/qc?collection=another",
+      }).toString(),
+    ),
+  ).toBe("/data?collection=idr0080&dataset=plate-a");
 });
 
 test("carries coordinates only between Cell Health plates", () => {

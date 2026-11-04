@@ -7,6 +7,7 @@ test("starts a local server, renders time data, and stops it", async ({
 }, testInfo) => {
   const browserErrors: string[] = [];
   const viewerDiagnostics: string[] = [];
+  const qcRequests: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") browserErrors.push(message.text());
     if (
@@ -17,6 +18,11 @@ test("starts a local server, renders time data, and stops it", async ({
     }
   });
   page.on("pageerror", (reason) => browserErrors.push(reason.message));
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/backend/api/qc/")) {
+      qcRequests.push(request.url());
+    }
+  });
 
   await page.goto("/");
   await page.getByLabel("Compute profile").selectOption("local");
@@ -92,6 +98,11 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(page.getByTestId("viewer-status")).toHaveText("Image ready", {
     timeout: 60_000,
   });
+  await expect(page.getByTestId("qc-viewer-panel")).toHaveCount(0);
+  await expect(
+    page.getByRole("checkbox", { name: "Use QC display ranges" }),
+  ).toHaveCount(0);
+  expect(qcRequests).toEqual([]);
   await expect(page.locator(".canvas-frame").first()).toHaveAttribute(
     "data-scale-bar",
     "true",
@@ -527,5 +538,6 @@ test("starts a local server, renders time data, and stops it", async ({
     .getByRole("button", { name: "Disconnect and stop server" })
     .click();
   await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+  expect(qcRequests).toEqual([]);
   expect(browserErrors).toEqual([]);
 });

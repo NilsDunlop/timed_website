@@ -173,6 +173,38 @@ expected nucleolar signal. The default Color view showed AGP in red.
 - This record establishes the Arrhenius acceptance evidence. The release branch
   prepares version `0.4.0`; the merge and `v0.4.0` tag remain operator steps.
 
+## Cell Health QC review A2
+
+Status: passed manually on Arrhenius on 2026-11-04. The final accepted
+development build was `0.5.0.dev12`; the release commit sets version `0.5.0`.
+
+The one writable review folder was created on Arrhenius before the check:
+
+```bash
+mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations
+```
+
+The operator used a fresh Slurm job rather than a reused server and confirmed
+the core-ready export loaded without a hash error. The complete section 4.10
+checklist in `docs/plans/cell-health-qc-brief.md` passed:
+
+- the compact QC page, readable metric selection, primary and secondary
+  filters, live counts, plate filtering, plate shading and reason-first Sites
+  and Wells tables behaved as intended;
+- the review-list and session queues preserved their order, displayed the flag
+  reason, exposed exact flagged sites where available and supported button and
+  Left/Right Arrow navigation;
+- the field view used fixed QC contrast windows and a compact review-only
+  metric table with aligned **Site value** and **Relative to controls** values;
+- field- and well-scoped annotations could be saved, reloaded and retracted in
+  the configured annotations folder; and
+- TIMED and datasets without a configured QC export remained unchanged.
+
+The operator accepted page loading and metric-control responsiveness during
+manual use. Separate timing figures were not supplied with the final A2
+acceptance. Blinded mode and segmentation outlines were not part of A2 and
+remain later work.
+
 ## Troubleshooting
 
 - Job pending indefinitely: verify the account and partition.

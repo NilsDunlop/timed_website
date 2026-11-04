@@ -130,8 +130,12 @@ dataset contracts and onboarding steps.
 - Cell Health Phase 1 is complete: collection selection, packed-image browsing,
   metadata-aware plate views, Color/Grayscale viewing, comparison, and scale
   bars have been accepted on Arrhenius.
-- Segmentation outlines and QC review belong to Cell Health Phase 2 and are not
-  part of this release.
+- Cell Health QC review is in active Phase 2 development. The optional QC page
+  reads a versioned export, presents a compact reason-first Sites/Wells
+  workflow, carries exact flagged sites into well review, and records
+  append-only site or well annotations. The viewer applies the export's fixed
+  QC windows and shows only registered review metrics. Segmentation outlines
+  remain a later, separate part of Phase 2.
 
 Choose **Arrhenius (NAISS)** for the primary HPC path or **This computer** to
 launch a loopback data server over configured local roots. The collection-aware

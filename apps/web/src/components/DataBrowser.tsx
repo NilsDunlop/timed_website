@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type { components } from "../lib/api/dataserver-schema";
-import { apiErrorMessage, connectorClient, dataServerClient } from "../lib/api/client";
+import {
+  apiErrorMessage,
+  connectorClient,
+  dataServerClient,
+  webClientHeaders,
+} from "../lib/api/client";
 import {
   carrySelectionAcrossDatasets,
   clearCollectionPlace,
@@ -572,6 +577,7 @@ export default function DataBrowser() {
           ? { datasetId: selected.id, path: restoreWellPath }
           : null;
       const result = await dataServerClient.POST("/api/datasets", {
+        headers: webClientHeaders,
         body: { path: entry.path },
       });
       if (!result.data) {
@@ -594,6 +600,7 @@ export default function DataBrowser() {
   async function unlink(dataset: Dataset) {
     await run(async () => {
       const result = await dataServerClient.DELETE("/api/datasets/{dataset_id}", {
+        headers: webClientHeaders,
         params: { path: { dataset_id: dataset.id } },
       });
       if (result.response.status !== 204) {

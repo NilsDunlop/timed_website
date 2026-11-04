@@ -2060,7 +2060,7 @@ requires-dist = [
 
 [[package]]
 name = "timed-dataserver"
-version = "0.4.1"
+version = "0.5.0"
 source = { editable = "services/dataserver" }
 dependencies = [
     { name = "fastapi" },

@@ -1,0 +1,342 @@
+.qc-field-panel {
+  margin-top: 0.5rem;
+}
+
+.qc-review-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.qc-review-reason {
+  text-align: center;
+}
+
+.qc-review-reason {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 0.22rem solid #b65b36;
+  background: #fff2ec;
+}
+
+.qc-review-reason span {
+  color: #765042;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.qc-review-reason strong {
+  color: #572d20;
+}
+
+.qc-review-progress {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.qc-review-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.qc-review-warning {
+  margin: 0;
+}
+
+.qc-flagged-sites {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-left: 0.2rem solid #b65b36;
+  background: #fff8f4;
+}
+
+.qc-flagged-sites > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.qc-flagged-sites [aria-current="true"] {
+  color: #fff;
+  background: #315f3b;
+}
+
+.qc-well-review-note {
+  margin: 0;
+}
+
+.qc-review-metrics {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid #dce3db;
+}
+
+.qc-review-metrics h3,
+.qc-review-metrics p {
+  margin: 0;
+}
+
+.qc-review-metrics-scroll {
+  overflow-x: auto;
+}
+
+.qc-review-metrics table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qc-review-metrics th,
+.qc-review-metrics td {
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #e0e6df;
+  text-align: left;
+  vertical-align: top;
+}
+
+.qc-review-metrics thead th {
+  color: #516656;
+  background: #f3f7f2;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.qc-metric-name,
+.qc-metric-value-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.qc-metric-value-line + .qc-metric-value-line {
+  margin-top: 0.3rem;
+}
+
+.qc-metric-value-line small {
+  flex: 0 0 9rem;
+  color: #667168;
+}
+
+.qc-info-button {
+  position: relative;
+  width: 1.3rem;
+  min-width: 1.3rem;
+  min-height: 1.3rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.qc-info-button::after {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  bottom: calc(100% + 0.45rem);
+  display: none;
+  width: min(19rem, 75vw);
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.35rem;
+  color: #fff;
+  background: #203c27;
+  box-shadow: 0 0.3rem 1rem rgb(20 45 27 / 24%);
+  content: attr(data-tooltip);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  transform: translateX(-50%);
+}
+
+.qc-info-button:hover::after,
+.qc-info-button:focus-visible::after {
+  display: block;
+}
+
+.qc-info-button[data-tooltip-placement="below"]::after {
+  top: calc(100% + 0.45rem);
+  bottom: auto;
+}
+
+.qc-review-warning {
+  grid-column: 1 / -1;
+}
+
+.qc-field-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.qc-field-identity div {
+  display: grid;
+  min-width: 4.5rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #d3ddd2;
+  border-radius: 0.35rem;
+  background: #f8faf7;
+}
+
+.qc-field-identity dt {
+  color: #516656;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.qc-field-identity dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.qc-site-stepper {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(7rem, 1fr) minmax(7rem, auto);
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.qc-field-section {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid #dce3db;
+}
+
+.qc-field-section h3,
+.qc-field-section h4,
+.qc-field-section p {
+  margin: 0;
+}
+
+.qc-annotation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.qc-annotation-form fieldset,
+.qc-annotation-form label {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.qc-annotation-form fieldset {
+  margin: 0;
+  padding: 0.6rem;
+}
+
+.qc-annotation-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.qc-annotation-options label {
+  display: flex;
+  align-items: center;
+  grid-auto-flow: column;
+}
+
+.qc-annotation-form label:has(textarea),
+.qc-annotation-form label:has(textarea) + small,
+.qc-annotation-form > button {
+  grid-column: 1 / -1;
+}
+
+.qc-annotation-form textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.qc-annotation-form > button {
+  justify-self: start;
+}
+
+.qc-current-annotations ul {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qc-current-annotations li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid #dce3db;
+  border-radius: 0.35rem;
+  background: #fff;
+}
+
+.qc-current-annotations li > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.qc-current-annotations li span {
+  color: #516656;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.qc-current-annotations li p {
+  margin-top: 0.25rem;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .qc-review-bar,
+  .qc-annotation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .qc-review-actions {
+    align-items: stretch;
+  }
+
+  .qc-review-actions > * {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .qc-annotation-form label:has(textarea),
+  .qc-annotation-form label:has(textarea) + small,
+  .qc-annotation-form > button {
+    grid-column: auto;
+  }
+
+  .qc-current-annotations li {
+    grid-template-columns: 1fr;
+  }
+
+  .qc-site-stepper {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .qc-site-stepper strong {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+}

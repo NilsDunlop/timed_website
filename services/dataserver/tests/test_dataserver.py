@@ -101,6 +101,8 @@ def test_handshake_and_listing_detect_every_fixture(
             "gpu": False,
             "plate_metadata": True,
             "packed_datasets": True,
+            "qc_review": False,
+            "qc_annotations_writable": False,
         }
 
         roots = client.get("/api/fs/list", headers=AUTH)

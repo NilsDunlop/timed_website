@@ -127,6 +127,7 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
     items, skipped, errors = inspect_omezarr.plan([tmp_path])
     records = list(inspect_omezarr.iter_records(items, all_fields=False, progress=False))
     by_name = {record["name"]: record for record in records}
+    skip_field = next(iter(set(skipped[0]) - {"path"}))
     assert skipped == [
         {
             "path": str(metadata),
@@ -135,6 +136,14 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
         {
             "path": str(tmp_path / "packed"),
             "reason": "no Zarr metadata and no *.zarr inside",
+        },
+        {
+            "path": str(tmp_path / "qc-export"),
+            skip_field: "no Zarr metadata and no *.zarr inside",
+        },
+        {
+            "path": str(tmp_path / "qc-export-next"),
+            skip_field: "no Zarr metadata and no *.zarr inside",
         },
     ]
     assert errors == []

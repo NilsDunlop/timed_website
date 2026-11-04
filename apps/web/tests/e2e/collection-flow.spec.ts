@@ -27,7 +27,14 @@ test("chooses a dataset on Connect and restores a plate and well", async ({
 
   const datasetChoice = page.getByLabel("Dataset");
   await expect(datasetChoice).toHaveValue("timed");
+  await expect(
+    page.getByRole("link", { name: "QC", exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Compute profile").selectOption("local");
+  await expect(page.getByRole("link", { name: "QC", exact: true })).toHaveCount(0);
+  await page.getByLabel("Compute profile").selectOption("local-datasets");
   await datasetChoice.selectOption("idr0080");
+  await expect(page.getByRole("link", { name: "QC", exact: true })).toBeVisible();
   await expect(page.getByText(/idr0080-like CRISPR Cell Painting/)).toBeVisible();
 
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -151,6 +158,9 @@ test("chooses a dataset on Connect and restores a plate and well", async ({
   await page.getByRole("link", { name: "Connect", exact: true }).click();
   await expect(page.getByLabel("Dataset")).toHaveValue("idr0080");
   await page.getByLabel("Dataset").selectOption("timed");
+  await expect(
+    page.getByRole("link", { name: "QC", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("link", { name: "Data", exact: true }).click();
   await expect(
     page.getByRole("heading", { level: 1, name: "TIMED", exact: true }),

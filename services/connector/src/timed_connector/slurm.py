@@ -95,6 +95,11 @@ def render_job_script(
         command.extend(("--data-root", root))
     if profile.metadata_root is not None:
         command.extend(("--metadata-root", profile.metadata_root))
+    for collection in profile.collections:
+        if collection.qc_export is None or collection.qc_annotations is None:
+            continue
+        command.extend(("--qc-export", f"{collection.path}={collection.qc_export}"))
+        command.extend(("--qc-annotations", f"{collection.path}={collection.qc_annotations}"))
     command.extend(
         (
             "--connection-file",

@@ -120,6 +120,16 @@ class LocalBackend:
             arguments.extend(("--data-root", str(root)))
         if metadata_root is not None:
             arguments.extend(("--metadata-root", str(metadata_root)))
+        for collection in profile.collections:
+            if collection.qc_export is None or collection.qc_annotations is None:
+                continue
+            arguments.extend(("--qc-export", f"{collection.path}={collection.qc_export}"))
+            arguments.extend(
+                (
+                    "--qc-annotations",
+                    f"{collection.path}={collection.qc_annotations}",
+                )
+            )
         try:
             process = await asyncio.create_subprocess_exec(
                 *arguments,

@@ -572,3 +572,204 @@ The viewer listed DNA, ER, AGP, RNA, and Mito in packed slot order; ES2 AGP
 used 375–10,793 and showed Golgi and cell-edge signal, while RNA used
 108–5,778 and showed nucleolar signal. The first attempt had reused the old
 Slurm job, so it was discarded rather than treated as validation evidence.
+
+## 2026-10-28: ship the complete core QC view before its blinded UI
+
+Cell Health QC is split into two releases. Version 0.5.0 is the complete core
+review workflow. Its API receives the full configured export, while its
+reason-first browser keeps secondary values behind progressive disclosure and
+limits the field viewer to review-relevant information. A later 0.5.1 pull
+request adds the user-facing blinded-mode switch. Part C segmentation remains
+separate at 0.6.0.
+
+The server boundary is designed for both modes now. Every QC endpoint accepts
+`blind=1`; that option removes all 65 columns marked hidden in the replacement
+export plus the additional Phase 1 and viewer attributes defined by the
+blinded contract before a response is built. The 0.5.0 browser does not set
+that option. Real hidden names and values remain absent from documentation,
+commits, fixtures, logs, and errors even though the unblinded core API may
+serve them at runtime.
+
+The export dictionary owns QC presentation. `site_review` rows define field
+sliders, `context` rows are shown and sortable without sliders, `triage` rows
+identify the plate and channel keys in the overview file, `panel` rows describe
+plate- or well-level views, and `retired` rows are never shown. All non-key
+dictionary rows belonging to the overview file are rendered there, including
+its `site_review` and `panel` values. Key and review
+rows retain their structural roles. The `worse` value is the slider
+direction. Unknown statuses, along with retired and dropped rows, are hidden
+and reported by the status endpoint; `pending_review` remains visible with a
+badge.
+
+One primary column per metric and channel creates a slider; the replacement
+contract defines 37. Automatic gates show their exported registered markers
+and are never recomputed by TIMED. Review gates start from a strict exported
+`< threshold` or `> threshold` rule and report flagged counts. None gates
+start fully open and filter without flagging or feeding queues. Filter ranges
+combine with AND; active flag sliders additionally keep rows beyond at least
+one flag rule. Context values, including the export-defined attributes, remain
+available to sorting and categorical filters. Control identity continues to
+come from the Phase 1 EMPTY-control metadata.
+
+The core page combines the dictionary-labelled plate/channel overview with all
+nine 384-well PlateGrids, Sites and Wells tables, categorical filters, live
+overall and per-slider counts, and fully URL-restorable interactive state.
+Browser filtering must update in under 100 ms for 31,104 sites. A well view
+opens at site 1 and retains a site stepper. Review-list order is authoritative;
+session queues may contain sites or wells. Plate/channel image bounds are plain
+linear windows, while their quantiles and reference-field counts are
+provenance.
+
+Annotations are the data server's only write. Field- and well-scoped records
+are append-only and include whether the request was blinded. The core view
+writes unblinded records. Rule proposals, their endpoint, their file, and their
+UI are removed from 0.5.0.
+
+The core-ready export includes the primary and marker dictionary fields,
+one-sided default flag expressions, triage dictionary rows, queue identifiers,
+crop centres and the annotation-label registry. After the 0.5.0 merge, blinded
+mode is the next PR, followed only later by Part C.
+
+Queue state is browser-session state, not export state. The review-list queue
+keeps file order; "Review these" keeps the currently displayed Sites or Wells
+order in one compact, validated `sessionStorage` record. Its export, registry,
+collection, and random queue identities must all match before the viewer will
+navigate it. Annotation status and queue counts use exact target scope and both
+the numeric plate and barcode, preventing annotations from crossing to a
+different plate if a later export reuses the number. An
+All-channel annotation covers a stain-specific queue entry, but a stain record
+does not mark an All-channel composite entry.
+
+The annotation write boundary is narrower than the configured data boundary.
+The annotations folder may not overlap a data root or any configured QC export
+in either direction. The writer path comes only from the configured folder and
+the sanitised operating-system user. Every record is one append plus `fsync`,
+and a process-wide lock keyed by canonical writer file serialises stores that
+resolve to the same file. Connector-proxied state-changing requests also
+require the existing `X-Timed-Client: web` guard; the connector removes that
+local guard header before forwarding the authenticated request.
+
+## 2026-10-29: expire connector HTTP keep-alives before the data server
+
+The QC reload regression exposed a stale pooled-connection race: Uvicorn closes
+an idle upstream connection after five seconds, while the connector previously
+kept it eligible for reuse for thirty. A reload could therefore select a socket
+as the server closed it and return an isolated 502, even while concurrent data-
+server requests succeeded. The connector now expires pooled upstream sockets
+after four seconds, preserving normal reuse while staying below the server's
+idle timeout.
+
+## 2026-10-29: make the replacement QC export the runtime contract
+
+Export `d77939bbbf42` is the core-ready Part B snapshot: 31,104 fields, 102
+dictionary rows, 178 queue entries and seven hashed CSV files. Its additional
+file is `labels.csv`, an ordered registry of 14 annotation identifiers and
+their operator guidance. The data server validates annotation writes against
+the active registry and returns it with QC payloads; the browser renders those
+choices and descriptions instead of maintaining a hard-coded list. Historical
+stored labels remain readable, but a new write must use the active registry.
+
+The final producer contract uses `default_flag` as a strict one-sided
+comparison (`< threshold` or `> threshold`). It does not use the earlier split
+low/high fields. This keeps the upstream rule intact and lets TIMED initialise
+review sliders without deriving thresholds. The loader also accepts the
+export's dedicated `triage` key layer while retaining `site_review` and
+`panel` for its overview values.
+
+The manifest allowlist is intentionally exact. Adding `labels.csv` without a
+matching server update produced the visible “unsupported file hashes” error;
+silently ignoring the seventh hash would have bypassed both its integrity
+check and its role in annotation validation. The replacement is now validated
+as one atomic seven-file snapshot. Private data remain described only by
+count: 55 hidden site columns and ten hidden review-list columns.
+
+## 2026-10-29: make QC review progressive and reason-first
+
+The QC export remains complete and dictionary-driven, but its full schema is
+not the default presentation. This first compact pass used progressive
+disclosure for export identity, the plate overview, secondary categorical
+filters, additional table columns and viewer details. The later review-only
+decision below removes nonessential viewer details entirely. No export column
+or endpoint was removed.
+
+The metric search is replaced by a channel-grouped dropdown with readable
+labels and one control card at a time. The plate overview similarly shows one
+selected measure across plates and channels and is collapsed by default. The
+Sites and Wells tables begin with identity, essential metadata, annotation
+state and a prominent **Flagged by** column; context, attributes and primary and
+raw metric values are behind **Additional table columns**. Core filters remain
+visible and secondary context is grouped under **More filters**.
+
+The export's D62-prefixed operator measures are translated at the UI boundary:
+"share excluded automatically" is shown as **Automatic exclusion** and "share
+flagged for review" as **Flagged for review**. This is a display alias only;
+dictionary identity, values and filtering semantics remain unchanged.
+
+Review-list entries derive their readable reason from the matching primary
+dictionary metric and channel. Session queues derive it from the active review
+rules that matched each site or well. The reason is carried into the viewer and
+shown before secondary details. Queue storage deduplicates repeated reason
+strings so a complete 31,104-field session queue remains within a conservative
+browser-storage quota while retaining the existing export, registry,
+collection and target validation.
+
+## 2026-10-29: keep the QC interface review-only
+
+The final Part B review surface removes information that does not help decide
+the current image. The overview calls individual acquisitions **Sites** and
+shows Sites, Wells and Control sites; protection is neither a count nor a
+filter. Cell line and plate remain primary filters, while Control status, Gene
+and Annotation status live under **More filters**. Dataset-internal well-type
+and arbitrary context fields are not offered as operator filters. Plate maps
+pair their colour ramp with a numeric legend and an information tooltip, and a
+well hover names only the sites and metrics that actually triggered an active
+review rule. Plate visibility follows category and range filters: the unfiltered
+view has all nine plates, while A549 shows only its three plates.
+
+The QC export's plate-by-channel display windows are now always applied in the
+viewer. They are the upstream review presentation, so allowing an alternate
+dataset window would make two operators judge different renderings. The exact
+minimum and maximum remain visible in the locked channel controls; the former
+range switch, display-provenance panel and explanatory banner are removed.
+
+Field review shows one compact, review-only metric table. Stain channels come
+first, whole-field metrics last, and each row pairs the site/raw value with its
+control-relative or median-relative review value. The UI calls `control_z`
+**Relative to controls** and states that zero is typical of EMPTY controls while
+negative and positive values are lower and higher. This removes statistical
+jargon without implying a percentage or fold change. Dictionary questions are
+focusable information tooltips. Unrelated Otsu measures, context, attributes
+and protection details are intentionally absent. A repeated metric exposes its
+question only on the first channel row. Internal rule-family prefixes are
+removed from ordinary operator-facing metric labels and help questions, while the established
+**Automatic exclusion** alias remains. The first help tooltip opens below its
+icon so the table boundary cannot clip it. Whole-field metrics remain
+because they account for most entries in the supplied review queue; removing
+them would hide the primary review reason rather than reduce noise.
+
+The **Site value** and **Relative to controls** labels reserve one shared width,
+so their numeric values align vertically without changing the metric data.
+
+Well queues carry their exact flagged site numbers when the active filters can
+provide them. The field viewer makes those sites direct navigation targets; a
+file-supplied well entry without site identities says so explicitly. The queue
+bar is progress on the left, flag reason in the middle and Previous/Next on the
+right. Left and Right Arrow replace bracket shortcuts, and the duplicate Back
+to QC action is removed while the global QC navigation remains available.
+
+## 2026-11-04: accept Part B on Arrhenius and prepare 0.5.0
+
+The operator completed A2 manually on Arrhenius against the final development
+build `0.5.0.dev12`. The compact QC page, plate maps and filters, Sites/Wells
+tables, review reasons, both queue types, fixed display ranges, field review
+metrics and annotation lifecycle were accepted. Interactive responsiveness was
+accepted during normal use; no separate timing figures were supplied.
+
+Version 0.5.0 therefore contains the unblinded, dictionary-driven QC review
+workflow and the server-side blinded-response contract. Hidden export data are
+handled only by classification and count in repository material; `blind=1`
+removes all columns marked hidden before response serialization, while the
+0.5.0 browser deliberately makes unblinded requests. Append-only annotation
+records in the configured annotations folder remain the data server's only
+write. The user-facing blinded mode and all segmentation-outline work are
+explicitly deferred.
