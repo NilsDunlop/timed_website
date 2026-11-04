@@ -9,6 +9,10 @@
 | B.1 | separate branch after Part B merges | 0.5.1 | Add the blinded QC interface on top of the server-side blind response mode designed in Part B |
 | C | `feature/segmentation-outlines` | 0.6.0 | Nucleus, cell and cytoplasm outlines from CellPrompter's mask stores |
 
+Part B is implemented and passed its manual Arrhenius A2 check on 2026-11-04.
+This brief now records the delivered 0.5.0 behavior; the blinded interface and
+Part C remain future work.
+
 ## 0. Working agreement
 
 - **Read first:** `CLAUDE.md`, `docs/decisions.md` and this brief. For Part C, also read the old brief's section 5.1 and Appendix D.
@@ -33,7 +37,10 @@
   - Paths come from the connector profile.
 - **Core first, blinded mode next.**
   - CellPrompter's exclusion records stay unread.
-  - The 0.5.0 core QC view intentionally shows every export column and every configured attribute. Core requests omit the `blind` query parameter.
+  - The 0.5.0 core API receives the complete configured export, while the
+    browser uses a compact reason-first presentation with secondary table
+    columns behind progressive disclosure. Core requests omit the `blind`
+    query parameter.
   - Every QC endpoint nevertheless accepts `blind=1` in 0.5.0. The server then removes every export column marked hidden and the additional attributes listed in section 4.11 before serialising a response. This server-side response mode is the foundation for the separate 0.5.1 blinded-interface PR.
   - Real hidden columns remain confidential in repository history: refer to them only by count in commits, tests, docs and replies.
 - **Isolated.** The website reads only the export's files. It never reads or imports the code that produced them, nor CellPrompter's code.
@@ -256,8 +263,8 @@ selector of its own. The core page makes unblinded requests.
 The existing viewer with a QC panel, opened from the QC page or a queue
 (`qc=1`). A site opens directly. A well opens at site 1 with a site stepper.
 
-- **Review reason.** Queue navigation places **Flagged by** above the secondary
-  field details so the operator immediately sees why the image is being
+- **Review reason.** Queue navigation places **Flagged by** above the compact
+  review table so the operator immediately sees why the image is being
   reviewed.
 - **Display ranges.** Each channel always uses its plate × channel low/high
   range from `display_ranges.csv` as a plain linear mapping. These windows are
@@ -362,7 +369,8 @@ Add a second fixture export with a different metric set.
   hidden columns and the section 4.11 attributes are absent. The corresponding
   core response retains them.
 - **Gates.** Automatic markers are read but never recomputed; review defaults
-  can be one- or two-sided; none-gated filters never flag or queue a site.
+  use the export's strict one-sided expression; none-gated filters never flag
+  or queue a site.
 - **Validation.** Keys, coverage and member names are checked, and `channels.csv` is compared with the profile.
 - **Replacement.** A hash mismatch keeps the previous export, and replacing the folder during a run switches cleanly.
 - **Annotations:**
@@ -386,8 +394,8 @@ Add a second fixture export with a different metric set.
 - all nine plate maps and the Sites/Wells tables follow the current filters;
 - categorical filters, sorting and URL restoration work;
 - tables and queues name the metric that flagged each row, and the field view
-  keeps that reason prominent while retaining primary and raw metrics, context,
-  attributes and QC display-range provenance under disclosures;
+  keeps that reason prominent while showing only review metrics, fixed contrast
+  bounds and the annotation workflow;
 - both site and well queues move forward and back, including keyboard keys;
 - saving and retracting field- and well-scope annotations works;
 - every QC endpoint redacts its fixture-hidden data under `blind=1`;
@@ -396,6 +404,9 @@ Add a second fixture export with a different metric set.
 **Real-export check.** An opt-in test loads `docs/data/qc-export/` without images and checks its structure, the dictionary, hidden columns and counts.
 
 ### 4.10 Arrhenius check (A2) and pull request
+
+Status: passed manually on Arrhenius on 2026-11-04 with the final development
+build `0.5.0.dev12`. The acceptance record is in `docs/arrhenius.md`.
 
 **Operator, before A2:** create the annotations folder:
 

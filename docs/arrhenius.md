@@ -173,40 +173,37 @@ expected nucleolar signal. The default Color view showed AGP in red.
 - This record establishes the Arrhenius acceptance evidence. The release branch
   prepares version `0.4.0`; the merge and `v0.4.0` tag remain operator steps.
 
-## Cell Health QC review A2 (pending)
+## Cell Health QC review A2
 
-Before connecting, create the one writable review folder on Arrhenius:
+Status: passed manually on Arrhenius on 2026-11-04. The final accepted
+development build was `0.5.0.dev12`; the release commit sets version `0.5.0`.
+
+The one writable review folder was created on Arrhenius before the check:
 
 ```bash
 mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations
 ```
 
-Disconnect with job cancellation enabled, confirm the previous TIMED Slurm job
-has ended, and then reconnect so a genuinely fresh job installs and runs the
-new data server. Do not reuse an existing job. Before treating any observation
-as A2 evidence, confirm the connection handshake reports `0.5.0.dev12`.
+The operator used a fresh Slurm job rather than a reused server and confirmed
+the core-ready export loaded without a hash error. The complete section 4.10
+checklist in `docs/plans/cell-health-qc-brief.md` passed:
 
-Confirm that the QC header reports export `d77939bbbf42`; any earlier export or
-the “unsupported file hashes” message means the fresh job is not running this
-build. The A2 checklist is the operator procedure in section 4.10 of
-`docs/plans/cell-health-qc-brief.md`. Record the export identity, queue and
-annotation results, QC-page load time, and metric-control response time here
-after the check. Confirm that the first screen is compact: Plate overview and
-additional table columns start collapsed, and Annotation status is under
-**More filters**. The Metric selector uses readable labels; Sites, Wells and
-queue viewers make **Flagged by** immediately visible; and the operator-facing
-measure is shown as **Automatic exclusion**. Plate shading has a zero-to-nine
-legend and exact count badges, while well hover text lists only the review
-rules that actually flagged each site.
+- the compact QC page, readable metric selection, primary and secondary
+  filters, live counts, plate filtering, plate shading and reason-first Sites
+  and Wells tables behaved as intended;
+- the review-list and session queues preserved their order, displayed the flag
+  reason, exposed exact flagged sites where available and supported button and
+  Left/Right Arrow navigation;
+- the field view used fixed QC contrast windows and a compact review-only
+  metric table with aligned **Site value** and **Relative to controls** values;
+- field- and well-scoped annotations could be saved, reloaded and retracted in
+  the configured annotations folder; and
+- TIMED and datasets without a configured QC export remained unchanged.
 
-In a well review, confirm that the flagged site numbers are explicit and open
-the expected sites. The field-review table contains only review metrics, puts
-stain channels before whole-field checks, and moves each metric explanation to
-an information button. QC contrast windows are fixed, with their exact minima
-and maxima visible in the channel controls but no separate range banner. A
-metric repeated across channels has one information button on its first row.
-Selecting A549 leaves only plates 14610–14612 visible. In a queue, confirm the three-part
-progress/reason/navigation bar and Left/Right Arrow navigation.
+The operator accepted page loading and metric-control responsiveness during
+manual use. Separate timing figures were not supplied with the final A2
+acceptance. Blinded mode and segmentation outlines were not part of A2 and
+remain later work.
 
 ## Troubleshooting
 

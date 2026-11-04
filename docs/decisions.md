@@ -576,7 +576,9 @@ Slurm job, so it was discarded rather than treated as validation evidence.
 ## 2026-10-28: ship the complete core QC view before its blinded UI
 
 Cell Health QC is split into two releases. Version 0.5.0 is the complete core
-review workflow and shows the full configured export. A later 0.5.1 pull
+review workflow. Its API receives the full configured export, while its
+reason-first browser keeps secondary values behind progressive disclosure and
+limits the field viewer to review-relevant information. A later 0.5.1 pull
 request adds the user-facing blinded-mode switch. Part C segmentation remains
 separate at 0.6.0.
 
@@ -745,9 +747,29 @@ icon so the table boundary cannot clip it. Whole-field metrics remain
 because they account for most entries in the supplied review queue; removing
 them would hide the primary review reason rather than reduce noise.
 
+The **Site value** and **Relative to controls** labels reserve one shared width,
+so their numeric values align vertically without changing the metric data.
+
 Well queues carry their exact flagged site numbers when the active filters can
 provide them. The field viewer makes those sites direct navigation targets; a
 file-supplied well entry without site identities says so explicitly. The queue
 bar is progress on the left, flag reason in the middle and Previous/Next on the
 right. Left and Right Arrow replace bracket shortcuts, and the duplicate Back
 to QC action is removed while the global QC navigation remains available.
+
+## 2026-11-04: accept Part B on Arrhenius and prepare 0.5.0
+
+The operator completed A2 manually on Arrhenius against the final development
+build `0.5.0.dev12`. The compact QC page, plate maps and filters, Sites/Wells
+tables, review reasons, both queue types, fixed display ranges, field review
+metrics and annotation lifecycle were accepted. Interactive responsiveness was
+accepted during normal use; no separate timing figures were supplied.
+
+Version 0.5.0 therefore contains the unblinded, dictionary-driven QC review
+workflow and the server-side blinded-response contract. Hidden export data are
+handled only by classification and count in repository material; `blind=1`
+removes all columns marked hidden before response serialization, while the
+0.5.0 browser deliberately makes unblinded requests. Append-only annotation
+records in the configured annotations folder remain the data server's only
+write. The user-facing blinded mode and all segmentation-outline work are
+explicitly deferred.
