@@ -81,3 +81,11 @@ def write_audit() -> Iterator[WriteAudit]:
     audit = WriteAudit()
     yield audit
     audit.verify()
+
+
+@pytest.fixture(scope="session")
+def session_write_audit() -> Iterator[WriteAudit]:
+    """Audit data roots shared by several modules for the whole run."""
+    audit = WriteAudit()
+    yield audit
+    audit.verify()

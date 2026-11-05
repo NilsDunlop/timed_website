@@ -1,0 +1,467 @@
+{
+  "timed single href": "/view?dataset=<id-1>&path=A01_s1.zarr",
+  "timed single": {
+    "heading": "Image viewer for Compound Alpha",
+    "status": "Image ready",
+    "controlsHeading": "Time and channels",
+    "displayGroup": false,
+    "mode": null,
+    "grayscaleChannel": null,
+    "channels": [
+      {
+        "name": "405 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(0, 0, 255)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "505 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(0, 255, 0)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "625 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(255, 0, 0)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": "Time: 1 / 6",
+      "requested": "0",
+      "maximum": "5",
+      "displayed": "t 1 / 6",
+      "jump": "1 h"
+    },
+    "scaleBars": [
+      "true"
+    ],
+    "comparisonCount": null,
+    "canvases": 1
+  },
+  "timed comparison href": "/view?dataset=<id-1>&path=B01_s1.zarr&compare=B01_s1.zarr&compareDataset=<id-2>",
+  "timed comparison": {
+    "heading": "Compare trajectories",
+    "status": "Images ready",
+    "controlsHeading": "Time and channels",
+    "displayGroup": false,
+    "mode": null,
+    "grayscaleChannel": null,
+    "channels": [
+      {
+        "name": "405 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(0, 0, 255)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "505 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(0, 255, 0)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "625 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(255, 0, 0)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": "Time: 1 / 6",
+      "requested": "0",
+      "maximum": "5",
+      "displayed": "t 1 / 6",
+      "jump": "1 h"
+    },
+    "scaleBars": [
+      "true",
+      "true"
+    ],
+    "comparisonCount": "2",
+    "canvases": 2
+  },
+  "test_image_v04.zarr href": "/view?dataset=<id-3>&path=",
+  "test_image_v04.zarr": {
+    "heading": "Image viewer for Not specified",
+    "status": "Image ready",
+    "controlsHeading": "Time and channels",
+    "displayGroup": false,
+    "mode": null,
+    "grayscaleChannel": null,
+    "channels": [
+      {
+        "name": "405 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 8000"
+        ],
+        "visible": true,
+        "color": "rgb(0, 0, 255)",
+        "contrast": [
+          "131.07",
+          "7995.27"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "505 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 8000"
+        ],
+        "visible": true,
+        "color": "rgb(0, 255, 0)",
+        "contrast": [
+          "131.07",
+          "7995.27"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "625 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 8000"
+        ],
+        "visible": true,
+        "color": "rgb(255, 0, 0)",
+        "contrast": [
+          "131.07",
+          "7995.27"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": "Time: 1 / 6",
+      "requested": "0",
+      "maximum": "5",
+      "displayed": "t 1 / 6",
+      "jump": "1 h"
+    },
+    "scaleBars": [
+      "true"
+    ],
+    "comparisonCount": null,
+    "canvases": 1
+  },
+  "test_image_v05.zarr href": "/view?dataset=<id-4>&path=",
+  "test_image_v05.zarr": {
+    "heading": "Image viewer for Not specified",
+    "status": "Image ready",
+    "controlsHeading": "Time and channels",
+    "displayGroup": false,
+    "mode": null,
+    "grayscaleChannel": null,
+    "channels": [
+      {
+        "name": "405 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 8000"
+        ],
+        "visible": true,
+        "color": "rgb(0, 0, 255)",
+        "contrast": [
+          "131.07",
+          "7995.27"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "505 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 8000"
+        ],
+        "visible": true,
+        "color": "rgb(0, 255, 0)",
+        "contrast": [
+          "131.07",
+          "7995.27"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "625 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 8000"
+        ],
+        "visible": true,
+        "color": "rgb(255, 0, 0)",
+        "contrast": [
+          "131.07",
+          "7995.27"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": "Time: 1 / 6",
+      "requested": "0",
+      "maximum": "5",
+      "displayed": "t 1 / 6",
+      "jump": "1 h"
+    },
+    "scaleBars": [
+      "true"
+    ],
+    "comparisonCount": null,
+    "canvases": 1
+  }
+}

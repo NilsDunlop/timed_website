@@ -32,6 +32,7 @@ make test         # Python and web checks
 make test-e2e     # isolated test cluster plus Playwright browser suite
 make test-data    # deterministic TIMED and native OME-Zarr fixtures
 make gen-api      # regenerate typed OpenAPI schemas and clients
+make check-api    # regenerate, then fail if the committed API files differ
 make lint         # Ruff and Astro checks
 ```
 
@@ -42,6 +43,8 @@ uv run pytest
 uv run ruff check .
 pnpm -C apps/web check
 pnpm -C apps/web build
+pnpm -C apps/web gen:api && git diff --exit-code -- apps/web/src/lib/api
+uv run python scripts/run_e2e.py --local-only  # browser suite without the test cluster
 ```
 
 The direct development command, including on Windows without GNU Make, is

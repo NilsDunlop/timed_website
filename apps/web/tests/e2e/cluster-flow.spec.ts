@@ -3,6 +3,11 @@ import { expect, test } from "@playwright/test";
 import { exerciseIdr0080Flow } from "./idr0080";
 import { pixelSignature } from "./viewer";
 
+test.skip(
+  process.env.TIMED_E2E_LOCAL_ONLY === "1",
+  "Run scripts/run_e2e.py without --local-only to include the SSH/Slurm test cluster.",
+);
+
 test("connects through Slurm and renders plate plus native OME-Zarr data", async ({
   page,
 }, testInfo) => {

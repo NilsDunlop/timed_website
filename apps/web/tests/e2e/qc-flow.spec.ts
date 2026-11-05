@@ -706,3 +706,171 @@ test("reviews ordered queues and persists field and well annotations", async ({
   await page.getByRole("button", { name: "Disconnect and stop server" }).click();
   await expect(page.getByTestId("session-state")).toHaveText("disconnected");
 });
+
+async function disconnect(page: Page) {
+  await page.getByRole("link", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
+  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+}
+
+test("opens QC from the trailing-slash entry and announces a new export", async ({
+  page,
+}) => {
+  await connectCellHealth(page);
+  let replacementExport = false;
+  await page.route("**/backend/api/qc/status?*", async (route) => {
+    const response = await route.fetch();
+    const payload = (await response.json()) as { export_id: string | null };
+    if (replacementExport && payload.export_id) {
+      payload.export_id = `${payload.export_id}-replacement`;
+    }
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+  await page.clock.install();
+  await page.goto("/qc/?collection=idr0080");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Cell Health", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Plate overview", { exact: true })).toBeVisible();
+  const notice = page.getByRole("status").filter({ hasText: "New export available" });
+
+  const unchangedPoll = page.waitForResponse((response) =>
+    response.url().includes("/backend/api/qc/status"),
+  );
+  await page.clock.fastForward(15_000);
+  await unchangedPoll;
+  await expect(notice).toHaveCount(0);
+
+  replacementExport = true;
+  await page.clock.fastForward(15_000);
+  await expect(notice).toBeVisible();
+  await expect(notice.getByRole("button", { name: "Reload", exact: true })).toBeVisible();
+  await disconnect(page);
+});
+
+test("clears the overview selection and the category filters", async ({ page }) => {
+  await connectCellHealth(page);
+  await page.getByRole("link", { name: "QC", exact: true }).click();
+  const overview = page.locator("details.qc-overview-disclosure");
+  const overviewSummary = page.getByText("Plate overview", { exact: true });
+  await overviewSummary.click();
+  const plateMaps = page.locator("[data-qc-plate]");
+  await expect(plateMaps).toHaveCount(3);
+  const overviewCell = page.getByRole("button", { name: /Plate 14610, DNA:/ });
+  const clearOverview = page.getByRole("button", { name: "Clear overview filter" });
+  const clearCategories = page.getByRole("button", { name: "Clear categories" });
+  await expect(clearOverview).toHaveCount(0);
+  await expect(clearCategories).toHaveCount(0);
+
+  await overviewCell.click();
+  await expect(overviewCell).toHaveAttribute("aria-pressed", "true");
+  await expect(plateMaps).toHaveCount(1);
+  await expect(page).toHaveURL(/qc\.plate=14610/);
+  await clearOverview.click();
+  // Clearing the selection also collapses the overview.
+  await expect(overview).not.toHaveAttribute("open");
+  await expect(plateMaps).toHaveCount(3);
+  await expect(page).not.toHaveURL(/qc\.plate=/);
+  await expect(page).not.toHaveURL(/qc\.channel=/);
+  await overviewSummary.click();
+  await expect(overviewCell).toHaveAttribute("aria-pressed", "false");
+  await expect(clearOverview).toHaveCount(0);
+
+  const cellLine = page.getByRole("listbox", { name: "Cell Line" });
+  await cellLine.selectOption("A549");
+  await expect(plateMaps).toHaveCount(2);
+  await expect(page).toHaveURL(/qc\.category\.cell_line=A549/);
+  await overviewCell.click();
+  await expect(plateMaps).toHaveCount(1);
+  await clearCategories.click();
+  await expect(cellLine).toHaveValues([]);
+  await expect(overview).not.toHaveAttribute("open");
+  await expect(plateMaps).toHaveCount(3);
+  await expect(page).not.toHaveURL(/qc\.plate=/);
+  await expect(page).not.toHaveURL(/qc\.category\./);
+  await expect(clearCategories).toHaveCount(0);
+  await overviewSummary.click();
+  await expect(overviewCell).toHaveAttribute("aria-pressed", "false");
+  await disconnect(page);
+});
+
+test("keeps the exact flagged sites of each well in a Wells-mode queue", async ({ page }) => {
+  await connectCellHealth(page);
+  await page.getByRole("link", { name: "QC", exact: true }).click();
+  await expect(page.getByText("Plate overview", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Wells", exact: true }).click();
+  await expect(page.getByRole("table", { name: "QC wells" })).toBeVisible();
+  await page.getByRole("button", { name: "Review these", exact: true }).click();
+  await expectViewerReady(page);
+
+  for (const index of [0, 1]) {
+    await expect(page).toHaveURL(new RegExp(`qcIndex=${index}`));
+    const query = new URL(page.url()).searchParams;
+    expect(query.get("qcScope")).toBe("well");
+    const flagged = (query.get("qcFlaggedSites") ?? "").split(",").filter(Boolean);
+    const panel = page.getByTestId("qc-flagged-sites");
+    if (flagged.length === 0) {
+      await expect(panel).toHaveCount(0);
+    } else {
+      await expect(panel.getByRole("button")).toHaveText(flagged);
+    }
+    if (index === 0) {
+      expect(flagged.length).toBeGreaterThan(0);
+      await page.getByTestId("qc-review-bar").getByRole("button", { name: "Next" }).click();
+      await expectViewerReady(page);
+    }
+  }
+  await disconnect(page);
+});
+
+test("reports an invalid QC link and keeps the queue after a failed Next", async ({
+  page,
+}) => {
+  await connectCellHealth(page);
+  await page.getByRole("link", { name: "QC", exact: true }).click();
+  await page
+    .getByRole("table", { name: "QC sites" })
+    .getByRole("button", { name: "Open site" })
+    .first()
+    .click();
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-viewer-panel")).toBeVisible();
+
+  const invalid = new URL(page.url());
+  invalid.searchParams.set("qcSite", "2");
+  await page.goto(invalid.pathname + invalid.search);
+  await expectViewerReady(page);
+  await expect(page.getByTestId("qc-viewer-error")).toHaveText(
+    "QC review data could not be loaded. Return to QC and reload the export.",
+  );
+  await expect(page.getByTestId("qc-viewer-panel")).toHaveCount(0);
+
+  await page.getByRole("link", { name: "QC", exact: true }).click();
+  await page.getByRole("button", { name: "Review queue", exact: true }).click();
+  await expectViewerReady(page);
+  await expect(page).toHaveURL(/qcIndex=0/);
+  const started = page.url();
+  await page.route("**/backend/api/datasets", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Fixture link failure" }),
+    });
+  });
+  const reviewBar = page.getByTestId("qc-review-bar");
+  await reviewBar.getByRole("button", { name: "Next" }).click();
+  await expect(reviewBar.getByRole("alert")).toHaveText("Fixture link failure");
+  expect(page.url()).toBe(started);
+  await expect(reviewBar).toContainText("Review 1 of 45");
+  await expect(reviewBar.getByRole("button", { name: "Next" })).toBeEnabled();
+  await page.unroute("**/backend/api/datasets");
+  await disconnect(page);
+});

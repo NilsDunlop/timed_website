@@ -1,0 +1,327 @@
+{
+  "link": {
+    "body": {
+      "id": "<dataset-1>",
+      "linked_at": "<linked_at>",
+      "name": "test_image_v05.zarr",
+      "ome_zarr": {
+        "kind": "image",
+        "version": "0.5",
+        "zarr_format": 3
+      },
+      "path": "<generated>/test_image_v05.zarr"
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 201
+  },
+  "metadata": {
+    "body": {
+      "available": false,
+      "plate": null,
+      "wells": []
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "summary": {
+    "body": {
+      "axes": [
+        {
+          "name": "t",
+          "type": "time",
+          "unit": "hour"
+        },
+        {
+          "name": "c",
+          "type": "channel",
+          "unit": null
+        },
+        {
+          "name": "y",
+          "type": "space",
+          "unit": "micrometer"
+        },
+        {
+          "name": "x",
+          "type": "space",
+          "unit": "micrometer"
+        }
+      ],
+      "channels": [
+        {
+          "color": "0000FF",
+          "name": "405 nm",
+          "window": {
+            "end": 8000.0,
+            "max": 65535.0,
+            "min": 0.0,
+            "start": 100.0
+          }
+        },
+        {
+          "color": "00FF00",
+          "name": "505 nm",
+          "window": {
+            "end": 8000.0,
+            "max": 65535.0,
+            "min": 0.0,
+            "start": 100.0
+          }
+        },
+        {
+          "color": "FF0000",
+          "name": "625 nm",
+          "window": {
+            "end": 8000.0,
+            "max": 65535.0,
+            "min": 0.0,
+            "start": 100.0
+          }
+        }
+      ],
+      "kind": "image",
+      "levels": [
+        {
+          "chunks": [
+            1,
+            1,
+            128,
+            128
+          ],
+          "coordinate_transformations": [
+            {
+              "scale": [
+                1.0,
+                1.0,
+                0.3,
+                0.3
+              ],
+              "type": "scale"
+            },
+            {
+              "translation": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "type": "translation"
+            }
+          ],
+          "dtype": "uint16",
+          "path": "s0",
+          "shape": [
+            6,
+            3,
+            512,
+            512
+          ],
+          "shard_shape": null
+        }
+      ],
+      "name": "TIMED synthetic image v0.5",
+      "ome_zarr_version": "0.5",
+      "path": "",
+      "zarr_format": 3
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "wells A/1": {
+    "body": {
+      "detail": "Dataset is not a plate"
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 422
+  },
+  "zarr s0/c/0/0/0/0": {
+    "etag": "\"<hex>-4916\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 18710,
+    "sha256": "ae8c1f28995f91f9b9f59b8d7799662f90ba2dfaec1691fe46bff6594f882f2d",
+    "status": 200
+  },
+  "zarr s0/zarr.json": {
+    "body": {
+      "attributes": {},
+      "chunk_grid": {
+        "configuration": {
+          "chunk_shape": [
+            1,
+            1,
+            128,
+            128
+          ]
+        },
+        "name": "regular"
+      },
+      "chunk_key_encoding": {
+        "configuration": {
+          "separator": "/"
+        },
+        "name": "default"
+      },
+      "codecs": [
+        {
+          "configuration": {
+            "endian": "little"
+          },
+          "name": "bytes"
+        },
+        {
+          "configuration": {
+            "checksum": false,
+            "level": 0
+          },
+          "name": "zstd"
+        }
+      ],
+      "data_type": "uint16",
+      "dimension_names": [
+        "t",
+        "c",
+        "y",
+        "x"
+      ],
+      "fill_value": 0,
+      "node_type": "array",
+      "shape": [
+        6,
+        3,
+        512,
+        512
+      ],
+      "storage_transformers": [],
+      "zarr_format": 3
+    },
+    "etag": "\"<hex>-2e3\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "zarr zarr.json": {
+    "body": {
+      "attributes": {
+        "ome": {
+          "multiscales": [
+            {
+              "axes": [
+                {
+                  "name": "t",
+                  "type": "time",
+                  "unit": "hour"
+                },
+                {
+                  "name": "c",
+                  "type": "channel"
+                },
+                {
+                  "name": "y",
+                  "type": "space",
+                  "unit": "micrometer"
+                },
+                {
+                  "name": "x",
+                  "type": "space",
+                  "unit": "micrometer"
+                }
+              ],
+              "datasets": [
+                {
+                  "coordinateTransformations": [
+                    {
+                      "scale": [
+                        1.0,
+                        1.0,
+                        0.3,
+                        0.3
+                      ],
+                      "type": "scale"
+                    },
+                    {
+                      "translation": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0
+                      ],
+                      "type": "translation"
+                    }
+                  ],
+                  "path": "s0"
+                }
+              ],
+              "name": "TIMED synthetic image v0.5"
+            }
+          ],
+          "omero": {
+            "channels": [
+              {
+                "color": "0000FF",
+                "label": "405 nm",
+                "window": {
+                  "end": 8000.0,
+                  "max": 65535.0,
+                  "min": 0.0,
+                  "start": 100.0
+                }
+              },
+              {
+                "color": "00FF00",
+                "label": "505 nm",
+                "window": {
+                  "end": 8000.0,
+                  "max": 65535.0,
+                  "min": 0.0,
+                  "start": 100.0
+                }
+              },
+              {
+                "color": "FF0000",
+                "label": "625 nm",
+                "window": {
+                  "end": 8000.0,
+                  "max": 65535.0,
+                  "min": 0.0,
+                  "start": 100.0
+                }
+              }
+            ],
+            "rdefs": {
+              "model": "color"
+            }
+          },
+          "version": "0.5"
+        }
+      },
+      "node_type": "group",
+      "zarr_format": 3
+    },
+    "etag": "\"<hex>-84d\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/json"
+    },
+    "status": 200
+  }
+}

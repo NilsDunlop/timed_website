@@ -1,0 +1,404 @@
+{
+  "timed collection href": "/view?dataset=<id-1>&path=A01_s1.zarr&collection=timed&returnDataset=<id-1>",
+  "timed collection": {
+    "heading": "Image viewer for Compound Alpha",
+    "status": "Image ready",
+    "controlsHeading": "Time and channels",
+    "displayGroup": false,
+    "mode": null,
+    "grayscaleChannel": null,
+    "channels": [
+      {
+        "name": "405 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(0, 0, 255)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "505 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(0, 255, 0)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "625 nm",
+        "labels": [
+          "Contrast minimum: 100",
+          "Contrast maximum: 65535"
+        ],
+        "visible": true,
+        "color": "rgb(255, 0, 0)",
+        "contrast": [
+          "131.07",
+          "65535"
+        ],
+        "domain": [
+          [
+            "0",
+            "65535"
+          ],
+          [
+            "0",
+            "65535"
+          ]
+        ],
+        "step": [
+          "65.535",
+          "65.535"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": "Time: 1 / 6",
+      "requested": "0",
+      "maximum": "5",
+      "displayed": "t 1 / 6",
+      "jump": "1 h"
+    },
+    "scaleBars": [
+      "true"
+    ],
+    "comparisonCount": null,
+    "canvases": 1
+  },
+  "cell health href": "/view?dataset=<id-2>&path=A01_s1.zarr&collection=idr0080&returnDataset=<id-2>",
+  "cell health color": {
+    "heading": "Image viewer for EMPTY control",
+    "status": "Image ready",
+    "controlsHeading": "Channels",
+    "displayGroup": true,
+    "mode": "fluorescence",
+    "grayscaleChannel": null,
+    "channels": [
+      {
+        "name": "DNA",
+        "labels": [
+          "Contrast minimum: 292",
+          "Contrast maximum: 11552"
+        ],
+        "visible": true,
+        "color": "rgb(19, 0, 249)",
+        "contrast": [
+          "297",
+          "11556"
+        ],
+        "domain": [
+          [
+            "0",
+            "27000"
+          ],
+          [
+            "0",
+            "27000"
+          ]
+        ],
+        "step": [
+          "27",
+          "27"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "ER",
+        "labels": [
+          "Contrast minimum: 438",
+          "Contrast maximum: 17554"
+        ],
+        "visible": true,
+        "color": "rgb(42, 255, 31)",
+        "contrast": [
+          "450",
+          "17550"
+        ],
+        "domain": [
+          [
+            "0",
+            "45000"
+          ],
+          [
+            "0",
+            "45000"
+          ]
+        ],
+        "step": [
+          "45",
+          "45"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "AGP",
+        "labels": [
+          "Contrast minimum: 554",
+          "Contrast maximum: 9283"
+        ],
+        "visible": true,
+        "color": "rgb(255, 0, 25)",
+        "contrast": [
+          "546",
+          "9282"
+        ],
+        "domain": [
+          [
+            "0",
+            "26000"
+          ],
+          [
+            "0",
+            "26000"
+          ]
+        ],
+        "step": [
+          "26",
+          "26"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "RNA",
+        "labels": [
+          "Contrast minimum: 151",
+          "Contrast maximum: 5035"
+        ],
+        "visible": false,
+        "color": "rgb(45, 255, 252)",
+        "contrast": [
+          "154",
+          "5040"
+        ],
+        "domain": [
+          [
+            "0",
+            "14000"
+          ],
+          [
+            "0",
+            "14000"
+          ]
+        ],
+        "step": [
+          "14",
+          "14"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      },
+      {
+        "name": "Mito",
+        "labels": [
+          "Contrast minimum: 324",
+          "Contrast maximum: 4066"
+        ],
+        "visible": false,
+        "color": "rgb(250, 0, 253)",
+        "contrast": [
+          "330",
+          "4065"
+        ],
+        "domain": [
+          [
+            "0",
+            "15000"
+          ],
+          [
+            "0",
+            "15000"
+          ]
+        ],
+        "step": [
+          "15",
+          "15"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": null,
+      "requested": null,
+      "maximum": null,
+      "displayed": null,
+      "jump": null
+    },
+    "scaleBars": [
+      "true"
+    ],
+    "comparisonCount": null,
+    "canvases": 1
+  },
+  "cell health grayscale": {
+    "heading": "Image viewer for EMPTY control",
+    "status": "Image ready",
+    "controlsHeading": "Channels",
+    "displayGroup": true,
+    "mode": "grayscale",
+    "grayscaleChannel": "DNA",
+    "channels": [
+      {
+        "name": "DNA",
+        "labels": [
+          "Contrast minimum: 292",
+          "Contrast maximum: 11552"
+        ],
+        "visible": null,
+        "color": null,
+        "contrast": [
+          "297",
+          "11556"
+        ],
+        "domain": [
+          [
+            "0",
+            "27000"
+          ],
+          [
+            "0",
+            "27000"
+          ]
+        ],
+        "step": [
+          "27",
+          "27"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": null,
+      "requested": null,
+      "maximum": null,
+      "displayed": null,
+      "jump": null
+    },
+    "scaleBars": [
+      "true"
+    ],
+    "comparisonCount": null,
+    "canvases": 1
+  },
+  "cell health comparison href": "/view?dataset=<id-2>&path=A01_s1.zarr&compare=C01_s1.zarr&compareDataset=<id-2>&collection=idr0080&returnDataset=<id-2>",
+  "cell health comparison": {
+    "heading": "Compare trajectories",
+    "status": "Images ready",
+    "controlsHeading": "Channels",
+    "displayGroup": true,
+    "mode": "grayscale",
+    "grayscaleChannel": "DNA",
+    "channels": [
+      {
+        "name": "DNA",
+        "labels": [
+          "Contrast minimum: 292",
+          "Contrast maximum: 11552"
+        ],
+        "visible": null,
+        "color": null,
+        "contrast": [
+          "297",
+          "11556"
+        ],
+        "domain": [
+          [
+            "0",
+            "27000"
+          ],
+          [
+            "0",
+            "27000"
+          ]
+        ],
+        "step": [
+          "27",
+          "27"
+        ],
+        "locked": [
+          false,
+          false
+        ]
+      }
+    ],
+    "time": {
+      "label": null,
+      "requested": null,
+      "maximum": null,
+      "displayed": null,
+      "jump": null
+    },
+    "scaleBars": [
+      "true",
+      "true"
+    ],
+    "comparisonCount": "2",
+    "canvases": 2
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "link": {
+    "body": {
+      "id": "<dataset-1>",
+      "linked_at": "<linked_at>",
+      "name": "native_plate.zarr",
+      "ome_zarr": {
+        "kind": "plate",
+        "version": "0.4",
+        "zarr_format": 2
+      },
+      "path": "<generated>/native_plate.zarr"
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 201
+  },
+  "metadata": {
+    "body": {
+      "available": false,
+      "plate": null,
+      "wells": []
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "summary": {
+    "body": {
+      "acquisitions": [
+        {
+          "id": 7,
+          "name": "hourly"
+        }
+      ],
+      "columns": [
+        "1"
+      ],
+      "first_image": {
+        "axes": [
+          {
+            "name": "t",
+            "type": "time",
+            "unit": null
+          },
+          {
+            "name": "c",
+            "type": "channel",
+            "unit": null
+          },
+          {
+            "name": "y",
+            "type": "space",
+            "unit": null
+          },
+          {
+            "name": "x",
+            "type": "space",
+            "unit": null
+          }
+        ],
+        "channels": [],
+        "kind": "image",
+        "levels": [
+          {
+            "chunks": [
+              1,
+              1,
+              16,
+              16
+            ],
+            "coordinate_transformations": [],
+            "dtype": "<u2",
+            "path": "0",
+            "shape": [
+              2,
+              1,
+              32,
+              32
+            ],
+            "shard_shape": null
+          }
+        ],
+        "name": "field zero",
+        "ome_zarr_version": "0.4",
+        "path": "A/1/0",
+        "zarr_format": 2
+      },
+      "kind": "plate",
+      "name": "Native test plate",
+      "ome_zarr_version": "0.4",
+      "path": "",
+      "rows": [
+        "A"
+      ],
+      "wells": [
+        {
+          "column": "1",
+          "path": "A/1",
+          "row": "A"
+        }
+      ],
+      "zarr_format": 2
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "wells A/1": {
+    "body": {
+      "fields": [
+        {
+          "acquisition": 7,
+          "path": "A/1/0"
+        }
+      ],
+      "well_path": "A/1"
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "zarr .zattrs": {
+    "etag": "\"<hex>-db\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 219,
+    "sha256": "aab22cd1295b5cc8c7ab6e709d9069c03a42f84efe081b8e00008bfaa15ceac8",
+    "status": 200
+  },
+  "zarr A/1/.zattrs": {
+    "etag": "\"<hex>-49\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 73,
+    "sha256": "595b7d633d237010f9d78bff79aa01f28516b3d055b572215651adcd6510f71e",
+    "status": 200
+  },
+  "zarr A/1/0/.zattrs": {
+    "etag": "\"<hex>-e3\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 227,
+    "sha256": "190b5b522ac8bff48ab799c5b5112f5ef9d1c9f9d64e25e9a7ccb61d74ec5894",
+    "status": 200
+  },
+  "zarr A/1/0/0/.zarray": {
+    "etag": "\"<hex>-55\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 85,
+    "sha256": "d106ace233916df9b66899fc183f3e8a7eb0059e78243b1279b46c703f078771",
+    "status": 200
+  }
+}

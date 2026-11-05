@@ -1,0 +1,204 @@
+{
+  "link": {
+    "body": {
+      "id": "<dataset-1>",
+      "linked_at": "<linked_at>",
+      "name": "test_image_v04.zarr",
+      "ome_zarr": {
+        "kind": "image",
+        "version": "0.4",
+        "zarr_format": 2
+      },
+      "path": "<generated>/test_image_v04.zarr"
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 201
+  },
+  "metadata": {
+    "body": {
+      "available": false,
+      "plate": null,
+      "wells": []
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "summary": {
+    "body": {
+      "axes": [
+        {
+          "name": "t",
+          "type": "time",
+          "unit": "hour"
+        },
+        {
+          "name": "c",
+          "type": "channel",
+          "unit": null
+        },
+        {
+          "name": "y",
+          "type": "space",
+          "unit": "micrometer"
+        },
+        {
+          "name": "x",
+          "type": "space",
+          "unit": "micrometer"
+        }
+      ],
+      "channels": [
+        {
+          "color": "0000FF",
+          "name": "405 nm",
+          "window": {
+            "end": 8000.0,
+            "max": 65535.0,
+            "min": 0.0,
+            "start": 100.0
+          }
+        },
+        {
+          "color": "00FF00",
+          "name": "505 nm",
+          "window": {
+            "end": 8000.0,
+            "max": 65535.0,
+            "min": 0.0,
+            "start": 100.0
+          }
+        },
+        {
+          "color": "FF0000",
+          "name": "625 nm",
+          "window": {
+            "end": 8000.0,
+            "max": 65535.0,
+            "min": 0.0,
+            "start": 100.0
+          }
+        }
+      ],
+      "kind": "image",
+      "levels": [
+        {
+          "chunks": [
+            1,
+            1,
+            128,
+            128
+          ],
+          "coordinate_transformations": [
+            {
+              "scale": [
+                1.0,
+                1.0,
+                0.3,
+                0.3
+              ],
+              "type": "scale"
+            },
+            {
+              "translation": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "type": "translation"
+            }
+          ],
+          "dtype": "<u2",
+          "path": "s0",
+          "shape": [
+            6,
+            3,
+            512,
+            512
+          ],
+          "shard_shape": null
+        }
+      ],
+      "name": "TIMED synthetic image v0.4",
+      "ome_zarr_version": "0.4",
+      "path": "",
+      "zarr_format": 2
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "wells A/1": {
+    "body": {
+      "detail": "Dataset is not a plate"
+    },
+    "etag": null,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 422
+  },
+  "zarr .zattrs": {
+    "etag": "\"<hex>-698\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 1688,
+    "sha256": "17efe56d678d316c8a98f4cd7e3ce4fc0ea820687db06ab67e0f53348189cb73",
+    "status": 200
+  },
+  "zarr .zgroup": {
+    "etag": "\"<hex>-16\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 22,
+    "sha256": "7c578b275a7ccb234a2427d173bed71c9e7dc5d413052265b68ab5f9b2812ff3",
+    "status": 200
+  },
+  "zarr s0/.zarray": {
+    "etag": "\"<hex>-117\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 279,
+    "sha256": "62538d7eceecfafa0ed8c02f5fae517116cd86f807c1dc8359cd55f44d617eac",
+    "status": 200
+  },
+  "zarr s0/.zattrs": {
+    "etag": "\"<hex>-2\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 2,
+    "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "status": 200
+  },
+  "zarr s0/0/0/0/0": {
+    "etag": "\"<hex>-4916\"",
+    "headers": {
+      "accept-ranges": "bytes",
+      "cache-control": "private, max-age=3600",
+      "content-type": "application/octet-stream"
+    },
+    "length": 18710,
+    "sha256": "ae8c1f28995f91f9b9f59b8d7799662f90ba2dfaec1691fe46bff6594f882f2d",
+    "status": 200
+  }
+}
