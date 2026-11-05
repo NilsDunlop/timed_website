@@ -27,6 +27,8 @@ docs/data/packed-display-survey.json
 docs/data/idr0080-extras.json
 docs/data/idr0080-mask-contract.json
 docs/data/qc-export/
+docs/data/berzelius-p2.1/
+docs/data/p21-reference.tgz
 
 # Local environment and editor files
 .env

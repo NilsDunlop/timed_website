@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | A | `fix/cell-health-channels` | 0.4.1 | Correct the Cell Health channel identity. Done by a separate prompt before this brief; section 3 is for reference |
 | B | `feature/qc-review` | 0.5.0 | Connect the QC metrics export: core QC page, field and well review, queues and annotations |
-| B.1 | separate branch after Part B merges | 0.5.1 | Add the blinded QC interface on top of the server-side blind response mode designed in Part B |
+| B.1 | separate future branch | TBD | Add the blinded QC interface on top of the server-side blind response mode designed in Part B |
 | C | `feature/segmentation-outlines` | 0.6.0 | Nucleus, cell and cytoplasm outlines from CellPrompter's mask stores |
 
 Part B is implemented and passed its manual Arrhenius A2 check on 2026-11-04.
@@ -41,7 +41,7 @@ Part C remain future work.
     browser uses a compact reason-first presentation with secondary table
     columns behind progressive disclosure. Core requests omit the `blind`
     query parameter.
-  - Every QC endpoint nevertheless accepts `blind=1` in 0.5.0. The server then removes every export column marked hidden and the additional attributes listed in section 4.11 before serialising a response. This server-side response mode is the foundation for the separate 0.5.1 blinded-interface PR.
+  - Every QC endpoint nevertheless accepts `blind=1` in 0.5.0. The server then removes every export column marked hidden and the additional attributes listed in section 4.11 before serialising a response. This server-side response mode is the foundation for a separate later blinded-interface PR.
   - Real hidden columns remain confidential in repository history: refer to them only by count in commits, tests, docs and replies.
 - **Isolated.** The website reads only the export's files. It never reads or imports the code that produced them, nor CellPrompter's code.
 - **The website excludes nothing.** Annotations are review records. No data or exclusion list changes in the website.
@@ -444,7 +444,7 @@ expected 0.5.0 development version.
 
 Then set version 0.5.0 and give the operator the PR text.
 
-### 4.11 Blinded mode after Part B (0.5.1)
+### 4.11 Blinded mode after Part B (later release)
 
 Build the user-facing blinded mode only after 0.5.0 is merged, in its own PR.
 
@@ -485,6 +485,6 @@ Then set version 0.6.0 and give the operator the PR text.
    5. Review in the viewer.
    6. Queues and annotations.
    7. Operator check (A2), version 0.5.0, PR and merge.
-3. **Blinded mode (0.5.1):** after Part B merges, add the QC/viewer switch and
+3. **Blinded mode (later release):** add the QC/viewer switch and
    blinded image-review interaction in a separate PR.
 4. **Part C:** operator check, PR, merge.

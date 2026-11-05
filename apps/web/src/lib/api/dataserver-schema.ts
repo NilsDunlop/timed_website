@@ -410,6 +410,7 @@ export interface components {
             acquisition?: number | string | null;
             /** Path */
             path: string;
+            site_position_fix?: components["schemas"]["SitePositionFixSummary"] | null;
         };
         /** FilesystemEntry */
         FilesystemEntry: {
@@ -912,6 +913,13 @@ export interface components {
             shape: number[];
             /** Shard Shape */
             shard_shape?: number[] | null;
+        };
+        /** SitePositionFixSummary */
+        SitePositionFixSummary: {
+            /** Grid X */
+            grid_x: number;
+            /** Repaired Timepoints */
+            repaired_timepoints: number[];
         };
         /** ValidationError */
         ValidationError: {

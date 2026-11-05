@@ -405,6 +405,11 @@ test("starts a local server, renders time data, and stops it", async ({
   await expect(comparison).toHaveAttribute("data-count", "4");
   await expect(comparison.locator(".comparison-view")).toHaveCount(4);
   await expect(comparison.locator("canvas")).toHaveCount(4);
+  const repairNote = page.getByTestId("site-position-fix-note");
+  await expect(repairNote).toHaveCount(1);
+  await expect(repairNote).toHaveText(
+    "Site position repaired at timepoint 0: this field holds grid position x = 1 for the whole run.",
+  );
   const comparisonHeaderHeights = await comparison
     .locator(".comparison-view > header")
     .evaluateAll((headers) =>

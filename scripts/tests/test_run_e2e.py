@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.run_e2e import _profile
+from scripts.run_e2e import _profile, _real_timed_profile
 
 
 def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) -> None:
@@ -72,4 +72,36 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
         "path": "/cluster/idr0080-like/idr0080-raw.index.parquet",
         "qc_export": "/cluster/qc-export",
         "qc_annotations": "/cluster/qc-annotations",
+    }
+
+
+def test_browser_runner_writes_real_timed_copy_profile(tmp_path: Path) -> None:
+    profiles_path = tmp_path / "profiles.yaml"
+    copy_root = tmp_path / "TIMED"
+
+    _real_timed_profile(profiles_path, copy_root)
+
+    document = yaml.safe_load(profiles_path.read_text(encoding="utf-8"))
+    assert document == {
+        "profiles": [
+            {
+                "id": "local-timed",
+                "name": "Local TIMED (external drive)",
+                "kind": "local",
+                "data_roots": [str(copy_root / "zarr")],
+                "metadata_root": str(copy_root / "metadata"),
+                "collections": [
+                    {
+                        "id": "timed",
+                        "title": "TIMED",
+                        "description": (
+                            "Live-cell time-lapse · PB100140_P2.1 · "
+                            "48 h, hourly · 3 channels"
+                        ),
+                        "path": str(copy_root / "zarr"),
+                        "default": True,
+                    }
+                ],
+            }
+        ]
     }

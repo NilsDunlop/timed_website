@@ -31,6 +31,43 @@ profiles:
     auto_install_uv: true
     module_loads: []
 
+  - id: berzelius
+    name: Berzelius (NSC)
+    kind: slurm
+    host: berzelius.nsc.liu.se
+    port: 22
+    username: x_nildu
+    data_roots:
+      - /proj/berzelius-2026-62/users/x_nildu/TIMED/zarr
+    metadata_root: /proj/berzelius-2026-62/users/x_nildu/TIMED/metadata
+    collections:
+      - id: timed
+        title: TIMED
+        description: Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels
+        path: /proj/berzelius-2026-62/users/x_nildu/TIMED/zarr
+        default: true
+    slurm:
+      account: berzelius-2026-299
+      partition: berzelius-cpu
+      time: "08:00:00"
+      cpus: 2
+    remote_state_dir: ~/.timed
+    auto_install_uv: true
+    module_loads: []
+
+  - id: local-timed
+    name: Local TIMED (external drive)
+    kind: local
+    data_roots:
+      - "D:/TIMED/zarr"
+    metadata_root: "D:/TIMED/metadata"
+    collections:
+      - id: timed
+        title: TIMED
+        description: Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels
+        path: "D:/TIMED/zarr"
+        default: true
+
   - id: test-cluster
     name: Test cluster (local SSH/Slurm harness)
     kind: slurm

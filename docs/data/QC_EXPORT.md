@@ -27,7 +27,7 @@ columns marked `hide` and removes the additional attributes defined by the
 blinded-view contract before constructing the response. Redaction happens on
 the server; the browser never receives redacted data. The 0.5.0 core UI does
 not request blinded responses. The switch that does so belongs to a separate
-0.5.1 pull request after the core release is merged.
+later pull request.
 
 Real hidden names and values remain absent from logs, error messages, fixtures,
 commits, and documentation. This reference records them only by count even

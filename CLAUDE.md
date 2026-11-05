@@ -75,7 +75,9 @@ single-flight, byte-bounded cache (1 GiB by default); `serve
 do not assume a separate `~/.timed/profiles.yaml` on the operator workstation.
 Its Arrhenius profile declares both the **TIMED** and **Cell Health** collections,
 with TIMED carrying the sole `default: true`. Dataset choice remains available
-on Connect before and after connecting. For a manual test-cluster run, replace
+on Connect before and after connecting. The Berzelius and `local-timed`
+profiles expose only TIMED; the latter reads the external downtime mirror at
+`D:/TIMED` and must remain read-only. For a manual test-cluster run, replace
 the profile's absolute-path placeholders, run `make test-cluster` on
 macOS/Linux (or WSL), and run `make dev` in another terminal.
 
@@ -196,13 +198,19 @@ Zarr groups or OME-Zarr plates. Each field is a bare Zarr v3 array named like
   and one resolution level. `dimension_names` is absent.
 - Channels are 405, 505, and 625 nm. There are no OMERO colours or windows;
   use viewer defaults and computed statistics.
-- Logical chunks are `(1, 1, 625, 625)` inside one whole-array shard of
-  `(48, 3, 2500, 2500)`. Compression is Blosc Zstd level 5 with byte shuffle.
+- Arrhenius logical chunks are `(1, 1, 625, 625)` inside one whole-array shard
+  of `(48, 3, 2500, 2500)`. The Berzelius P2.1 copy instead uses whole-plane
+  `(1, 1, 2500, 2500)` chunks. The server derives and strictly validates each
+  field's geometry rather than assuming either layout. Compression is Blosc
+  Zstd level 5 with byte shuffle.
 - P1 plates use rows B-O and columns 2-23: 308 wells and 616 fields each. P2
   plates use rows C-N and columns 3-22: 196 wells and 392 fields each. Every
   well has two fields, for 4,032 fields total.
 - The field's `timed` attribute records well, site, axes, wavelengths, and time
   indices. Pixel size (0.3 micrometres) is documented only in conversion notes.
+- The Berzelius plate root is a Zarr v3 group above its bare field arrays and
+  may carry validated `site_position_fix` metadata. See `docs/berzelius.md` for
+  the layout, generated per-plate metadata and read-only real-copy checks.
 - The data server must provide a synthetic, read-only OME-Zarr metadata facade
   for Viv while mapping chunks to the untouched bare array. Keep standard
   OME-Zarr 0.4/v2 and 0.5/v3 support as separate tested paths.

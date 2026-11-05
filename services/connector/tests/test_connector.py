@@ -374,8 +374,71 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     )
     assert "#SBATCH --account=naiss2026-3-679-cpu" in script
     assert "#SBATCH --partition=cpu" in script
+    assert "#SBATCH --mem=8G" in script
     assert f"--qc-export {cell_health.path}={cell_health.qc_export}" in script
     assert f"--qc-annotations {cell_health.path}={cell_health.qc_annotations}" in script
+
+
+def test_berzelius_profile_is_cpu_only_and_has_only_timed() -> None:
+    repository_root = Path(__file__).parents[3]
+    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+    assert [profile.id for profile in store.public()][:2] == ["arrhenius", "berzelius"]
+    profile = store.get("berzelius")
+
+    assert profile.host == "berzelius.nsc.liu.se"
+    assert profile.username == "x_nildu"
+    assert profile.data_roots == ["/proj/berzelius-2026-62/users/x_nildu/TIMED/zarr"]
+    assert profile.metadata_root == "/proj/berzelius-2026-62/users/x_nildu/TIMED/metadata"
+    assert len(profile.collections) == 1
+    assert profile.collections[0].model_dump() == {
+        "id": "timed",
+        "title": "TIMED",
+        "description": "Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels",
+        "path": "/proj/berzelius-2026-62/users/x_nildu/TIMED/zarr",
+        "default": True,
+        "qc_available": False,
+    }
+    assert profile.slurm is not None
+    assert profile.slurm.account == "berzelius-2026-299"
+    assert profile.slurm.partition == "berzelius-cpu"
+    assert profile.slurm.cpus == 2
+    assert profile.slurm.time == "08:00:00"
+    assert profile.slurm.mem is None
+
+    script = render_job_script(
+        profile,
+        executable="/state/server/0.5.1/venv/bin/timed-dataserver",
+        shell_state_dir="/state",
+    )
+    assert "#SBATCH --account=berzelius-2026-299" in script
+    assert "#SBATCH --partition=berzelius-cpu" in script
+    assert "#SBATCH --cpus-per-task=2" in script
+    assert "#SBATCH --time=08:00:00" in script
+    assert "#SBATCH --mem=" not in script
+    assert "gpu" not in script.casefold()
+    assert "--qc-export" not in script
+    assert "--qc-annotations" not in script
+
+
+def test_local_timed_profile_keeps_windows_drive_paths_and_has_only_timed() -> None:
+    repository_root = Path(__file__).parents[3]
+    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+    profile = store.get("local-timed")
+
+    assert profile.kind == "local"
+    assert profile.data_roots == ["D:/TIMED/zarr"]
+    assert profile.metadata_root == "D:/TIMED/metadata"
+    assert len(profile.collections) == 1
+    collection = profile.collections[0]
+    assert collection.id == "timed"
+    assert collection.title == "TIMED"
+    assert collection.default
+    assert not collection.qc_available
+    if os.name == "nt":
+        assert collection.path == str(Path("D:/TIMED/zarr").resolve())
+        validated = validate_profile(store, "local-timed")
+        assert LocalBackend._data_roots(validated) == [Path("D:/TIMED/zarr").resolve()]
+        assert LocalBackend._metadata_root(validated) == Path("D:/TIMED/metadata").resolve()
 
 
 def test_example_fixture_profiles_enable_qc_with_isolated_annotations() -> None:

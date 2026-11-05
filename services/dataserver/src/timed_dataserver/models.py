@@ -316,9 +316,19 @@ class PlateSummary(ApiModel):
 DatasetSummary = Annotated[ImageSummary | PlateSummary, Field(discriminator="kind")]
 
 
+class SitePositionFixSummary(ApiModel):
+    grid_x: int
+    repaired_timepoints: list[int]
+
+
 class FieldSummary(ApiModel):
     path: str
     acquisition: int | str | None = None
+    site_position_fix: SitePositionFixSummary | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        json_schema_extra=_omit_excluded_default,
+    )
 
 
 class WellFieldsResponse(ApiModel):

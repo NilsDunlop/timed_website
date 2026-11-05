@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=timed-dataserver
 #SBATCH --account={{ account }}
-#SBATCH --partition={{ partition }}
-#SBATCH --time={{ time }}
+{% if partition %}#SBATCH --partition={{ partition }}
+{% endif %}#SBATCH --time={{ time }}
 #SBATCH --cpus-per-task={{ cpus }}
-#SBATCH --mem={{ mem }}
-#SBATCH --output={{ output }}
+{% if mem %}#SBATCH --mem={{ mem }}
+{% endif %}#SBATCH --output={{ output }}
 
 set -euo pipefail
 umask 077

@@ -37,8 +37,10 @@ cross-platform command is:
 uv run python scripts/dev.py --profiles config/profiles.example.yaml
 ```
 
-That profile keeps **TIMED** as the default Arrhenius collection and offers
-**Cell Health** as the idr0080 collection. Generate the fixtures with
+That file keeps **TIMED** as the default Arrhenius collection and offers
+**Cell Health** as the idr0080 collection. It also includes the TIMED-only
+Berzelius profile and a **Local TIMED (external drive)** profile for the
+read-only downtime mirror at `D:/TIMED`. Generate the fixtures with
 `make test-data` (or `uv run python scripts/make_test_data.py`), then choose
 **This computer with datasets** to exercise the same collection flow locally.
 
@@ -136,10 +138,15 @@ dataset contracts and onboarding steps.
   append-only site or well annotations. The viewer applies the export's fixed
   QC windows and shows only registered review metrics. Segmentation outlines
   remain a later, separate part of Phase 2.
+- Version 0.5.1 adds strict, geometry-independent TIMED field validation for
+  the Berzelius P2.1 layout, its per-plate metadata and optional site-repair
+  note. The same layout is validated read-only through the external-drive
+  mirror while Berzelius is unavailable.
 
-Choose **Arrhenius (NAISS)** for the primary HPC path or **This computer** to
-launch a loopback data server over configured local roots. The collection-aware
-fixture profiles use the gitignored synthetic datasets.
+Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
+the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its
+local read-only mirror. **This computer** and the collection-aware fixture
+profiles use the gitignored synthetic datasets.
 
 The real Arrhenius validation steps require the operator to enter their own SSH
 password and verification code. Credentials and data-server tokens must never be

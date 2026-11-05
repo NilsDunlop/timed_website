@@ -65,11 +65,11 @@ test("chooses a request before the remembered, default, and first collection", (
 
 test("remembers collection choices separately for each profile", () => {
   const storage = memoryStorage();
-  writeCollectionPreference(storage, "profile-a", "idr0080");
-  writeCollectionPreference(storage, "profile-b", "timed");
+  writeCollectionPreference(storage, "arrhenius", "idr0080");
+  writeCollectionPreference(storage, "berzelius", "timed");
 
-  expect(readCollectionPreference(storage, "profile-a")).toBe("idr0080");
-  expect(readCollectionPreference(storage, "profile-b")).toBe("timed");
+  expect(readCollectionPreference(storage, "arrhenius")).toBe("idr0080");
+  expect(readCollectionPreference(storage, "berzelius")).toBe("timed");
   expect(readCollectionPreference(storage, "profile-c")).toBeNull();
 });
 

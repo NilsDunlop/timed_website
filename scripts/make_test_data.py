@@ -1122,13 +1122,28 @@ def _write_qc_export_fixture(
 
 
 def _write_bare_field(
-    path: Path, data: np.ndarray, well: str, site: int, profile: DataProfile
+    path: Path,
+    data: np.ndarray,
+    well: str,
+    site: int,
+    profile: DataProfile,
+    *,
+    site_position_fix: dict[str, Any] | None = None,
 ) -> None:
     compressor = BloscCodec(
         cname=profile.compressor_name,
         clevel=profile.compression_level,
         shuffle=profile.shuffle,
     )
+    timed_attributes: dict[str, Any] = {
+        "well": well,
+        "site": site,
+        "axes": list(profile.axes),
+        "channels_nm": list(profile.channel_wavelengths),
+        "t_indices": list(range(TIMEPOINTS)),
+    }
+    if site_position_fix is not None:
+        timed_attributes["site_position_fix"] = site_position_fix
     array = zarr.create_array(
         path,
         shape=profile.synthetic_shape,
@@ -1136,15 +1151,7 @@ def _write_bare_field(
         chunks=profile.synthetic_chunks,
         shards=profile.synthetic_shape,
         compressors=[compressor],
-        attributes={
-            "timed": {
-                "well": well,
-                "site": site,
-                "axes": list(profile.axes),
-                "channels_nm": list(profile.channel_wavelengths),
-                "t_indices": list(range(TIMEPOINTS)),
-            }
-        },
+        attributes={"timed": timed_attributes},
         overwrite=True,
     )
     array[:] = data
@@ -1340,6 +1347,16 @@ def generate_test_data(
                 well,
                 site,
                 profile,
+                site_position_fix=(
+                    {
+                        "grid_x": 1,
+                        "repaired_timepoints": [0],
+                        "reason": "synthetic Berzelius site-position repair",
+                        "by": "make_test_data.py",
+                    }
+                    if plate_index == len(comparison_plates) and field_index == 0
+                    else None
+                ),
             )
 
     _write_collection_acquisition(
