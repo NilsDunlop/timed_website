@@ -7,12 +7,17 @@ import stat
 from collections.abc import Callable
 from pathlib import Path
 
+import anyio
 import httpx
+import numpy as np
 import pytest
+import zarr
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.cli import main, serve
-from timed_dataserver.omezarr import _channels
+from timed_dataserver.omezarr import OmeZarrError, _channels, _timed_field_metadata
+from zarr.codecs import BloscCodec
+from zarr.storage import FsspecStore
 
 from scripts.make_test_data import generate_test_data
 
@@ -65,6 +70,86 @@ def _omit_channel_window_ends(channels: object) -> None:
         assert isinstance(window, dict)
         assert "end" in window
         del window["end"]
+
+
+def _berzelius_fixture(root: Path) -> tuple[Path, np.ndarray]:
+    plate = root / "PB100140_P2.1.zarr"
+    plate.mkdir()
+    _write_json(
+        plate / "zarr.json",
+        {
+            "attributes": {
+                "timed_acquisition": {
+                    "plate_name": "PB100140_P2.1",
+                    "project": "TIMED_MOAC_LGCP_EXP01",
+                }
+            },
+            "zarr_format": 3,
+            "node_type": "group",
+        },
+    )
+    data = np.arange(2 * 3 * 16 * 16, dtype=np.uint16).reshape(2, 3, 16, 16)
+    field = zarr.create_array(
+        plate / "C03_s1.zarr",
+        shape=data.shape,
+        dtype="uint16",
+        chunks=(1, 1, 16, 16),
+        shards=data.shape,
+        compressors=[BloscCodec(cname="zstd", clevel=5, shuffle="shuffle")],
+        attributes={
+            "timed": {
+                "well": "C03",
+                "site": 1,
+                "axes": ["t", "c", "y", "x"],
+                "channels_nm": [405, 505, 625],
+                "t_indices": [0, 1],
+                "site_position_fix": {
+                    "grid_x": 1,
+                    "repaired_timepoints": [0],
+                    "reason": "synthetic site swap",
+                    "by": "test fixture",
+                },
+            }
+        },
+        overwrite=True,
+    )
+    field[:] = data
+
+    metadata = root / "metadata"
+    (metadata / "acquisition").mkdir(parents=True)
+    (metadata / "csv").mkdir()
+    _write_json(
+        metadata / "acquisition" / "PB100140_P2.1.json",
+        {
+            "project_name": "TIMED_MOAC_LGCP_EXP01",
+            "plate_name": "PB100140_P2.1",
+            "cell_line": "U2OS_CLEO3",
+            "grid": {
+                "num_x": 2,
+                "delta_x_mm": 0.9,
+                "num_y": 1,
+                "delta_y_mm": 0.9,
+                "num_t": 2,
+                "delta_t_hours": 1,
+            },
+            "channels": [
+                {"name": "405 nm", "enabled": True},
+                {"name": "505 nm", "enabled": True},
+                {"name": "625 nm", "enabled": True},
+            ],
+        },
+    )
+    (metadata / "csv" / "PB100140_P2.1.csv").write_text(
+        "plate_id,plate_series,plate_replicate,project,plate_barcode,experiment_date,"
+        "well,well_type,cell_line,cell_modification,passage,"
+        "seeding_density_cells_per_well,dye_program,cmpdname,"
+        "target_compound_concentration_uM,moa,target,pathway,mechanism_of_action\n"
+        "P2.1,P2,1,TIMED_MOAC_LGCP_EXP01,PB100140,2026-07-10,C03,compound,"
+        "U2OS_Cleo3,plasmid4_clone1,14+9,1200,NONE,Compound Test,1.0,Test,"
+        "Target,Pathway,Mechanism\n",
+        encoding="utf-8",
+    )
+    return plate, data
 
 
 @pytest.mark.parametrize(
@@ -559,6 +644,130 @@ def test_timed_facade_declares_the_legacy_window_end(
         channel["window"]["end"]
         for channel in group["attributes"]["ome"]["omero"]["channels"]
     ] == [65_535.0] * 3
+
+
+@pytest.mark.asyncio
+async def test_berzelius_plate_group_whole_plane_chunks_metadata_and_repair(
+    tmp_path: Path,
+) -> None:
+    plate, expected = _berzelius_fixture(tmp_path)
+    connection_file = tmp_path / "runtime" / "connection.json"
+    settings = ServerSettings(
+        data_roots=(tmp_path,),
+        state_dir=tmp_path / "state",
+        environment="local",
+        metadata_root=tmp_path / "metadata",
+    )
+    started = asyncio.Event()
+    server_holder: list[object] = []
+
+    def on_started(server: object) -> None:
+        server_holder.append(server)
+        started.set()
+
+    server_task = asyncio.create_task(
+        serve(
+            settings,
+            host="127.0.0.1",
+            port=0,
+            connection_file=connection_file,
+            token=TOKEN,
+            on_started=on_started,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        connection = json.loads(connection_file.read_text(encoding="utf-8"))
+        origin = f"http://127.0.0.1:{connection['port']}"
+        async with httpx.AsyncClient(base_url=origin, timeout=10) as client:
+            linked = await client.post(
+                "/api/datasets",
+                headers=AUTH,
+                json={"path": str(plate)},
+            )
+            assert linked.status_code == 201, linked.text
+            dataset_id = linked.json()["id"]
+            summary = await client.get(
+                f"/api/datasets/{dataset_id}/summary",
+                headers=AUTH,
+            )
+            well = await client.get(
+                f"/api/datasets/{dataset_id}/wells/C03",
+                headers=AUTH,
+            )
+            metadata = await client.get(
+                f"/api/datasets/{dataset_id}/metadata",
+                headers=AUTH,
+            )
+
+        assert summary.status_code == 200, summary.text
+        assert summary.json()["first_image"]["levels"][0]["chunks"] == [1, 1, 16, 16]
+        assert well.status_code == 200, well.text
+        assert well.json()["fields"] == [
+            {
+                "path": "C03_s1.zarr",
+                "acquisition": None,
+                "site_position_fix": {
+                    "grid_x": 1,
+                    "repaired_timepoints": [0],
+                },
+            }
+        ]
+        assert metadata.status_code == 200, metadata.text
+        assert metadata.json()["plate"]["cell_line"] == "U2OS_Cleo3"
+        assert [row["well"] for row in metadata.json()["wells"]] == ["C03"]
+
+        def read_through_facade() -> np.ndarray:
+            store = FsspecStore.from_url(
+                f"{origin}/zarr/{dataset_id}/C03_s1.zarr",
+                storage_options={"headers": AUTH},
+                read_only=True,
+            )
+            group = zarr.open_group(
+                store=store,
+                mode="r",
+                zarr_format=3,
+                use_consolidated=False,
+            )
+            return np.asarray(group["s0"][:])
+
+        actual = await asyncio.wait_for(
+            asyncio.create_task(anyio.to_thread.run_sync(read_through_facade)),
+            timeout=20,
+        )
+        np.testing.assert_array_equal(actual, expected)
+    finally:
+        if server_holder:
+            server_holder[0].should_exit = True  # type: ignore[attr-defined]
+        await asyncio.wait_for(server_task, timeout=10)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda value: value["attributes"]["timed"].pop("axes"), "axes must be"),
+        (lambda value: value.__setitem__("shape", [2, 3, 16]), "invalid shape"),
+        (lambda value: value.__setitem__("data_type", "float32"), "uint16 pixels"),
+        (
+            lambda value: value["codecs"][0].__setitem__("name", "bytes"),
+            "sharding_indexed codec",
+        ),
+    ],
+)
+def test_timed_field_validation_rejects_incompatible_metadata(
+    tmp_path: Path,
+    change: Callable[[dict[str, object]], object],
+    message: str,
+) -> None:
+    plate, _data = _berzelius_fixture(tmp_path)
+    field = plate / "C03_s1.zarr"
+    metadata_path = field / "zarr.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    change(metadata)
+    _write_json(metadata_path, metadata)
+
+    with pytest.raises(OmeZarrError, match=message):
+        _timed_field_metadata(field)
 
 
 def test_collection_plate_metadata_joins_wells_and_acquisition(

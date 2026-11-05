@@ -1,5 +1,24 @@
 # Decision log
 
+## 2026-11-04: accept validated Berzelius TIMED geometry without a second format
+
+Berzelius temporarily hosts `PB100140_P2.1` while Arrhenius is unavailable. Its
+plate root is a non-OME Zarr v3 group and its field shards use whole-plane inner
+chunks. These are safe variations of the existing bare TIMED layout: the facade
+continues to detect named field arrays below the root and derives every chunk,
+shard, and codec setting from the selected field's own metadata. It now rejects
+fields whose Zarr version, four-dimensional `(t, c, y, x)` axes, `uint16` dtype,
+identity, channel/time lengths, whole-array shard, or indexed Blosc-Zstd codec
+family do not satisfy the TIMED contract. Arrhenius's tiled fields are unchanged.
+
+Repaired fields may carry `timed.site_position_fix`. The viewer reports its
+grid-x position and repaired timepoints but never remaps a field name or pixel.
+Berzelius metadata is generated as the existing bounded per-plate CSV and
+acquisition JSON; the server does not gain a consolidated-Parquet runtime path.
+The CSV preserves the source spelling `U2OS_Cleo3` without display
+normalisation. The cluster profile is CPU-only and omits `--mem`, while the
+rendered Arrhenius job retains its existing partition and memory directives.
+
 ## 2026-10-05: preserve the brief's architecture
 
 The prototype keeps the browser, local connector, and remote data server as
@@ -773,3 +792,30 @@ removes all columns marked hidden before response serialization, while the
 records in the configured annotations folder remain the data server's only
 write. The user-facing blinded mode and all segmentation-outline work are
 explicitly deferred.
+
+## 2026-11-05: use the external Berzelius mirror during planned downtime
+
+The external-drive copy at `D:/TIMED` mirrors the Berzelius `zarr/` and
+`metadata/` layout, including all 392 field arrays, explicit axes and the two
+per-plate runtime metadata files. A separate collection-aware `local-timed`
+profile makes this copy the main validation target while the cluster is
+unavailable; the Berzelius Slurm profile remains configured for later operator
+validation.
+
+Local mode treats the Windows drive-letter paths as filesystem paths and passes
+them to the data-server child as individual subprocess arguments. Runtime
+state, the dataset registry and test artefacts stay outside the external copy.
+An opt-in integration test reads one complete whole-plane chunk through the
+HTTP facade, loads the 196-well metadata catalogue and verifies C03 site 1's
+repair metadata. A matching opt-in browser flow verifies the rendered image and
+operator-facing repair note. Both checks are read-only; the server integration
+test additionally guards representative source metadata with before-and-after
+hashes.
+
+The operator accepted the local mirror on 2026-11-05: profile selection,
+metadata, time navigation, the C03 repair note and disconnect all behaved as
+expected, and local image viewing was noticeably faster than the tunneled
+cluster path. This compatibility work is released as 0.5.1. The former 0.5.1
+reservation for the still-future blinded QC interface is superseded; that work
+has no assigned release number. Segmentation remains separate and starts later
+from a fresh branch.

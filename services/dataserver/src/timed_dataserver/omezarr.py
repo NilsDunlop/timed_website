@@ -17,6 +17,7 @@ from .models import (
     OmeZarrInfo,
     PlateSummary,
     ResolutionLevel,
+    SitePositionFixSummary,
     WellFieldsResponse,
     WellSummary,
     WindowSummary,
@@ -143,9 +144,150 @@ def _version(attributes: dict[str, Any], zarr_format: int) -> str:
     return "0.5" if zarr_format == 3 else "0.4"
 
 
-def _is_array(path: Path) -> bool:
+def _positive_shape(value: Any, *, name: str, path: Path) -> list[int]:
+    if (
+        not isinstance(value, list)
+        or len(value) != 4
+        or any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in value)
+    ):
+        raise OmeZarrError(f"TIMED field has an invalid {name}: {path}")
+    return value
+
+
+def _codec_configuration(codec: Any, *, name: str, path: Path) -> dict[str, Any]:
+    if not isinstance(codec, dict) or codec.get("name") != name:
+        raise OmeZarrError(f"TIMED field requires the {name} codec: {path}")
+    configuration = codec.get("configuration", {})
+    if not isinstance(configuration, dict):
+        raise OmeZarrError(f"TIMED field has invalid {name} codec settings: {path}")
+    return configuration
+
+
+def _validate_timed_codecs(metadata: dict[str, Any], shape: list[int], path: Path) -> None:
+    grid = metadata.get("chunk_grid")
+    grid_configuration = (
+        grid.get("configuration")
+        if isinstance(grid, dict) and grid.get("name") == "regular"
+        else None
+    )
+    if not isinstance(grid_configuration, dict):
+        raise OmeZarrError(f"TIMED field requires a regular chunk grid: {path}")
+    shard_shape = _positive_shape(
+        grid_configuration.get("chunk_shape"), name="shard shape", path=path
+    )
+    if shard_shape != shape:
+        raise OmeZarrError(f"TIMED field must use one whole-array shard: {path}")
+
+    codecs = metadata.get("codecs")
+    if not isinstance(codecs, list) or len(codecs) != 1:
+        raise OmeZarrError(f"TIMED field requires one sharding codec: {path}")
+    sharding = _codec_configuration(codecs[0], name="sharding_indexed", path=path)
+    inner_shape = _positive_shape(sharding.get("chunk_shape"), name="inner chunk shape", path=path)
+    if any(inner > outer for inner, outer in zip(inner_shape, shape, strict=True)):
+        raise OmeZarrError(f"TIMED field inner chunks exceed its shape: {path}")
+
+    inner_codecs = sharding.get("codecs")
+    if not isinstance(inner_codecs, list) or len(inner_codecs) != 2:
+        raise OmeZarrError(f"TIMED field requires bytes plus Blosc codecs: {path}")
+    bytes_configuration = _codec_configuration(inner_codecs[0], name="bytes", path=path)
+    blosc_configuration = _codec_configuration(inner_codecs[1], name="blosc", path=path)
+    if bytes_configuration.get("endian") != "little":
+        raise OmeZarrError(f"TIMED field bytes must be little-endian: {path}")
+    if (
+        blosc_configuration.get("cname") != "zstd"
+        or blosc_configuration.get("typesize") != 2
+    ):
+        raise OmeZarrError(f"TIMED field requires uint16 Blosc Zstd compression: {path}")
+
+    index_codecs = sharding.get("index_codecs")
+    if not isinstance(index_codecs, list) or len(index_codecs) != 2:
+        raise OmeZarrError(f"TIMED field requires bytes plus CRC32C index codecs: {path}")
+    index_bytes = _codec_configuration(index_codecs[0], name="bytes", path=path)
+    _codec_configuration(index_codecs[1], name="crc32c", path=path)
+    if index_bytes.get("endian") != "little" or sharding.get("index_location") != "end":
+        raise OmeZarrError(f"TIMED field has an unsupported shard index layout: {path}")
+
+
+def _timed_field_metadata(path: Path) -> dict[str, Any]:
+    zarr_format, metadata = _array_metadata(path)
+    if zarr_format != 3 or metadata.get("zarr_format") != 3:
+        raise OmeZarrError(f"TIMED field must be a Zarr v3 array: {path}")
+    shape = _positive_shape(metadata.get("shape"), name="shape", path=path)
+    if metadata.get("data_type") != "uint16":
+        raise OmeZarrError(f"TIMED field must use uint16 pixels: {path}")
+
+    raw_attributes = metadata.get("attributes")
+    timed = raw_attributes.get("timed") if isinstance(raw_attributes, dict) else None
+    if not isinstance(timed, dict):
+        raise OmeZarrError(f"TIMED field has no timed attributes: {path}")
+    if timed.get("axes") != ["t", "c", "y", "x"]:
+        raise OmeZarrError(f"TIMED field axes must be t, c, y, x: {path}")
+
+    match = FIELD_NAME.fullmatch(path.name)
+    expected_well = f"{match.group('row').upper()}{match.group('column')}" if match else None
+    expected_site = int(match.group("site")) if match else None
+    if timed.get("well") != expected_well or timed.get("site") != expected_site:
+        raise OmeZarrError(f"TIMED field identity does not match its directory name: {path}")
+
+    wavelengths = timed.get("channels_nm")
+    if (
+        not isinstance(wavelengths, list)
+        or len(wavelengths) != shape[1]
+        or any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in wavelengths
+        )
+    ):
+        raise OmeZarrError(f"TIMED field channels do not match its channel axis: {path}")
+    timepoints = timed.get("t_indices")
+    if (
+        not isinstance(timepoints, list)
+        or len(timepoints) != shape[0]
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in timepoints)
+    ):
+        raise OmeZarrError(f"TIMED field indices do not match its time axis: {path}")
+
+    _validate_timed_codecs(metadata, shape, path)
+    _site_position_fix(metadata, path)
+    return metadata
+
+
+def _site_position_fix(
+    metadata: dict[str, Any], path: Path
+) -> SitePositionFixSummary | None:
+    raw_attributes = metadata.get("attributes")
+    timed = raw_attributes.get("timed") if isinstance(raw_attributes, dict) else None
+    raw_fix = timed.get("site_position_fix") if isinstance(timed, dict) else None
+    if raw_fix is None:
+        return None
+    if not isinstance(raw_fix, dict):
+        raise OmeZarrError(f"TIMED field has invalid site-position repair metadata: {path}")
+    grid_x = raw_fix.get("grid_x")
+    repaired = raw_fix.get("repaired_timepoints")
+    shape = metadata.get("shape")
+    timepoint_count = shape[0] if isinstance(shape, list) and shape else 0
+    if (
+        isinstance(grid_x, bool)
+        or not isinstance(grid_x, int)
+        or grid_x < 0
+        or not isinstance(repaired, list)
+        or not repaired
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value >= timepoint_count
+            for value in repaired
+        )
+        or repaired != sorted(set(repaired))
+    ):
+        raise OmeZarrError(f"TIMED field has invalid site-position repair metadata: {path}")
+    return SitePositionFixSummary(grid_x=grid_x, repaired_timepoints=repaired)
+
+
+def _is_timed_array(path: Path) -> bool:
     try:
-        _array_metadata(path)
+        _timed_field_metadata(path)
     except OmeZarrError:
         return False
     return True
@@ -208,7 +350,7 @@ def inspect_store(path: Path) -> StoreDescriptor | None:
                 return StoreDescriptor(nested.info, "native", metadata_prefix="OME")
 
     fields = _collection_fields(path)
-    if fields and _is_array(fields[0][3]):
+    if fields and _is_timed_array(fields[0][3]):
         return StoreDescriptor(
             OmeZarrInfo(kind="plate", version="0.5", zarr_format=3),
             "timed-collection",
@@ -334,7 +476,7 @@ def native_image_summary(store: Path, image_path: str = "") -> ImageSummary:
 
 
 def _bare_image_summary(store: Path, field: Path) -> ImageSummary:
-    _, metadata = _array_metadata(field)
+    metadata = _timed_field_metadata(field)
     raw_attributes = metadata.get("attributes")
     timed = raw_attributes.get("timed", {}) if isinstance(raw_attributes, dict) else {}
     axes = timed.get("axes") if isinstance(timed, dict) else None
@@ -419,7 +561,13 @@ def well_fields(store: Path, descriptor: StoreDescriptor, well_path: str) -> Wel
     for row, column, _site, field in _collection_fields(store):
         token = f"{row}{column}"
         if token.casefold() == well_path.casefold():
-            matches.append(FieldSummary(path=field.name))
+            metadata = _timed_field_metadata(field)
+            matches.append(
+                FieldSummary(
+                    path=field.name,
+                    site_position_fix=_site_position_fix(metadata, field),
+                )
+            )
     if not matches:
         raise OmeZarrError(f"Unknown well: {well_path}")
     return WellFieldsResponse(well_path=well_path, fields=matches)
@@ -538,6 +686,7 @@ def collection_resource(store: Path, relative: str) -> VirtualResource | None:
     if match is None or not (store / parts[0]).is_dir():
         return None
     field = store / parts[0]
+    metadata = _timed_field_metadata(field)
     if len(parts) == 2 and parts[1] == "zarr.json":
         image = _bare_image_summary(store, field)
         metadata = {
@@ -579,7 +728,6 @@ def collection_resource(store: Path, relative: str) -> VirtualResource | None:
         }
         return VirtualResource(content=_json_bytes(metadata))
     if len(parts) == 3 and parts[1:] == ("s0", "zarr.json"):
-        metadata = _read_json(field / "zarr.json")
         raw_attributes = metadata.get("attributes")
         timed = raw_attributes.get("timed", {}) if isinstance(raw_attributes, dict) else {}
         if isinstance(timed, dict) and isinstance(timed.get("axes"), list):

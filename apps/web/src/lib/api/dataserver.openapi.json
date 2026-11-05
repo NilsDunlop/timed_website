@@ -326,6 +326,16 @@
           "path": {
             "title": "Path",
             "type": "string"
+          },
+          "site_position_fix": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SitePositionFixSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1767,6 +1777,28 @@
         "title": "ResolutionLevel",
         "type": "object"
       },
+      "SitePositionFixSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "grid_x": {
+            "title": "Grid X",
+            "type": "integer"
+          },
+          "repaired_timepoints": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Repaired Timepoints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "grid_x",
+          "repaired_timepoints"
+        ],
+        "title": "SitePositionFixSummary",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -2024,7 +2056,7 @@
   },
   "info": {
     "title": "TIMED data server",
-    "version": "0.6.0.dev0"
+    "version": "0.5.1"
   },
   "openapi": "3.1.0",
   "paths": {

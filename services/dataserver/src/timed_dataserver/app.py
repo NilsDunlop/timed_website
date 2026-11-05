@@ -1442,6 +1442,8 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
             raise _forbidden(exc) from exc
         except PathNotFoundError as exc:
             raise _not_found(str(exc)) from exc
+        except OmeZarrError as exc:
+            raise _unprocessable(exc) from exc
         if not file_path.is_file():
             raise _not_found(f"Zarr resource does not exist: {resource_path}")
         return _file_response(file_path, range_header, if_none_match, if_range)

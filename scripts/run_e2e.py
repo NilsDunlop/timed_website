@@ -221,6 +221,35 @@ def _local_profile(path: Path, local_data_root: Path) -> None:
     path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
 
 
+def _real_timed_profile(path: Path, copy_root: Path) -> None:
+    data_root = copy_root / "zarr"
+    metadata_root = copy_root / "metadata"
+    value = {
+        "profiles": [
+            {
+                "id": "local-timed",
+                "name": "Local TIMED (external drive)",
+                "kind": "local",
+                "data_roots": [str(data_root)],
+                "metadata_root": str(metadata_root),
+                "collections": [
+                    {
+                        "id": "timed",
+                        "title": "TIMED",
+                        "description": (
+                            "Live-cell time-lapse · PB100140_P2.1 · "
+                            "48 h, hourly · 3 channels"
+                        ),
+                        "path": str(data_root),
+                        "default": True,
+                    }
+                ],
+            }
+        ]
+    }
+    path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+
+
 def _active_jobs(state: str, repository: str) -> str:
     script = f"{repository}/dev/test_cluster/bin/_slurm.py"
     if os.name == "nt":
@@ -281,6 +310,14 @@ def main() -> int:
         help="OME-Zarr store name inside --real-local-root.",
     )
     parser.add_argument(
+        "--real-timed-copy",
+        type=Path,
+        help=(
+            "Run the opt-in Berzelius-layout browser check against a local TIMED "
+            "copy containing zarr/ and metadata/."
+        ),
+    )
+    parser.add_argument(
         "--connector-port",
         type=int,
         default=8700,
@@ -301,6 +338,8 @@ def main() -> int:
 
     if bool(arguments.real_local_root) != bool(arguments.real_local_store):
         parser.error("--real-local-root and --real-local-store must be provided together")
+    if arguments.real_timed_copy and arguments.real_local_root:
+        parser.error("--real-timed-copy cannot be combined with --real-local-root")
     if not 1 <= arguments.connector_port <= 65535:
         parser.error("--connector-port must be between 1 and 65535")
     if not 1 <= arguments.web_port <= 65535:
@@ -308,8 +347,15 @@ def main() -> int:
     if arguments.connector_port == arguments.web_port:
         parser.error("--connector-port and --web-port must be different")
 
-    real_local_root = arguments.real_local_root.resolve() if arguments.real_local_root else None
-    real_local_store = arguments.real_local_store
+    real_timed_copy = arguments.real_timed_copy.resolve() if arguments.real_timed_copy else None
+    real_local_root = (
+        real_timed_copy / "zarr"
+        if real_timed_copy
+        else arguments.real_local_root.resolve()
+        if arguments.real_local_root
+        else None
+    )
+    real_local_store = "PB100140_P2.1.zarr" if real_timed_copy else arguments.real_local_store
     real_local = real_local_root is not None
     built_ui = REPOSITORY_ROOT / "apps" / "web" / "dist"
 
@@ -319,6 +365,8 @@ def main() -> int:
         raise RuntimeError(
             f"OME-Zarr store does not exist: {real_local_root / str(real_local_store)}"
         )
+    if real_timed_copy and not (real_timed_copy / "metadata").is_dir():
+        raise RuntimeError(f"Local metadata root does not exist: {real_timed_copy / 'metadata'}")
     if arguments.built_ui and not built_ui.is_dir():
         raise RuntimeError("Build the web application before using --built-ui")
     if not real_local and (not TEST_DATA.is_dir() or not (TEST_DATA / "metadata").is_dir()):
@@ -361,7 +409,10 @@ def main() -> int:
     services: list[tuple[str, list[str], dict[str, str] | None]] = []
 
     if real_local_root:
-        _local_profile(profiles, real_local_root)
+        if real_timed_copy:
+            _real_timed_profile(profiles, real_timed_copy)
+        else:
+            _local_profile(profiles, real_local_root)
     else:
         cluster_environment = None
         if os.name == "nt":
@@ -477,7 +528,13 @@ def main() -> int:
             "apps/web",
             "run",
             "test:playwright",
-            *(["tests/e2e/real-local-flow.spec.ts"] if real_local else playwright_arguments),
+            *(
+                ["tests/e2e/real-timed-copy.spec.ts"]
+                if real_timed_copy
+                else ["tests/e2e/real-local-flow.spec.ts"]
+                if real_local
+                else playwright_arguments
+            ),
         ]
         test_environment = os.environ.copy()
         browser_port = arguments.connector_port if arguments.built_ui else arguments.web_port
@@ -489,6 +546,8 @@ def main() -> int:
                     "TIMED_REAL_LOCAL_STORE": str(real_local_store),
                 }
             )
+        if real_timed_copy:
+            test_environment["TIMED_REAL_TIMED_COPY"] = "1"
         result_code = subprocess.run(
             command,
             cwd=REPOSITORY_ROOT,

@@ -82,6 +82,7 @@ import type { QcAnnotationFormValue } from "./QcAnnotationPanel";
 import QcReviewBar from "./QcReviewBar";
 
 type ImageSummary = components["schemas"]["ImageSummary"];
+type FieldSummary = components["schemas"]["FieldSummary"];
 type Summary =
   | ImageSummary
   | components["schemas"]["PlateSummary"];
@@ -117,6 +118,7 @@ type ViewerSourceState = {
   datasetId: string;
   path: string;
   image: ImageSummary;
+  field: FieldSummary | null;
   metadata: PlateMetadata | null;
   loader: Loader;
   readyKey: string;
@@ -346,6 +348,37 @@ function siteIdFromPath(path: string): string | undefined {
     return String(Number.parseInt(collection[1], 10));
   }
   return /^[A-Za-z]+\/\d+\/([^/]+)(?:\/|$)/.exec(path)?.[1];
+}
+
+function timedWellPathFromField(path: string): string | null {
+  const match = /^([A-Za-z]+\d+)_s\d+\.zarr$/i.exec(path);
+  return match?.[1]?.toUpperCase() ?? null;
+}
+
+export function sitePositionFixNote(
+  fix: FieldSummary["site_position_fix"],
+): string | null {
+  if (!fix) return null;
+  const label = fix.repaired_timepoints.length === 1 ? "timepoint" : "timepoints";
+  return (
+    "Site position repaired at " +
+    label +
+    " " +
+    fix.repaired_timepoints.join(", ") +
+    ": this field holds grid position x = " +
+    String(fix.grid_x) +
+    " for the whole run."
+  );
+}
+
+function SitePositionFixNote({ field }: { field: FieldSummary | null }) {
+  const note = sitePositionFixNote(field?.site_position_fix);
+  if (!note) return null;
+  return (
+    <p className="site-position-fix-note" role="note" data-testid="site-position-fix-note">
+      {note}
+    </p>
+  );
 }
 
 function viewerSourceIdentity(source: ViewerSourceState): ViewerSourceIdentity {
@@ -726,8 +759,38 @@ export default function ImageViewer() {
           }
           return request;
         };
+        async function selectedFieldFor(source: {
+          datasetId: string;
+          path: string;
+        }): Promise<FieldSummary | null> {
+          const wellPath = timedWellPathFromField(source.path);
+          if (!wellPath) return null;
+          const result = await dataServerClient.GET(
+            "/api/datasets/{dataset_id}/wells/{well_path}",
+            {
+              params: {
+                path: {
+                  dataset_id: source.datasetId,
+                  well_path: wellPath,
+                },
+              },
+            },
+          );
+          if (!result.data) {
+            throw new Error(
+              apiErrorMessage(result.error, "Could not load field information"),
+            );
+          }
+          return result.data.fields.find((field) => field.path === source.path) ?? null;
+        }
         const sourceDetails = await Promise.all(
-          sourceSpecs.map((source) => detailsFor(source.datasetId)),
+          sourceSpecs.map(async (source) => {
+            const [details, field] = await Promise.all([
+              detailsFor(source.datasetId),
+              selectedFieldFor(source),
+            ]);
+            return { ...details, field };
+          }),
         );
         const configuredSources = sourceSpecs.map((source, index) => {
           const details = sourceDetails[index];
@@ -742,6 +805,7 @@ export default function ImageViewer() {
           return {
             ...source,
             image: selectedImage,
+            field: details.field,
             metadata: details.metadata,
           };
         });
@@ -2117,6 +2181,7 @@ export default function ImageViewer() {
                           <ViewerSourceFacts identity={identity} compact />
                         </div>
                       </header>
+                       <SitePositionFixNote field={viewerSource.field} />
                       <VivCanvas
                         loader={viewerSource.loader}
                         image={viewerSource.image}
@@ -2135,17 +2200,20 @@ export default function ImageViewer() {
                 })}
               </div>
             ) : (
-              <VivCanvas
-                loader={loader}
-                image={image}
-                channels={renderedChannels}
-                selections={selections}
-                viewState={viewState}
-                onViewStateChange={handleViewStateChange}
-                onReady={sourceReadyCallbacks[0]}
-                onResize={setPrimaryDimensions}
-                maxRequests={requestBudget}
-              />
+              <>
+                <SitePositionFixNote field={primaryViewerSource?.field ?? null} />
+                <VivCanvas
+                  loader={loader}
+                  image={image}
+                  channels={renderedChannels}
+                  selections={selections}
+                  viewState={viewState}
+                  onViewStateChange={handleViewStateChange}
+                  onReady={sourceReadyCallbacks[0]}
+                  onResize={setPrimaryDimensions}
+                  maxRequests={requestBudget}
+                />
+              </>
             ))}
         </div>
 
