@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
 
@@ -52,16 +52,23 @@ def test_every_route_requires_the_bearer_token(tmp_path: Path) -> None:
         ServerSettings(data_roots=(tmp_path,), state_dir=tmp_path / "state", environment="local"),
         TOKEN,
     )
-    routes = list(app.routes)
+    # Included routers appear in app.routes as one lazy entry each; this public
+    # iterator yields every effective route, in matching order.
+    routes = list(iter_route_contexts(app.routes))
     assert routes
-    assert all(isinstance(route, APIRoute) for route in routes)
+    assert all(isinstance(route.original_route, APIRoute) for route in routes)
     requests = sorted(
         (method, re.sub(r"\{[^}]+\}", "fixture", route.path))
         for route in routes
-        if isinstance(route, APIRoute)
         for method in route.methods
     )
-    # The schema-hidden HEAD route must be checked as well.
+    # Every documented operation is checked, and so is the schema-hidden HEAD route.
+    operations = [
+        (method.upper(), path)
+        for path, item in app.openapi()["paths"].items()
+        for method in item
+    ]
+    assert len(requests) == len(operations) + 1
     assert ("HEAD", "/zarr/fixture/fixture") in requests
 
     with TestClient(app) as client:

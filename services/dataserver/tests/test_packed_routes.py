@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,9 +14,10 @@ from typing import TYPE_CHECKING
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-import timed_dataserver.app as dataserver_app
+import timed_dataserver.packed_profile_cache as profile_cache
 from fastapi.testclient import TestClient
 from timed_dataserver.app import ServerSettings, create_app
+from timed_dataserver.packed_profiles import PackedProfileError
 
 from scripts import make_test_data
 
@@ -479,13 +481,13 @@ def test_unknown_packed_index_uses_cached_generic_profile(
     experiment = index / "idr0080-A549"
     plate = experiment / "14610"
     calls: list[int] = []
-    original = dataserver_app.profile_for_catalogue
+    original = profile_cache.profile_for_catalogue
 
     def counted_profile(catalogue):
         calls.append(threading.get_ident())
         return original(catalogue)
 
-    monkeypatch.setattr(dataserver_app, "profile_for_catalogue", counted_profile)
+    monkeypatch.setattr(profile_cache, "profile_for_catalogue", counted_profile)
     with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
         listing = client.get("/api/fs/list", headers=AUTH, params={"path": str(experiment)})
         linked = client.post("/api/datasets", headers=AUTH, json={"path": str(plate)})
@@ -542,7 +544,7 @@ def test_concurrent_unknown_profile_resolution_is_single_flight(
     index = source.with_name("generic.index.parquet")
     source.rename(index)
     experiment = index / "idr0080-A549"
-    original = dataserver_app.profile_for_catalogue
+    original = profile_cache.profile_for_catalogue
     calls = 0
     calls_lock = threading.Lock()
 
@@ -553,7 +555,7 @@ def test_concurrent_unknown_profile_resolution_is_single_flight(
         time.sleep(0.1)
         return original(catalogue)
 
-    monkeypatch.setattr(dataserver_app, "profile_for_catalogue", counted_profile)
+    monkeypatch.setattr(profile_cache, "profile_for_catalogue", counted_profile)
     barrier = threading.Barrier(8)
 
     with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
@@ -571,6 +573,169 @@ def test_concurrent_unknown_profile_resolution_is_single_flight(
 
     assert statuses == (200,) * 8
     assert calls == 1
+
+
+def _generic_index(tmp_path: Path) -> tuple[Path, Path]:
+    """Rename the fixture index so that no pinned profile matches it."""
+    root = make_test_data._write_packed_fixture(tmp_path / "generated")
+    source = root / make_test_data.PACKED_INDEX_NAME
+    index = source.with_name("generic.index.parquet")
+    source.rename(index)
+    return root, index
+
+
+def _observed_future(follower_waiting: threading.Event) -> type[Future]:
+    class ObservedFuture(Future):
+        """A profile load whose followers announce that they are waiting."""
+
+        def result(self, timeout: float | None = None):
+            follower_waiting.set()
+            return super().result(timeout)
+
+    return ObservedFuture
+
+
+def test_generic_profile_memo_evicts_the_oldest_of_256(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, index = _generic_index(tmp_path)
+    probe = {"value": 0}
+    loads: list[int] = []
+    original = profile_cache.profile_for_catalogue
+
+    def counted_profile(catalogue):
+        loads.append(probe["value"])
+        return original(catalogue)
+
+    monkeypatch.setattr(
+        profile_cache, "packed_probe_signature", lambda _catalogue: ("probe", probe["value"])
+    )
+    monkeypatch.setattr(profile_cache, "profile_for_catalogue", counted_profile)
+
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+
+        def list_index(value: int) -> None:
+            probe["value"] = value
+            response = client.get("/api/fs/list", headers=AUTH, params={"path": str(index)})
+            assert response.status_code == 200, response.text
+
+        for value in range(256):
+            list_index(value)
+        list_index(0)  # A hit on the oldest entry does not make it newer.
+        list_index(256)  # Evicts 0.
+        list_index(0)  # Evicts 1.
+        list_index(2)
+        list_index(1)
+
+    assert loads == [*range(257), 0, 1]
+
+
+def test_none_probe_result_makes_followers_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, index = _generic_index(tmp_path)
+    probe = {"value": 0}
+    loads: list[int] = []
+    leader_loading = threading.Event()
+    follower_waiting = threading.Event()
+    original = profile_cache.profile_for_catalogue
+
+    def changing_profile(catalogue):
+        loads.append(probe["value"])
+        if len(loads) == 1:
+            leader_loading.set()
+            assert follower_waiting.wait(timeout=10)
+            probe["value"] = 1  # The shard changes while the leader probes it.
+        return original(catalogue)
+
+    monkeypatch.setattr(profile_cache, "Future", _observed_future(follower_waiting))
+    monkeypatch.setattr(
+        profile_cache, "packed_probe_signature", lambda _catalogue: ("probe", probe["value"])
+    )
+    monkeypatch.setattr(profile_cache, "profile_for_catalogue", changing_profile)
+
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+
+        def list_index() -> int:
+            return client.get(
+                "/api/fs/list", headers=AUTH, params={"path": str(index)}
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            leader = executor.submit(list_index)
+            assert leader_loading.wait(timeout=10)
+            follower = executor.submit(list_index)
+            statuses = (leader.result(timeout=30), follower.result(timeout=30))
+
+    assert statuses == (200, 200)
+    assert loads == [0, 1]
+
+
+def test_generic_profile_failure_reaches_followers_and_is_not_kept(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, index = _generic_index(tmp_path)
+    loads: list[int] = []
+    leader_loading = threading.Event()
+    follower_waiting = threading.Event()
+
+    def failing_profile(_catalogue):
+        loads.append(len(loads))
+        if len(loads) == 1:
+            leader_loading.set()
+            assert follower_waiting.wait(timeout=10)
+        raise PackedProfileError("Packed shard probe failed")
+
+    monkeypatch.setattr(profile_cache, "Future", _observed_future(follower_waiting))
+    monkeypatch.setattr(profile_cache, "profile_for_catalogue", failing_profile)
+
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+
+        def list_index() -> tuple[int, object]:
+            response = client.get("/api/fs/list", headers=AUTH, params={"path": str(index)})
+            return response.status_code, response.json()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            leader = executor.submit(list_index)
+            assert leader_loading.wait(timeout=10)
+            follower = executor.submit(list_index)
+            concurrent = (leader.result(timeout=30), follower.result(timeout=30))
+        assert len(loads) == 1
+        retried = list_index()
+
+    failure = (422, {"detail": "Packed shard probe failed"})
+    assert concurrent == (failure, failure)
+    assert retried == failure
+    assert len(loads) == 2
+
+
+def test_generic_profile_gives_up_after_three_changed_probes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, index = _generic_index(tmp_path)
+    probes = itertools.count()
+    loads: list[int] = []
+    original = profile_cache.profile_for_catalogue
+
+    def counted_profile(catalogue):
+        loads.append(len(loads))
+        return original(catalogue)
+
+    monkeypatch.setattr(
+        profile_cache, "packed_probe_signature", lambda _catalogue: ("probe", next(probes))
+    )
+    monkeypatch.setattr(profile_cache, "profile_for_catalogue", counted_profile)
+
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+        response = client.get("/api/fs/list", headers=AUTH, params={"path": str(index)})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Generic packed shard changed repeatedly while probing"}
+    assert len(loads) == 3
 
 
 @pytest.mark.parametrize("suffix", [(), ("idr0080-A549",)])
