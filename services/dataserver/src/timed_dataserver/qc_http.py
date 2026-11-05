@@ -1,4 +1,4 @@
-"""HTTP response helpers used only by the QC API routes."""
+"""Compressed, cache-aware JSON responses for the QC API routes."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 
 from fastapi import Response, status
+
+from .http_cache import etag_matches
 
 QC_CACHE_CONTROL = "private, no-cache"
 
@@ -33,16 +35,6 @@ def qc_etag(
     ).encode("utf-8")
     digest = hashlib.blake2s(identity, digest_size=16).hexdigest()
     return f'W/"qc-{digest}"'
-
-
-def _etag_matches(value: str | None, etag: str) -> bool:
-    if value is None:
-        return False
-    expected = etag.removeprefix("W/")
-    return any(
-        candidate == "*" or candidate.removeprefix("W/") == expected
-        for candidate in (part.strip() for part in value.split(","))
-    )
 
 
 def _accepts_gzip(value: str | None) -> bool:
@@ -127,7 +119,7 @@ def qc_json_response(
         "ETag": etag,
         "Vary": "Accept-Encoding",
     })
-    if 200 <= status_code < 300 and _etag_matches(if_none_match, etag):
+    if 200 <= status_code < 300 and etag_matches(if_none_match, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
 
     content = serialize_qc_json(payload())
