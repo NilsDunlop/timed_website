@@ -1,11 +1,6 @@
-import {
-  expect,
-  test,
-  type Locator,
-  type Page,
-  type Request,
-  type Route,
-} from "@playwright/test";
+import { type Locator, type Page, type Request, type Route } from "@playwright/test";
+
+import { connect, disconnect, expect, test } from "./fixtures";
 
 const fixturePlates = [14610, 14611, 14613];
 const allPlates = Array.from({ length: 9 }, (_, index) => 14610 + index);
@@ -70,13 +65,7 @@ async function expandTriageToNinePlates(route: Route) {
 }
 
 async function connectCellHealth(page: Page) {
-  await page.goto("/");
-  await page.getByLabel("Compute profile").selectOption("local-datasets");
-  await page.getByLabel("Dataset").selectOption("idr0080");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("connected", {
-    timeout: 30_000,
-  });
+  await connect(page, "local-datasets", { dataset: "idr0080" });
 }
 
 async function expectViewerReady(page: Page) {
@@ -427,14 +416,17 @@ test("reviews the unblinded QC overview, maps, filters, and tables", async ({
   await expect(page.getByRole("slider", { name: "DNA contrast minimum" })).toBeEnabled();
   expect(qcRequests.every((url) => !url.searchParams.has("blind"))).toBe(true);
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+  await disconnect(page);
 });
 
 test("reviews ordered queues and persists field and well annotations", async ({
   page,
+  browserErrors,
 }) => {
+  browserErrors.allow(
+    /the server responded with a status of 503/,
+    "the test answers one annotation refresh with 503",
+  );
   const qcRequests: Request[] = [];
   const annotationWrites: Request[] = [];
   let failNextAnnotationRefresh = false;
@@ -702,16 +694,8 @@ test("reviews ordered queues and persists field and well annotations", async ({
     qcRequests.every((request) => !new URL(request.url()).searchParams.has("blind")),
   ).toBe(true);
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+  await disconnect(page);
 });
-
-async function disconnect(page: Page) {
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
-}
 
 test("opens QC from the trailing-slash entry and announces a new export", async ({
   page,
@@ -829,7 +813,12 @@ test("keeps the exact flagged sites of each well in a Wells-mode queue", async (
 
 test("reports an invalid QC link and keeps the queue after a failed Next", async ({
   page,
+  browserErrors,
 }) => {
+  browserErrors.allow(
+    /the server responded with a status of 503/,
+    "the test answers the next queue link with 503",
+  );
   await connectCellHealth(page);
   await page.getByRole("link", { name: "QC", exact: true }).click();
   await page

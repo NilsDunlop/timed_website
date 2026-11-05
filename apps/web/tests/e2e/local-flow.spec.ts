@@ -1,15 +1,12 @@
-import { expect, test } from "@playwright/test";
-
+import { disconnect, expect, test } from "./fixtures";
 import { pixelSignature } from "./viewer";
 
 test("starts a local server, renders time data, and stops it", async ({
   page,
 }, testInfo) => {
-  const browserErrors: string[] = [];
   const viewerDiagnostics: string[] = [];
   const qcRequests: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
     if (
       message.type() === "info" &&
       message.text().startsWith("[TIMED viewer")
@@ -17,7 +14,6 @@ test("starts a local server, renders time data, and stops it", async ({
       viewerDiagnostics.push(message.text());
     }
   });
-  page.on("pageerror", (reason) => browserErrors.push(reason.message));
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.startsWith("/backend/api/qc/")) {
       qcRequests.push(request.url());
@@ -538,11 +534,6 @@ test("starts a local server, renders time data, and stops it", async ({
   expect(dualStatusTop - dualCanvasBottom).toBeLessThanOrEqual(32);
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Disconnect and stop server" })
-    .click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+  await disconnect(page);
   expect(qcRequests).toEqual([]);
-  expect(browserErrors).toEqual([]);
 });

@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tarfile
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -705,3 +706,39 @@ async def test_authenticated_zarr_python_round_trip_does_not_block_event_loop(
         if server_holder:
             server_holder[0].should_exit = True
         await asyncio.wait_for(server_task, timeout=10)
+
+
+@pytest.mark.asyncio
+async def test_packed_chunk_decoding_runs_off_the_event_loop(
+    packed_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(_settings(packed_root, tmp_path / "state"), TOKEN)
+    event_loop_thread = threading.get_ident()
+    reader = app.state.packed_reader
+    original = reader.get_chunk
+    chunk_threads: list[int] = []
+
+    def tracked_get_chunk(*args: Any, **kwargs: Any) -> Any:
+        chunk_threads.append(threading.get_ident())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(reader, "get_chunk", tracked_get_chunk)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        linked = await client.post(
+            "/api/datasets",
+            headers=AUTH,
+            json={"path": str(_index(packed_root) / "idr0080-A549" / "14610")},
+        )
+        assert linked.status_code == 201, linked.text
+        dataset_id = linked.json()["id"]
+        responses = [
+            await client.get(f"/zarr/{dataset_id}/A01_s1.zarr/s0/c/{channel}/0/0", headers=AUTH)
+            for channel in range(5)
+        ]
+
+    assert [response.status_code for response in responses] == [200] * 5
+    assert len(chunk_threads) == 5
+    assert event_loop_thread not in chunk_threads

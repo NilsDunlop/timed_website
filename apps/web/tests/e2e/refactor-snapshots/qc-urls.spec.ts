@@ -2,7 +2,9 @@
 // QC field view state, recorded from unchanged code on 2026-11-05. Dataset and
 // queue ids are masked. The last commit of the Gate A refactor deletes this
 // folder.
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+import { connect, disconnect, expect, test } from "../fixtures";
 
 import {
   Golden,
@@ -29,13 +31,7 @@ test("QC links, queue moves and the site stepper keep their exact URLs", async (
   const golden = new Golden("qc-urls");
   const mask = new IdMask();
   const location = () => maskedLocation(page.url(), mask);
-  await page.goto("/");
-  await page.getByLabel("Compute profile").selectOption("local-datasets");
-  await page.getByLabel("Dataset").selectOption("idr0080");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("connected", {
-    timeout: 30_000,
-  });
+  await connect(page, "local-datasets", { dataset: "idr0080" });
   await unlinkAllDatasets(page);
   await openQc(page);
   golden.record("qc page", location());
@@ -104,8 +100,6 @@ test("QC links, queue moves and the site stepper keep their exact URLs", async (
   await expectViewerReady(page);
   golden.record("review list queue: next", location());
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+  await disconnect(page);
   golden.check();
 });

@@ -1,25 +1,10 @@
 // Temporary refactor snapshot: exact Data-page /view hrefs and the displayed
 // viewer state, recorded from unchanged code on 2026-11-05. The last commit of
 // the Gate A refactor deletes this folder.
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
+import { connect, disconnect, expect, test } from "../fixtures";
 import { Golden, IdMask, unlinkAllDatasets, viewerStateSnapshot } from "./snapshots";
-
-async function connect(page: Page, profile: string, dataset?: string) {
-  await page.goto("/");
-  await page.getByLabel("Compute profile").selectOption(profile);
-  if (dataset) await page.getByLabel("Dataset").selectOption(dataset);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("connected", {
-    timeout: 30_000,
-  });
-}
-
-async function disconnect(page: Page) {
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Disconnect and stop server" }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
-}
 
 async function follow(page: Page, link: Locator, ready: string) {
   await link.click();
@@ -86,7 +71,7 @@ test("collection Data links and TIMED and Cell Health viewer states are unchange
 }) => {
   const golden = new Golden("data-viewer-collections");
   const mask = new IdMask();
-  await connect(page, "local-datasets", "timed");
+  await connect(page, "local-datasets", { dataset: "timed" });
   await unlinkAllDatasets(page);
   await page.getByRole("link", { name: "Data", exact: true }).click();
   const timedPlate = page.locator(".file-list li").filter({
