@@ -6,6 +6,7 @@ import os
 import stat
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 import httpx
@@ -13,6 +14,7 @@ import numpy as np
 import pytest
 import zarr
 from fastapi.testclient import TestClient
+from timed_dataserver import __version__
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.cli import main, serve
 from timed_dataserver.omezarr import OmeZarrError, _channels, _timed_field_metadata
@@ -21,16 +23,21 @@ from zarr.storage import FsspecStore
 
 from scripts.make_test_data import generate_test_data
 
+if TYPE_CHECKING:
+    from conftest import WriteAudit
+
 TOKEN = "test-only-bearer-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture(scope="module")
-def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def data_root(tmp_path_factory: pytest.TempPathFactory, write_audit: WriteAudit) -> Path:
     root = tmp_path_factory.mktemp("dataserver-data")
     generate_test_data(root, include_packed=False)
     (root / "ordinary").mkdir()
     (root / "notes.txt").write_text("not a dataset\n", encoding="utf-8")
+    # The native-plate test adds its own store to this shared root.
+    write_audit.watch(root, allow=(root / "native_plate.zarr",))
     return root
 
 
@@ -288,6 +295,7 @@ def test_handshake_and_listing_detect_every_fixture(
         assert inside.status_code == 400
 
 
+@pytest.mark.needs_symlinks
 def test_path_guard_rejects_parent_outside_and_symlink_escape(
     client_factory: Callable[[Path | None], TestClient], data_root: Path
 ) -> None:
@@ -1035,6 +1043,28 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "/api/datasets/{dataset_id}/matches" in document["paths"]
     assert "/zarr/{dataset_id}/{resource_path}" in document["paths"]
     assert "openapi-placeholder" not in output
+
+
+def test_committed_openapi_matches_export(capsys: pytest.CaptureFixture[str]) -> None:
+    committed_path = (
+        Path(__file__).resolve().parents[3]
+        / "apps"
+        / "web"
+        / "src"
+        / "lib"
+        / "api"
+        / "dataserver.openapi.json"
+    )
+    assert main(["export-openapi"]) == 0
+    exported = json.loads(capsys.readouterr().out)
+    committed = json.loads(committed_path.read_text(encoding="utf-8"))
+
+    regenerate = "Run `pnpm -C apps/web gen:api` and commit the regenerated API files"
+    assert exported["info"]["version"] == __version__
+    assert committed["info"]["version"] == __version__, regenerate
+    for document in (exported, committed):
+        document["info"]["version"] = "<server version>"
+    assert exported == committed, regenerate
 
 
 def test_packed_cache_budget_must_be_positive(data_root: Path, tmp_path: Path) -> None:

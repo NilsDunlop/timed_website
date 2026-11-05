@@ -370,6 +370,7 @@ profiles:
     assert session.snapshot().state == "disconnected"
 
 
+@pytest.mark.needs_symlinks
 def test_local_collection_symlinks_are_checked_after_resolution(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     data_root.mkdir()

@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -18,15 +19,20 @@ from timed_dataserver.app import ServerSettings, create_app
 
 from scripts import make_test_data
 
+if TYPE_CHECKING:
+    from conftest import WriteAudit
+
 TOKEN = "packed-route-test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture(scope="module")
-def packed_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def packed_root(tmp_path_factory: pytest.TempPathFactory, write_audit: WriteAudit) -> Path:
     """Generate packed data separately from the frozen TIMED server fixture."""
     output = tmp_path_factory.mktemp("packed-route-data")
-    return make_test_data._write_packed_fixture(output)
+    root = make_test_data._write_packed_fixture(output)
+    write_audit.watch(output)
+    return root
 
 
 def _settings(root: Path, state_dir: Path) -> ServerSettings:
@@ -686,6 +692,7 @@ def test_malformed_detected_catalogue_returns_unprocessable(tmp_path: Path) -> N
         assert "duplicate field/channel key" in response.json()["detail"]
 
 
+@pytest.mark.needs_symlinks
 def test_symlinked_index_outside_root_is_forbidden(tmp_path: Path) -> None:
     outside = make_test_data._write_packed_fixture(tmp_path / "outside-generated")
     allowed = tmp_path / "allowed"

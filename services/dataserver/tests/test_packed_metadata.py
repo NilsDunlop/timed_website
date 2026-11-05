@@ -244,6 +244,7 @@ def test_metadata_rejects_unknown_plate_and_paths_outside_index_root(
         ).for_plate("idr0080-A549", 14610)
 
 
+@pytest.mark.needs_symlinks
 def test_metadata_rejects_symlink_escape(packed_root: Path, tmp_path: Path) -> None:
     outside = tmp_path / "outside.csv"
     shutil.copyfile(

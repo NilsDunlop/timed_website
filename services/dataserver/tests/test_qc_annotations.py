@@ -356,6 +356,7 @@ def test_missing_folder_is_not_created(tmp_path: Path) -> None:
     assert not folder.exists()
 
 
+@pytest.mark.needs_symlinks
 def test_writer_rejects_non_regular_or_symlink_targets(tmp_path: Path) -> None:
     folder = tmp_path / "annotations"
     folder.mkdir()
@@ -377,6 +378,7 @@ def test_writer_rejects_non_regular_or_symlink_targets(tmp_path: Path) -> None:
     assert outside.read_text(encoding="utf-8") == "outside\n"
 
 
+@pytest.mark.needs_symlinks
 def test_read_skips_symlinked_jsonl_files(tmp_path: Path) -> None:
     folder = tmp_path / "annotations"
     folder.mkdir()

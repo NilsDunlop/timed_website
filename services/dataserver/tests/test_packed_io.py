@@ -803,7 +803,8 @@ def test_descriptors_are_cached_read_only_and_close_is_idempotent(
     reader.get_field(fixture.catalogue, IDR0080_FIXTURE_PROFILE, EXPERIMENT, PLATE, WELL, 1)
     reader.get_field(fixture.catalogue, IDR0080_FIXTURE_PROFILE, EXPERIMENT, PLATE, WELL, 1)
     assert len(opens) == 1
-    assert opens[0][1] & os.O_RDONLY == os.O_RDONLY
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+    assert opens[0][1] & write_flags == 0
     if hasattr(os, "O_NOFOLLOW"):
         assert opens[0][1] & os.O_NOFOLLOW
     descriptor = next(iter(reader._descriptors.values()))
@@ -838,6 +839,7 @@ def test_in_place_tar_growth_reuses_descriptor_and_invalidates_field_cache(tmp_p
     reader.close()
 
 
+@pytest.mark.posix_only
 def test_atomic_tar_replacement_reopens_and_does_not_serve_stale_field(tmp_path: Path) -> None:
     fixture = _make_fixture(tmp_path)
     replacement_root = tmp_path / "replacement"

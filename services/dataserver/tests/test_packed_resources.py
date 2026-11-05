@@ -7,7 +7,7 @@ import os
 import shutil
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import httpx
@@ -25,6 +25,9 @@ from timed_dataserver.cli import serve
 from zarr.storage import FsspecStore
 
 from scripts import make_test_data
+
+if TYPE_CHECKING:
+    from conftest import WriteAudit
 
 PIXEL_SIZE_UM = 0.29898804047838085
 TOKEN = "packed-resource-test-token"
@@ -52,9 +55,12 @@ CHANNELS_BY_CELL_LINE = {
 
 
 @pytest.fixture(scope="module")
-def packed_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def packed_root(tmp_path_factory: pytest.TempPathFactory, write_audit: WriteAudit) -> Path:
     """Generate packed data separately from the frozen TIMED fixture."""
-    return make_test_data._write_packed_fixture(tmp_path_factory.mktemp("packed-resource-data"))
+    output = tmp_path_factory.mktemp("packed-resource-data")
+    root = make_test_data._write_packed_fixture(output)
+    write_audit.watch(output)
+    return root
 
 
 def _settings(root: Path, state_dir: Path) -> ServerSettings:

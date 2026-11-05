@@ -6,17 +6,24 @@ import json
 import os
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 import timed_dataserver.app as app_module
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.qc_annotations import QcAnnotationUnavailableError
 from timed_dataserver.qc_config import QcPathConfig
 from timed_dataserver.qc_export import QcExportSnapshot, inspect_qc_export
 
 from scripts import make_test_data
+
+if TYPE_CHECKING:
+    from conftest import WriteAudit
 
 TOKEN = "qc-routes-test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}", "Accept-Encoding": "gzip"}
@@ -29,6 +36,7 @@ _BLIND_REVIEW_KEYS = frozenset(
 @pytest.fixture(scope="module")
 def qc_routes_fixture(
     tmp_path_factory: pytest.TempPathFactory,
+    write_audit: WriteAudit,
 ) -> tuple[Path, Path, Path, Path, QcExportSnapshot]:
     output = tmp_path_factory.mktemp("qc-routes")
     packed_root = make_test_data._write_packed_fixture(output)
@@ -36,6 +44,7 @@ def qc_routes_fixture(
     annotations = output / "annotations"
     annotations.mkdir()
     index = packed_root / make_test_data.PACKED_INDEX_NAME
+    write_audit.watch(output, allow=(annotations,))
     return packed_root, index, export, annotations, inspect_qc_export(export)
 
 
@@ -136,6 +145,228 @@ def _route_specs(index: Path, *, blind: bool) -> tuple[tuple[str, dict[str, obje
         ("review-list", common),
         ("annotations", common),
     )
+
+
+def _qc_routes(app: FastAPI) -> dict[tuple[str, str], APIRoute]:
+    return {
+        (method, route.path): route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.path.startswith("/api/qc/")
+        for method in route.methods
+    }
+
+
+def _annotation_command(
+    snapshot: QcExportSnapshot,
+    *,
+    scope: str = "field",
+    well: str = "A01",
+    label: str = "blurred",
+) -> dict[str, object]:
+    return {
+        "record": "annotation",
+        "export_id": snapshot.export_id,
+        "scope": scope,
+        "plate": 14610,
+        "well": well,
+        "site": 1 if scope == "field" else None,
+        "channel": "DNA" if scope == "field" else "all",
+        "label": label,
+        "confidence": "high",
+        "note": "Fixture contract review.",
+    }
+
+
+def test_blind_route_set_matches_the_qc_routes(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, annotations, _snapshot = qc_routes_fixture
+    app = create_app(_settings(packed_root, index, export, annotations, tmp_path / "state"), TOKEN)
+    routes = _qc_routes(app)
+
+    checked = {("GET", f"/api/qc/{name}") for name, _params in _route_specs(index, blind=True)}
+    assert {key for key in routes if key[0] == "GET"} == checked
+    # The one QC write: test_blind_annotation_routes_omit_barcode_and_derive_write_mode.
+    assert {key for key in routes if key[0] != "GET"} == {("POST", "/api/qc/annotations")}
+    for key, route in routes.items():
+        assert "blind" in {parameter.name for parameter in route.dependant.query_params}, key
+
+
+def test_qc_route_payloads_validate_against_declared_response_models(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(_settings(packed_root, index, export, annotations, tmp_path / "state"), TOKEN)
+    routes = _qc_routes(app)
+    responses: list[tuple[tuple[str, str], httpx.Response]] = []
+    write = ("POST", "/api/qc/annotations")
+
+    with TestClient(app) as client:
+        for blind in (False, True):
+            created = client.post(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=_params(index, blind=blind),
+                json=_annotation_command(snapshot, label="blurred"),
+            )
+            retracted = client.post(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=_params(index, blind=blind),
+                json={
+                    "record": "retraction",
+                    "export_id": snapshot.export_id,
+                    "id": created.json()["record"]["id"],
+                },
+            )
+            kept = client.post(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=_params(index, blind=blind),
+                json=_annotation_command(snapshot, scope="well", label="ok"),
+            )
+            responses.extend((write, response) for response in (created, retracted, kept))
+        for blind in (False, True):
+            for name, params in _route_specs(index, blind=blind):
+                responses.append(
+                    (
+                        ("GET", f"/api/qc/{name}"),
+                        client.get(f"/api/qc/{name}", headers=AUTH, params=params),
+                    )
+                )
+
+    assert {key for key, _response in responses} == set(routes)
+    for key, response in responses:
+        assert response.status_code in (200, 201), (key, response.text)
+        TypeAdapter(routes[key].response_model).validate_json(response.content)
+    annotation_lists = [
+        response.json()
+        for key, response in responses
+        if key == ("GET", "/api/qc/annotations")
+    ]
+    # Both field annotations are retracted; the later well annotation supersedes the first.
+    assert [len(payload["annotations"]) for payload in annotation_lists] == [1, 1]
+
+
+_TRUE_SPELLINGS = ("1", "true", "True", "TRUE", "on", "yes", "t", "y")
+_FALSE_SPELLINGS = ("0", "false", "False", "off", "no", "f", "n")
+
+
+def test_blind_spellings_select_the_blinded_representation(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, annotations, _snapshot = qc_routes_fixture
+    app = create_app(_settings(packed_root, index, export, annotations, tmp_path / "state"), TOKEN)
+    missing_site = {**_field_params(index), "site": 99}
+
+    with TestClient(app) as client:
+
+        def get(name: str, params: dict[str, object], spelling: str) -> httpx.Response:
+            return client.get(
+                f"/api/qc/{name}",
+                headers=AUTH,
+                params={**params, "blind": spelling},
+            )
+
+        for name, params in _route_specs(index, blind=False):
+            blinded = get(name, params, "1")
+            core = get(name, params, "0")
+            assert blinded.status_code == core.status_code == 200, name
+            assert blinded.content != core.content, name
+            for spellings, expected in ((_TRUE_SPELLINGS, blinded), (_FALSE_SPELLINGS, core)):
+                for spelling in spellings:
+                    response = get(name, params, spelling)
+                    assert response.status_code == 200, (name, spelling)
+                    assert response.content == expected.content, (name, spelling)
+                    assert response.headers["etag"] == expected.headers["etag"], (name, spelling)
+        errors = {
+            spelling: get("field", missing_site, spelling)
+            for spelling in (*_TRUE_SPELLINGS, *_FALSE_SPELLINGS)
+        }
+
+    # Error responses use the handler's own parser, which accepts 1, true, on and
+    # yes (any case) but not t or y: those two get the core error ETag.
+    assert {response.status_code for response in errors.values()} == {404}
+    assert len({response.content for response in errors.values()}) == 1
+    blinded_etag = errors["1"].headers["etag"]
+    core_etag = errors["0"].headers["etag"]
+    assert blinded_etag != core_etag
+    for spelling, response in errors.items():
+        expected = core_etag if spelling in ("t", "y", *_FALSE_SPELLINGS) else blinded_etag
+        assert response.headers["etag"] == expected, spelling
+
+
+def test_blind_error_responses_never_carry_private_tokens(
+    qc_routes_fixture: tuple[Path, Path, Path, Path, QcExportSnapshot],
+    tmp_path: Path,
+) -> None:
+    packed_root, index, export, _shared_annotations, snapshot = qc_routes_fixture
+    annotations = tmp_path / "annotations"
+    annotations.mkdir()
+    app = create_app(_settings(packed_root, index, export, annotations, tmp_path / "state"), TOKEN)
+    blind = _params(index, blind=True)
+
+    with TestClient(app) as client:
+        core_payloads = {
+            name: client.get(f"/api/qc/{name}", headers=AUTH, params=params).json()
+            for name, params in _route_specs(index, blind=False)
+        }
+        errors = [
+            client.get(
+                "/api/qc/field",
+                headers=AUTH,
+                params={**_field_params(index, blind=True), "site": 99},
+            ),
+            client.get(
+                "/api/qc/field",
+                headers=AUTH,
+                params={**_field_params(index, blind=True), "site": 0},
+            ),
+            client.get(
+                "/api/qc/dictionary",
+                headers=AUTH,
+                params={"path": str(packed_root / "unconfigured.index.parquet"), "blind": "1"},
+            ),
+            client.post(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=blind,
+                json={**_annotation_command(snapshot), "export_id": "stale-export"},
+            ),
+            client.post(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=blind,
+                json=_annotation_command(snapshot, well="H12"),
+            ),
+            client.post(
+                "/api/qc/annotations",
+                headers=AUTH,
+                params=blind,
+                json=_annotation_command(snapshot, label="not_a_label"),
+            ),
+        ]
+    non_core_root = tmp_path / "non-core"
+    non_core_root.mkdir()
+    non_core = _make_non_core_export(non_core_root)
+    non_core_app = create_app(_settings(*non_core, tmp_path / "non-core-state"), TOKEN)
+    with TestClient(non_core_app) as client:
+        errors.extend(
+            client.get(f"/api/qc/{name}", headers=AUTH, params=params)
+            for name, params in _route_specs(non_core[1], blind=True)
+            if name != "status"
+        )
+
+    forbidden = _blind_forbidden_tokens(snapshot, core_payloads)
+    assert {response.status_code for response in errors} == {404, 409, 422, 503}
+    for response in errors:
+        assert response.headers["etag"].startswith('W/"qc-'), response.text
+        assert not _all_strings(response.json()).intersection(forbidden), response.text
 
 
 def test_qc_routes_require_authentication_and_return_gzip_etags(
