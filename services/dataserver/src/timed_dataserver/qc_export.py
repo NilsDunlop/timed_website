@@ -24,6 +24,7 @@ import pyarrow.csv as pacsv
 
 from .packed import PackedCatalogue
 from .packed_profiles import PackedDatasetProfile
+from .revisions import StatSignature, UnstableRevisionError, load_stable
 
 VERSION_FILENAME = "version.json"
 REQUIRED_EXPORT_FILES = (
@@ -111,12 +112,8 @@ class QcExportError(ValueError):
     """Raised when a QC export cannot become a valid snapshot."""
 
 
-@dataclass(frozen=True, slots=True)
-class QcExportSignature:
-    """Filesystem identity of the version file that publishes an export."""
-
-    mtime_ns: int
-    size: int
+# Filesystem identity of the version file that publishes an export.
+QcExportSignature = StatSignature
 
 
 @dataclass(frozen=True, slots=True)
@@ -799,24 +796,26 @@ class QcExportStore:
         version_path: Path,
         initial_signature: QcExportSignature,
     ) -> QcExportSnapshot:
-        signature = initial_signature
-        for _attempt in range(3):
-            try:
-                candidate = _load_snapshot(
+        try:
+            snapshot, _signature = load_stable(
+                lambda: _version_signature(version_path),
+                lambda signature: _load_snapshot(
                     self._root,
                     signature,
                     catalogue=self._catalogue,
                     profile=self._profile,
-                )
-                after = _version_signature(version_path)
-            except QcExportError:
-                raise
-            except (OSError, ValueError, TypeError, KeyError, pa.ArrowException):
-                raise QcExportError("QC export validation failed") from None
-            if signature == after:
-                return candidate
-            signature = after
-        raise QcExportError("QC export changed repeatedly while it was being loaded")
+                ),
+                first=initial_signature,
+            )
+        except QcExportError:
+            raise
+        except UnstableRevisionError:
+            raise QcExportError(
+                "QC export changed repeatedly while it was being loaded"
+            ) from None
+        except (OSError, ValueError, TypeError, KeyError, pa.ArrowException):
+            raise QcExportError("QC export validation failed") from None
+        return snapshot
 
     def require_snapshot(self) -> QcExportSnapshot:
         """Refresh and return a snapshot, raising when none has ever loaded."""

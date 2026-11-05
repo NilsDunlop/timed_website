@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 import tifffile
 from numcodecs import Blosc
-from timed_dataserver import packed_io
+from timed_dataserver import packed_io, tar_io
 from timed_dataserver.packed import (
     IndexSignature,
     PackedCatalogue,
@@ -23,7 +23,9 @@ from timed_dataserver.packed import (
     PackedPlate,
 )
 from timed_dataserver.packed_io import (
+    DecodedField,
     PackedChunkKeyError,
+    PackedFieldCache,
     PackedReader,
     PackedReadError,
 )
@@ -386,14 +388,14 @@ def test_exact_positional_reads_loop_and_report_eof(
         calls += 1
         return expected[offset : offset + min(size, 3)]
 
-    monkeypatch.setattr(packed_io, "_OS_PREAD", short_pread)
+    monkeypatch.setattr(tar_io, "_OS_PREAD", short_pread)
     assert reader._read_exact_at(descriptor, 0, len(expected)) == expected
     assert calls > 1
 
     with pytest.raises(PackedReadError, match="Short packed read"):
         reader._read_exact_at(descriptor, 0, len(expected) + 1)
 
-    monkeypatch.setattr(packed_io, "_OS_PREAD", None)
+    monkeypatch.setattr(tar_io, "_OS_PREAD", None)
     assert reader._read_exact_at(descriptor, 0, len(expected)) == expected
     reader.close()
 
@@ -651,6 +653,53 @@ def test_byte_lru_evicts_oldest_complete_field(tmp_path: Path) -> None:
         assert (first_status, second_status, reloaded_status) == ("miss", "miss", "miss")
         assert reader.cache.entry_count == 1
         assert reader.cache.current_bytes == field_bytes
+
+
+def test_zero_budget_retains_nothing(tmp_path: Path) -> None:
+    fixture = _make_fixture(tmp_path)
+    with PackedReader(cache_bytes=0) as reader:
+        first, first_status = reader.get_field(
+            fixture.catalogue, IDR0080_FIXTURE_PROFILE, EXPERIMENT, PLATE, WELL, 1
+        )
+        second, second_status = reader.get_field(
+            fixture.catalogue, IDR0080_FIXTURE_PROFILE, EXPERIMENT, PLATE, WELL, 1
+        )
+        assert (first_status, second_status) == ("miss", "miss")
+        assert first is not second
+        assert reader.cache.entry_count == 0
+        assert reader.cache.current_bytes == 0
+        np.testing.assert_array_equal(first.planes[0], second.planes[0])
+
+
+def test_follower_receives_the_leader_exception() -> None:
+    cache = PackedFieldCache()
+    leader_started = threading.Event()
+    release_leader = threading.Event()
+    follower_loads = 0
+
+    def failing_load() -> DecodedField:
+        leader_started.set()
+        assert release_leader.wait(5)
+        raise PackedReadError("fixture leader failure")
+
+    def follower_load() -> DecodedField:
+        nonlocal follower_loads
+        follower_loads += 1
+        raise AssertionError("a follower must not start its own load")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        leader = executor.submit(cache.get_or_load, "field", failing_load)
+        assert leader_started.wait(5)
+        follower = executor.submit(cache.get_or_load, "field", follower_load)
+        time.sleep(0.2)
+        release_leader.set()
+        for future in (leader, follower):
+            with pytest.raises(PackedReadError, match="fixture leader failure"):
+                future.result(timeout=5)
+
+    assert follower_loads == 0
+    assert cache.entry_count == 0
+    assert cache.current_bytes == 0
 
 
 def test_field_load_is_single_flight_across_threads(

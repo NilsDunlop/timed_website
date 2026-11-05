@@ -1,5 +1,5 @@
 {
-  "qc page": "/qc?collection=idr0080&qc.sort=plate",
+  "qc page": "/qc?collection=idr0080&qc.sort=plate&qc.search=fixture_focus__DNA__control_z",
   "sites table: open site": "/view?dataset=<id-1>&path=A01_s1.zarr&collection=idr0080&qc=1&qcScope=field&qcPlate=14610&qcWell=A01&qcSite=1&qcExport=fixture-qc-primary-20261029&qcReturn=%2Fqc%3Fcollection%3Didr0080%26qc.sort%3Dplate%26qc.search%3Dfixture_focus__DNA__control_z",
   "sites table: back to QC": "/qc?collection=idr0080&qc.sort=plate&qc.search=fixture_focus__DNA__control_z",
   "qc field view": {

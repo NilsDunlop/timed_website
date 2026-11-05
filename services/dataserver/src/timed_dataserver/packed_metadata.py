@@ -25,6 +25,7 @@ from .models import (
 )
 from .packed import PackedCatalogue, PackedVirtualPath
 from .packed_profiles import PackedDatasetProfile
+from .tar_io import open_flags, same_file_revision
 
 MAX_DATASET_MATCHES = 200
 
@@ -218,12 +219,9 @@ class PackedMetadataCatalog:
         if candidate is None:
             return None
         root = self.index_path.parent
-        flags = os.O_RDONLY
-        for flag_name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
-            flags |= getattr(os, flag_name, 0)
         fd: int | None = None
         try:
-            fd = os.open(candidate, flags)
+            fd = os.open(candidate, open_flags())
             descriptor_stat = os.fstat(fd)
             resolved = candidate.resolve(strict=True)
             resolved.relative_to(root)
@@ -232,17 +230,7 @@ class PackedMetadataCatalog:
                 raise PackedMetadataError(
                     f"Packed metadata is not a regular file: {candidate}"
                 )
-            if (
-                descriptor_stat.st_dev,
-                descriptor_stat.st_ino,
-                descriptor_stat.st_mtime_ns,
-                descriptor_stat.st_size,
-            ) != (
-                path_stat.st_dev,
-                path_stat.st_ino,
-                path_stat.st_mtime_ns,
-                path_stat.st_size,
-            ):
+            if not same_file_revision(descriptor_stat, path_stat):
                 raise PackedMetadataError(
                     f"Packed metadata changed while opening: {candidate}"
                 )

@@ -34,6 +34,9 @@ test("QC links, queue moves and the site stepper keep their exact URLs", async (
   await connect(page, "local-datasets", { dataset: "idr0080" });
   await unlinkAllDatasets(page);
   await openQc(page);
+  // The page writes its URL twice while it settles: the default sort first, then
+  // the default review metric. Record the settled URL.
+  await expect(page).toHaveURL(/qc\.search=/);
   golden.record("qc page", location());
 
   const sites = page.getByRole("table", { name: "QC sites" });
