@@ -683,6 +683,56 @@ async def test_disconnect_timeout_reaches_error_and_continues_cleanup(
 
 
 @pytest.mark.asyncio
+async def test_disconnect_cleanup_failures_name_the_failed_step(tmp_path: Path) -> None:
+    class FailingCleanupBackend(FakeBackend):
+        async def close(self, context: object | None) -> None:
+            if context is not None:
+                self.closed += 1
+                raise OSError("connection reset by peer")
+
+        # Fails before returning an awaitable, like a synchronous backend error.
+        def close_forward(self, forward: object | None) -> Any:
+            del forward
+            raise RuntimeError("port forward already closed")
+
+    profile = slurm_profile()
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    backend = FailingCleanupBackend(tmp_path)
+    session = ConnectorSession(store, backend, poll_interval=0.001)
+
+    await session.connect(profile.id)
+    await wait_for_state(session, "host_key_confirm")
+    await authenticate_session(session)
+    await wait_for_state(session, "connected")
+
+    disconnected = await asyncio.wait_for(session.disconnect(), timeout=1)
+
+    failures = (
+        "Failed while closing the SSH connection: connection reset by peer",
+        "Failed while closing the SSH port forward: port forward already closed",
+    )
+    assert disconnected.state == "error"
+    assert disconnected.message == "Disconnect cleanup failed: " + "; ".join(failures)
+    assert all(failure in disconnected.logs for failure in failures)
+    assert backend.closed == 1
+
+
+def test_data_server_connection_repr_keeps_the_token_out() -> None:
+    connection = DataServerConnection(
+        host="node042",
+        port=8123,
+        token="token-that-must-stay-private",
+        api_version="1.0",
+    )
+
+    for text in (repr(connection), str(connection), f"{connection!r}"):
+        assert "token-that-must-stay-private" not in text
+        assert "node042" in text
+        assert "8123" in text
+    assert connection.token == "token-that-must-stay-private"
+
+
+@pytest.mark.asyncio
 async def test_local_backend_forwards_qc_paths_without_prechecking_them(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
