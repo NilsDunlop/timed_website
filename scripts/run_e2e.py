@@ -126,6 +126,7 @@ def _profile(
     local_qc_export: str,
     cluster_qc_annotations: str,
     local_qc_annotations: str,
+    include_cluster: bool = True,
 ) -> None:
     cluster_idr0080_root = cluster_idr0080_index.rsplit("/", 1)[0]
     local_idr0080_root = str(Path(local_idr0080_index).parent)
@@ -204,6 +205,10 @@ def _profile(
             },
         ]
     }
+    if not include_cluster:
+        value["profiles"] = [
+            profile for profile in value["profiles"] if profile["kind"] == "local"
+        ]
     path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
 
 
@@ -334,12 +339,19 @@ def main() -> int:
         action="store_true",
         help="Serve apps/web/dist from the connector instead of starting Astro dev.",
     )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Skip the SSH/Slurm test cluster and the browser flow that needs it.",
+    )
     arguments, playwright_arguments = parser.parse_known_args()
 
     if bool(arguments.real_local_root) != bool(arguments.real_local_store):
         parser.error("--real-local-root and --real-local-store must be provided together")
     if arguments.real_timed_copy and arguments.real_local_root:
         parser.error("--real-timed-copy cannot be combined with --real-local-root")
+    if arguments.local_only and (arguments.real_timed_copy or arguments.real_local_root):
+        parser.error("--local-only cannot be combined with the real-data modes")
     if not 1 <= arguments.connector_port <= 65535:
         parser.error("--connector-port must be between 1 and 65535")
     if not 1 <= arguments.web_port <= 65535:
@@ -381,7 +393,7 @@ def main() -> int:
     required_ports = [arguments.connector_port]
     if not arguments.built_ui:
         required_ports.append(arguments.web_port)
-    if not real_local:
+    if not real_local and not arguments.local_only:
         required_ports.insert(0, CLUSTER_PORT)
     for port in required_ports:
         _require_free_port(port)
@@ -413,6 +425,21 @@ def main() -> int:
             _real_timed_profile(profiles, real_timed_copy)
         else:
             _local_profile(profiles, real_local_root)
+    elif arguments.local_only:
+        local_index = str(packed_index.resolve())
+        _profile(
+            profiles,
+            "/unused",
+            str(TEST_DATA.resolve()),
+            "/unused/" + packed_index.name,
+            local_index,
+            known_hosts,
+            cluster_qc_export="/unused",
+            local_qc_export=str(qc_export.resolve()),
+            cluster_qc_annotations="/unused",
+            local_qc_annotations=str(local_qc_annotations_path.resolve()),
+            include_cluster=False,
+        )
     else:
         cluster_environment = None
         if os.name == "nt":
@@ -548,6 +575,9 @@ def main() -> int:
             )
         if real_timed_copy:
             test_environment["TIMED_REAL_TIMED_COPY"] = "1"
+        test_environment.pop("TIMED_E2E_LOCAL_ONLY", None)
+        if arguments.local_only:
+            test_environment["TIMED_E2E_LOCAL_ONLY"] = "1"
         result_code = subprocess.run(
             command,
             cwd=REPOSITORY_ROOT,

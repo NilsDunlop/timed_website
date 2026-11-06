@@ -10,7 +10,6 @@ import {
   qcMetricQuestionColumns,
   qcSiteHref,
   qcSiteOptions,
-  restoreDatasetContrasts,
   selectQcDisplayRanges,
   type QcFieldPayloadLike,
 } from "../../src/lib/qcViewer";
@@ -249,14 +248,6 @@ test("selects exact plate and channel ranges and preserves non-contrast channel 
   expect(qc).toEqual([
     { ...original[0], contrast: [101, 5250] },
     { ...original[1], contrast: [103, 5750] },
-  ]);
-  const changedVisibility = qc.map((channel, index) => ({
-    ...channel,
-    visible: index === 0 ? false : true,
-  }));
-  expect(restoreDatasetContrasts(changedVisibility, defaults)).toEqual([
-    { ...original[0], visible: false },
-    { ...original[1], visible: true },
   ]);
   expect(defaults).toEqual(original);
   expect(defaults).not.toBe(original);

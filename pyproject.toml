@@ -5,7 +5,7 @@ description = "Workspace for the TIMED OME-Zarr imaging platform"
 requires-python = ">=3.12"
 dependencies = [
   "timed-connector==0.1.0",
-  "timed-dataserver==0.5.1",
+  "timed-dataserver==0.5.2",
 ]
 
 [tool.uv]
@@ -28,6 +28,10 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "-ra"
+markers = [
+  "needs_symlinks: creates symlinks; skips where the platform refuses them (Windows)",
+  "posix_only: runs only on POSIX; skips on Windows",
+]
 testpaths = ["scripts/tests", "services/connector/tests", "services/dataserver/tests"]
 pythonpath = [
   ".",

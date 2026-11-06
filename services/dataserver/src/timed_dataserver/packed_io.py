@@ -10,9 +10,8 @@ import os
 import stat
 import tarfile
 import threading
-from collections import OrderedDict
-from collections.abc import Callable, Hashable, Mapping
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import Hashable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
 from importlib.metadata import version
@@ -23,6 +22,7 @@ import numpy as np
 import tifffile
 from numcodecs import Blosc
 
+from .caches import ByteBoundedSingleFlightLru
 from .packed import IndexSignature, PackedCatalogue, PackedMember
 from .packed_profiles import (
     MAX_PACKED_CHANNELS,
@@ -31,12 +31,22 @@ from .packed_profiles import (
     PackedCodec,
     PackedDatasetProfile,
 )
+from .revisions import FileRevision
+from .tar_io import (
+    TAR_BLOCK_SIZE,
+    NotRegularFileError,
+    ShortReadError,
+    open_flags,
+    parse_ustar_header,
+    read_exact_at,
+    regular_stats,
+    same_file_revision,
+)
 
 DEFAULT_PACKED_CACHE_BYTES = 1024 * 1024 * 1024
 DEFAULT_MAX_TAR_IO = 4
 _SOURCE_SNAPSHOT_ATTEMPTS = 3
-_TAR_BLOCK_SIZE = 512
-_OS_PREAD = getattr(os, "pread", None)
+_TAR_BLOCK_SIZE = TAR_BLOCK_SIZE
 _NUMCODECS_VERSION = version("numcodecs")
 _LOG = logging.getLogger(__name__)
 
@@ -53,15 +63,8 @@ class PackedChunkKeyError(PackedReadError):
     """Raised when a requested chunk coordinate is outside the packed image."""
 
 
-@dataclass(frozen=True, slots=True)
-class TarRevision:
-    """Stable file attributes used by field cache keys and chunk validators."""
-
-    path: Path
-    device: int
-    inode: int
-    mtime_ns: int
-    size: int
+# Stable file attributes used by field cache keys and chunk validators.
+TarRevision = FileRevision
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,70 +108,17 @@ class PackedChunkResult:
     cache_status: Literal["hit", "miss"]
 
 
-class PackedFieldCache:
+def _decoded_field_bytes(field: DecodedField) -> int:
+    return field.nbytes
+
+
+class PackedFieldCache(ByteBoundedSingleFlightLru[Hashable, DecodedField]):
     """Thread-safe byte-bounded LRU with one in-flight loader per key."""
 
     def __init__(self, max_bytes: int = DEFAULT_PACKED_CACHE_BYTES) -> None:
         if max_bytes < 0:
             raise ValueError("Packed cache size cannot be negative")
-        self.max_bytes = max_bytes
-        self._lock = threading.Lock()
-        self._entries: OrderedDict[Hashable, DecodedField] = OrderedDict()
-        self._inflight: dict[Hashable, Future[DecodedField]] = {}
-        self._current_bytes = 0
-
-    @property
-    def current_bytes(self) -> int:
-        with self._lock:
-            return self._current_bytes
-
-    @property
-    def entry_count(self) -> int:
-        with self._lock:
-            return len(self._entries)
-
-    def clear(self) -> None:
-        with self._lock:
-            self._entries.clear()
-            self._current_bytes = 0
-
-    def get_or_load(
-        self,
-        key: Hashable,
-        loader: Callable[[], DecodedField],
-    ) -> tuple[DecodedField, Literal["hit", "miss"]]:
-        with self._lock:
-            cached = self._entries.get(key)
-            if cached is not None:
-                self._entries.move_to_end(key)
-                return cached, "hit"
-            future = self._inflight.get(key)
-            leader = future is None
-            if future is None:
-                future = Future()
-                self._inflight[key] = future
-
-        if not leader:
-            return future.result(), "hit"
-
-        try:
-            loaded = loader()
-        except BaseException as exc:
-            with self._lock:
-                self._inflight.pop(key, None)
-                future.set_exception(exc)
-            raise
-
-        with self._lock:
-            self._entries[key] = loaded
-            self._entries.move_to_end(key)
-            self._current_bytes += loaded.nbytes
-            while self._entries and self._current_bytes > self.max_bytes:
-                _, evicted = self._entries.popitem(last=False)
-                self._current_bytes -= evicted.nbytes
-            self._inflight.pop(key, None)
-            future.set_result(loaded)
-        return loaded, "miss"
+        super().__init__(max_bytes, _decoded_field_bytes)
 
 
 @dataclass(slots=True)
@@ -212,17 +162,8 @@ class _FieldCacheKey:
 
 
 @dataclass(frozen=True, slots=True)
-class _TarIdentity:
-    path: Path
-    device: int
-    inode: int
-    mtime_ns: int
-    size: int
-
-
-@dataclass(frozen=True, slots=True)
 class _HeaderIdentity:
-    tar: _TarIdentity
+    tar: TarRevision
     offset: int
     size: int
     name: str
@@ -464,7 +405,7 @@ class PackedReader:
                     descriptor_stat = os.fstat(existing.fd)
                 except OSError as exc:
                     raise PackedReadError(f"Could not stat packed tar {canonical}: {exc}") from exc
-                if _same_file_revision(path_stat, descriptor_stat):
+                if same_file_revision(path_stat, descriptor_stat):
                     return existing
             descriptor = self._open_descriptor(canonical)
             if existing is not None:
@@ -476,18 +417,16 @@ class PackedReader:
             return descriptor
 
     def _open_descriptor(self, path: Path) -> _Descriptor:
-        flags = os.O_RDONLY
-        for flag_name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
-            flags |= getattr(os, flag_name, 0)
+        flags = open_flags()
         for _ in range(3):
             fd: int | None = None
             try:
                 fd = os.open(path, flags)
-                descriptor_stat = os.fstat(fd)
-                path_stat = os.stat(path, follow_symlinks=False)
-                if not stat.S_ISREG(descriptor_stat.st_mode) or not stat.S_ISREG(path_stat.st_mode):
-                    raise PackedReadError(f"Packed tar is not a regular file: {path}")
-                if _same_file_revision(path_stat, descriptor_stat):
+                try:
+                    descriptor_stat, path_stat = regular_stats(fd, path)
+                except NotRegularFileError:
+                    raise PackedReadError(f"Packed tar is not a regular file: {path}") from None
+                if same_file_revision(path_stat, descriptor_stat):
                     descriptor = _Descriptor(path, fd, threading.Lock())
                     fd = None
                     return descriptor
@@ -539,35 +478,21 @@ class PackedReader:
     def _read_exact_at_unlimited(self, descriptor: _Descriptor, offset: int, size: int) -> bytes:
         if offset < 0 or size < 0:
             raise PackedReadError("Packed positional reads require non-negative bounds")
-        output = bytearray()
         try:
-            if _OS_PREAD is not None:
-                while len(output) < size:
-                    chunk = _OS_PREAD(
-                        descriptor.fd,
-                        size - len(output),
-                        offset + len(output),
-                    )
-                    if not chunk:
-                        break
-                    output.extend(chunk)
-            else:
-                with descriptor.position_lock:
-                    os.lseek(descriptor.fd, offset, os.SEEK_SET)
-                    while len(output) < size:
-                        chunk = os.read(descriptor.fd, size - len(output))
-                        if not chunk:
-                            break
-                        output.extend(chunk)
+            return read_exact_at(
+                descriptor.fd,
+                offset,
+                size,
+                position_lock=descriptor.position_lock,
+            )
         except OSError as exc:
             raise PackedReadError(
                 f"Could not read packed tar {descriptor.path} at {offset}: {exc}"
             ) from exc
-        if len(output) != size:
+        except ShortReadError as exc:
             raise PackedReadError(
-                f"Short packed read from {descriptor.path}: expected {size}, got {len(output)}"
-            )
-        return bytes(output)
+                f"Short packed read from {descriptor.path}: expected {size}, got {exc.received}"
+            ) from None
 
     def _load_field(
         self,
@@ -760,14 +685,8 @@ class PackedReader:
         if identity in self._verified_headers and not force:
             return
         try:
-            if len(header) != _TAR_BLOCK_SIZE:
-                raise ValueError(f"header has {len(header)} bytes")
-            if header[257:265] != tarfile.POSIX_MAGIC:
-                raise ValueError("header does not contain POSIX USTAR magic")
-            info = tarfile.TarInfo.frombuf(header, "utf-8", "surrogateescape")
+            info = parse_ustar_header(header)
             expected_name = f"{profile.member_prefix}{source.member.relpath}"
-            if not info.isreg():
-                raise ValueError(f"member is not a regular file: {info.name!r}")
             if info.name != expected_name:
                 raise ValueError(
                     f"member name mismatch: expected {expected_name!r}, got {info.name!r}"
@@ -824,30 +743,10 @@ def _header_identity(
     profile: PackedDatasetProfile,
 ) -> _HeaderIdentity:
     return _HeaderIdentity(
-        tar=_TarIdentity(
-            source.revision.path,
-            source.revision.device,
-            source.revision.inode,
-            source.revision.mtime_ns,
-            source.revision.size,
-        ),
+        tar=source.revision,
         offset=source.member.offset,
         size=source.member.size,
         name=f"{profile.member_prefix}{source.member.relpath}",
-    )
-
-
-def _same_file_revision(path_stat: os.stat_result, descriptor_stat: os.stat_result) -> bool:
-    return (
-        path_stat.st_dev,
-        path_stat.st_ino,
-        path_stat.st_mtime_ns,
-        path_stat.st_size,
-    ) == (
-        descriptor_stat.st_dev,
-        descriptor_stat.st_ino,
-        descriptor_stat.st_mtime_ns,
-        descriptor_stat.st_size,
     )
 
 

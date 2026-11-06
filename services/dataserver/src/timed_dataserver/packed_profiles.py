@@ -15,6 +15,16 @@ import numpy as np
 import tifffile
 
 from .packed import PackedCatalogue, PackedMember
+from .tar_io import (
+    TAR_BLOCK_SIZE,
+    NotRegularFileError,
+    ShortReadError,
+    open_flags,
+    parse_ustar_header,
+    read_exact_at,
+    regular_stats,
+    same_file_revision,
+)
 
 MAX_PACKED_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_PACKED_FIELD_BYTES = 256 * 1024 * 1024
@@ -22,9 +32,8 @@ MAX_PACKED_CHANNELS = 256
 MAX_GENERIC_PLATE_AXIS = 4096
 MAX_GENERIC_PLATE_CELLS = 65_536
 GENERIC_CHUNK_EDGE = 1080
-_TAR_BLOCK_SIZE = 512
+_TAR_BLOCK_SIZE = TAR_BLOCK_SIZE
 _WELL_PATTERN = re.compile(r"(?P<row>[A-Za-z]+)(?P<column>[0-9]+)")
-_OS_PREAD = getattr(os, "pread", None)
 
 
 class PackedProfileError(ValueError):
@@ -296,44 +305,16 @@ def _first_member(catalogue: PackedCatalogue) -> PackedMember:
 
 
 def _read_exact(fd: int, offset: int, size: int, path: Path) -> bytes:
-    output = bytearray()
     try:
-        if _OS_PREAD is not None:
-            while len(output) < size:
-                chunk = _OS_PREAD(fd, size - len(output), offset + len(output))
-                if not chunk:
-                    break
-                output.extend(chunk)
-        else:
-            os.lseek(fd, offset, os.SEEK_SET)
-            while len(output) < size:
-                chunk = os.read(fd, size - len(output))
-                if not chunk:
-                    break
-                output.extend(chunk)
+        return read_exact_at(fd, offset, size)
     except OSError as exc:
         raise PackedProfileError(
             f"Could not read generic packed member from {path}: {exc}"
         ) from exc
-    if len(output) != size:
+    except ShortReadError as exc:
         raise PackedProfileError(
-            f"Short generic packed read from {path}: expected {size}, got {len(output)}"
-        )
-    return bytes(output)
-
-
-def _same_file(path_stat: os.stat_result, descriptor_stat: os.stat_result) -> bool:
-    return (
-        path_stat.st_dev,
-        path_stat.st_ino,
-        path_stat.st_mtime_ns,
-        path_stat.st_size,
-    ) == (
-        descriptor_stat.st_dev,
-        descriptor_stat.st_ino,
-        descriptor_stat.st_mtime_ns,
-        descriptor_stat.st_size,
-    )
+            f"Short generic packed read from {path}: expected {size}, got {exc.received}"
+        ) from None
 
 
 def _probe_bytes(member: PackedMember) -> tuple[bytes, bytes]:
@@ -349,17 +330,16 @@ def _probe_bytes(member: PackedMember) -> tuple[bytes, bytes]:
             f"{member.size}"
         )
 
-    flags = os.O_RDONLY
-    for flag_name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
-        flags |= getattr(os, flag_name, 0)
     fd: int | None = None
     try:
-        fd = os.open(member.tar, flags)
-        descriptor_stat = os.fstat(fd)
-        path_stat = os.stat(member.tar, follow_symlinks=False)
-        if not stat.S_ISREG(descriptor_stat.st_mode) or not stat.S_ISREG(path_stat.st_mode):
-            raise PackedProfileError(f"Generic packed shard is not a regular file: {member.tar}")
-        if not _same_file(path_stat, descriptor_stat):
+        fd = os.open(member.tar, open_flags())
+        try:
+            descriptor_stat, path_stat = regular_stats(fd, member.tar)
+        except NotRegularFileError:
+            raise PackedProfileError(
+                f"Generic packed shard is not a regular file: {member.tar}"
+            ) from None
+        if not same_file_revision(path_stat, descriptor_stat):
             raise PackedProfileError(f"Generic packed shard changed while probing: {member.tar}")
         if member.offset + member.size > descriptor_stat.st_size:
             raise PackedProfileError(
@@ -383,11 +363,7 @@ def _probe_bytes(member: PackedMember) -> tuple[bytes, bytes]:
 
 def _member_prefix(header: bytes, member: PackedMember) -> str:
     try:
-        if header[257:265] != tarfile.POSIX_MAGIC:
-            raise ValueError("header does not contain POSIX USTAR magic")
-        info = tarfile.TarInfo.frombuf(header, "utf-8", "surrogateescape")
-        if not info.isreg():
-            raise ValueError(f"member is not a regular file: {info.name!r}")
+        info = parse_ustar_header(header)
         if info.size != member.size:
             raise ValueError(f"member size mismatch: expected {member.size}, got {info.size}")
         if not info.name.endswith(member.relpath):

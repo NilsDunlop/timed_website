@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-
+import { connect, disconnect, expect, test } from "./fixtures";
 import { pixelSignature } from "./viewer";
 
 const rootName = process.env.TIMED_REAL_LOCAL_ROOT_NAME;
@@ -13,23 +12,13 @@ test.skip(
 test("renders a real local time series and measures timepoint changes", async ({
   page,
 }, testInfo) => {
-  const browserErrors: string[] = [];
   let zarrResponses = 0;
   const isZarrRequest = (url: string) => url.includes("/backend/zarr/");
-  page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
-  });
-  page.on("pageerror", (reason) => browserErrors.push(reason.message));
   page.on("response", (response) => {
     if (isZarrRequest(response.url())) zarrResponses += 1;
   });
 
-  await page.goto("/");
-  await page.getByLabel("Compute profile").selectOption("local");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByTestId("session-state")).toHaveText("connected", {
-    timeout: 30_000,
-  });
+  await connect(page, "local");
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
   const root = page.getByRole("listitem").filter({ hasText: rootName! });
@@ -83,10 +72,5 @@ test("renders a real local time series and measures timepoint changes", async ({
     fullPage: true,
   });
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Disconnect and stop server" })
-    .click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
-  expect(browserErrors).toEqual([]);
+  await disconnect(page);
 });

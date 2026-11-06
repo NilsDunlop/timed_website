@@ -819,3 +819,54 @@ cluster path. This compatibility work is released as 0.5.1. The former 0.5.1
 reservation for the still-future blinded QC interface is superseded; that work
 has no assigned release number. Segmentation remains separate and starts later
 from a fresh branch.
+
+## 2026-11-06: remove no-op viewer props and dead code, declare used dependencies
+
+Viv 0.23 renders single-resolution fields with `ImageLayer`, which reads neither
+`maxRequests` nor `excludeBackground`; only `MultiscaleImageLayer` does. The
+viewer no longer passes them or computes a request budget. The 2026-10-06 entry
+credits `excludeBackground` with keeping the last TIMED frame visible while the
+next one loads; `ImageLayer` does that itself, because it keeps its previous
+rasters until every raster of the new selection has arrived.
+
+The unused Related fields component and its styles, the dataset-contrast restore
+that only the removed QC range switch needed, and the test-only copy of the
+Slurm job template are deleted. The packed matches endpoint stays, as decided on
+2026-10-27.
+
+The data server now declares `numpy` and `numcodecs`, which it imports, at their
+locked versions; the `numcodecs` version is part of every packed chunk ETag.
+`zarr` stays declared although the server does not import it, because the tests
+and `scripts/make_test_data.py` do. `.gitattributes` keeps the generated OpenAPI
+JSON files LF on every platform, and the MCP browser is pinned to
+`@playwright/mcp` 0.0.80 with Playwright's Chromium, the build the browser suite
+installs.
+
+## 2026-11-06: restructure the data server and viewer before segmentation (0.5.2)
+
+Release 0.5.2 changes structure only: behaviour, the API, URLs and stored data
+are unchanged. Committed-versus-exported OpenAPI checks, token, path and write
+guards, and temporary characterisation snapshots of server responses, fixture
+bytes, viewer links and viewer state, removed again at the end, proved each
+step. Field opening on the external-drive TIMED copy was timed before and after.
+
+- **Data server.** Shared revision, tar-member and byte-bounded single-flight
+  cache primitives (`revisions.py`, `tar_io.py`, `caches.py`); HTTP cache and
+  error modules (`http_cache.py`, `errors.py`); `PackedProfileResolver`; and a
+  `ServerContext` (`context.py`) that `APIRouter` modules under `routes/`
+  receive through `Depends(get_context)` for the handshake, filesystem, dataset
+  and Zarr routes. The QC routes stay in `create_app` until the review-queue
+  work. FastAPI 0.142 keeps each included router as one lazy entry in
+  `app.routes`, so tests enumerate routes with `iter_route_contexts`.
+- **Web.** Pure viewer helpers in `lib/` (`viewerChannels`, `viewerSources`,
+  `viewerSourceIdentity`, `fieldPath`, `plateMetadata`), one `/view` link reader
+  and two writers (`lib/viewerLink.ts`, `lib/qc/qcViewerLink.ts`) that keep each
+  builder's parameter order, and `components/viewer/VivCanvas.tsx` with an
+  `overlayLayers` composition point that `lib/viewerOverlays.ts` will feed.
+- **Tests.** The cluster test runs inside the connector lifespan again, and every
+  browser flow fails on an unexpected console error.
+
+The mask-store contract for Part C now lives in `docs/data/IDR0080.md`. It
+condenses the idr0080 brief's section 5.1 and Appendix D with Part C's
+amendments: no `qc.parquet`, counts from the masks' labels, and outline toggles
+in the viewer controls the QC field view shares.

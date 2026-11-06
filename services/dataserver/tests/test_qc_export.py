@@ -11,6 +11,13 @@ import pytest
 from timed_dataserver.packed import PackedCatalogue, PackedCatalogueCache
 from timed_dataserver.packed_profiles import IDR0080_FIXTURE_PROFILE
 from timed_dataserver.qc_export import QcExportStore, inspect_qc_export
+from timed_dataserver.qc_payloads import (
+    dictionary_payload,
+    display_ranges_payload,
+    fields_payload,
+    review_list_payload,
+    triage_payload,
+)
 
 from scripts import make_test_data
 
@@ -475,6 +482,62 @@ def test_missing_export_has_explicit_unavailable_status(
     assert not store.status.core_ready
     assert store.status.hash_check == "unavailable"
     assert store.status.error is not None
+
+
+def _payload_strings(value: object) -> set[str]:
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, dict):
+        return {
+            item
+            for key, nested in value.items()
+            for item in (str(key), *_payload_strings(nested))
+        }
+    if isinstance(value, list):
+        return {item for nested in value for item in _payload_strings(nested)}
+    return set()
+
+
+def test_real_export_blind_payloads_opt_in() -> None:
+    """Check blinding on the private export, reporting integer counts only."""
+    if os.environ.get("TIMED_TEST_REAL_QC_EXPORT") != "1":
+        pytest.skip("set TIMED_TEST_REAL_QC_EXPORT=1 to validate the private local export")
+    root = Path(__file__).parents[3] / "docs" / "data" / "qc-export"
+    if not root.is_dir():
+        pytest.skip("private local QC export is unavailable")
+    snapshot = inspect_qc_export(root)
+    navigation = {"experiment", "plate", "well", "site"}
+    private = {column for columns in snapshot.hidden_columns.values() for column in columns}
+    private.add("plate_barcode")
+    private.update(
+        str(value) for value in snapshot.table("display_ranges.csv")["plate_barcode"].to_pylist()
+    )
+    key_columns = {
+        str(row["column"])
+        for row in snapshot.dictionary_rows(filename="site_metrics.csv")
+        if row.get("layer") == "key" and row.get("column") not in navigation
+    }
+    dictionary = dictionary_payload(snapshot, blind=True)
+    fields = fields_payload(snapshot, {}, blind=True, annotations=())
+    payloads = (
+        dictionary,
+        fields,
+        triage_payload(snapshot, blind=True),
+        display_ranges_payload(snapshot, blind=True),
+        review_list_payload(snapshot, blind=True),
+    )
+
+    leaked = [len(_payload_strings(payload) & private) for payload in payloads]
+    described_sites = {
+        str(row["column"]) for row in dictionary["rows"] if row["file"] == "site_metrics.csv"
+    }
+    leaked_keys = [
+        len(key_columns.intersection(fields["columns"])),
+        len(key_columns.intersection(described_sites)),
+    ]
+    assert leaked == [0, 0, 0, 0, 0]
+    assert leaked_keys == [0, 0]
+    assert all(payload["blinded"] is True for payload in payloads)
 
 
 def test_real_export_structure_opt_in() -> None:

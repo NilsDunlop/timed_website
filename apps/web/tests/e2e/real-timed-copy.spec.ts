@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-
+import { disconnect, expect, test } from "./fixtures";
 import { pixelSignature } from "./viewer";
 
 test.skip(
@@ -10,12 +9,6 @@ test.skip(
 test("opens the read-only Berzelius-layout TIMED copy", async ({
   page,
 }, testInfo) => {
-  const browserErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
-  });
-  page.on("pageerror", (reason) => browserErrors.push(reason.message));
-
   await page.goto("/");
   await page.getByLabel("Compute profile").selectOption("local-timed");
   await expect(page.getByLabel("Dataset")).toHaveValue("timed");
@@ -67,10 +60,5 @@ test("opens the read-only Berzelius-layout TIMED copy", async ({
     fullPage: true,
   });
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Disconnect and stop server" })
-    .click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
-  expect(browserErrors).toEqual([]);
+  await disconnect(page);
 });

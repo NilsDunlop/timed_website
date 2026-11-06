@@ -53,6 +53,26 @@ test("bypasses HTTP caching only for byte-range reads", async () => {
   ]);
 });
 
+test("answers Zarr v2 metadata probes without a request", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: FetchCall[] = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push(call(input, init));
+    return new Response(new Uint8Array([1]), { status: 200 });
+  };
+
+  try {
+    const store = new V3FetchStore("https://example.test/image.zarr");
+    expect(await store.get("/.zattrs")).toBeUndefined();
+    expect(await store.get("/.zgroup")).toBeUndefined();
+    expect(await store.get("/s0/.zattrs")).toBeUndefined();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  expect(calls).toEqual([]);
+});
+
 test("shares and retains one successful shard suffix read", async () => {
   const originalFetch = globalThis.fetch;
   const calls: FetchCall[] = [];

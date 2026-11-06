@@ -426,6 +426,7 @@ def test_virtual_paths_resolve_index_experiment_and_plate(tmp_path: Path) -> Non
         resolve_packed_virtual_path(f"{index}{os.sep}..{os.sep}idr0080-A549", guard, cache=cache)
 
 
+@pytest.mark.needs_symlinks
 def test_virtual_path_guard_rejects_symlinked_index_outside_root(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()

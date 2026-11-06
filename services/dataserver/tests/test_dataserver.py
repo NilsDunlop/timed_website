@@ -6,6 +6,7 @@ import os
 import stat
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 import httpx
@@ -13,24 +14,30 @@ import numpy as np
 import pytest
 import zarr
 from fastapi.testclient import TestClient
+from served_stores import write_berzelius_plate, write_json, write_native_plate
+from timed_dataserver import __version__
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.cli import main, serve
 from timed_dataserver.omezarr import OmeZarrError, _channels, _timed_field_metadata
-from zarr.codecs import BloscCodec
 from zarr.storage import FsspecStore
 
 from scripts.make_test_data import generate_test_data
+
+if TYPE_CHECKING:
+    from conftest import WriteAudit
 
 TOKEN = "test-only-bearer-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture(scope="module")
-def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def data_root(tmp_path_factory: pytest.TempPathFactory, write_audit: WriteAudit) -> Path:
     root = tmp_path_factory.mktemp("dataserver-data")
     generate_test_data(root, include_packed=False)
     (root / "ordinary").mkdir()
     (root / "notes.txt").write_text("not a dataset\n", encoding="utf-8")
+    # The native-plate test adds its own store to this shared root.
+    write_audit.watch(root, allow=(root / "native_plate.zarr",))
     return root
 
 
@@ -57,11 +64,6 @@ def _link(client: TestClient, path: Path, name: str | None = None) -> dict[str, 
     return response.json()
 
 
-def _write_json(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value), encoding="utf-8")
-
-
 def _omit_channel_window_ends(channels: object) -> None:
     assert isinstance(channels, list)
     for channel in channels:
@@ -70,86 +72,6 @@ def _omit_channel_window_ends(channels: object) -> None:
         assert isinstance(window, dict)
         assert "end" in window
         del window["end"]
-
-
-def _berzelius_fixture(root: Path) -> tuple[Path, np.ndarray]:
-    plate = root / "PB100140_P2.1.zarr"
-    plate.mkdir()
-    _write_json(
-        plate / "zarr.json",
-        {
-            "attributes": {
-                "timed_acquisition": {
-                    "plate_name": "PB100140_P2.1",
-                    "project": "TIMED_MOAC_LGCP_EXP01",
-                }
-            },
-            "zarr_format": 3,
-            "node_type": "group",
-        },
-    )
-    data = np.arange(2 * 3 * 16 * 16, dtype=np.uint16).reshape(2, 3, 16, 16)
-    field = zarr.create_array(
-        plate / "C03_s1.zarr",
-        shape=data.shape,
-        dtype="uint16",
-        chunks=(1, 1, 16, 16),
-        shards=data.shape,
-        compressors=[BloscCodec(cname="zstd", clevel=5, shuffle="shuffle")],
-        attributes={
-            "timed": {
-                "well": "C03",
-                "site": 1,
-                "axes": ["t", "c", "y", "x"],
-                "channels_nm": [405, 505, 625],
-                "t_indices": [0, 1],
-                "site_position_fix": {
-                    "grid_x": 1,
-                    "repaired_timepoints": [0],
-                    "reason": "synthetic site swap",
-                    "by": "test fixture",
-                },
-            }
-        },
-        overwrite=True,
-    )
-    field[:] = data
-
-    metadata = root / "metadata"
-    (metadata / "acquisition").mkdir(parents=True)
-    (metadata / "csv").mkdir()
-    _write_json(
-        metadata / "acquisition" / "PB100140_P2.1.json",
-        {
-            "project_name": "TIMED_MOAC_LGCP_EXP01",
-            "plate_name": "PB100140_P2.1",
-            "cell_line": "U2OS_CLEO3",
-            "grid": {
-                "num_x": 2,
-                "delta_x_mm": 0.9,
-                "num_y": 1,
-                "delta_y_mm": 0.9,
-                "num_t": 2,
-                "delta_t_hours": 1,
-            },
-            "channels": [
-                {"name": "405 nm", "enabled": True},
-                {"name": "505 nm", "enabled": True},
-                {"name": "625 nm", "enabled": True},
-            ],
-        },
-    )
-    (metadata / "csv" / "PB100140_P2.1.csv").write_text(
-        "plate_id,plate_series,plate_replicate,project,plate_barcode,experiment_date,"
-        "well,well_type,cell_line,cell_modification,passage,"
-        "seeding_density_cells_per_well,dye_program,cmpdname,"
-        "target_compound_concentration_uM,moa,target,pathway,mechanism_of_action\n"
-        "P2.1,P2,1,TIMED_MOAC_LGCP_EXP01,PB100140,2026-07-10,C03,compound,"
-        "U2OS_Cleo3,plasmid4_clone1,14+9,1200,NONE,Compound Test,1.0,Test,"
-        "Target,Pathway,Mechanism\n",
-        encoding="utf-8",
-    )
-    return plate, data
 
 
 @pytest.mark.parametrize(
@@ -288,6 +210,7 @@ def test_handshake_and_listing_detect_every_fixture(
         assert inside.status_code == 400
 
 
+@pytest.mark.needs_symlinks
 def test_path_guard_rejects_parent_outside_and_symlink_escape(
     client_factory: Callable[[Path | None], TestClient], data_root: Path
 ) -> None:
@@ -650,7 +573,7 @@ def test_timed_facade_declares_the_legacy_window_end(
 async def test_berzelius_plate_group_whole_plane_chunks_metadata_and_repair(
     tmp_path: Path,
 ) -> None:
-    plate, expected = _berzelius_fixture(tmp_path)
+    plate, expected = write_berzelius_plate(tmp_path)
     connection_file = tmp_path / "runtime" / "connection.json"
     settings = ServerSettings(
         data_roots=(tmp_path,),
@@ -759,12 +682,12 @@ def test_timed_field_validation_rejects_incompatible_metadata(
     change: Callable[[dict[str, object]], object],
     message: str,
 ) -> None:
-    plate, _data = _berzelius_fixture(tmp_path)
+    plate, _data = write_berzelius_plate(tmp_path)
     field = plate / "C03_s1.zarr"
     metadata_path = field / "zarr.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     change(metadata)
-    _write_json(metadata_path, metadata)
+    write_json(metadata_path, metadata)
 
     with pytest.raises(OmeZarrError, match=message):
         _timed_field_metadata(field)
@@ -892,6 +815,40 @@ def test_native_image_summaries(
     assert summary["channels"][0]["window"]["end"] == 8000
 
 
+@pytest.mark.parametrize("store_name", ["test_image_v04.zarr", "test_image_v05.zarr"])
+def test_native_resources_are_served_byte_for_byte(
+    client_factory: Callable[[Path | None], TestClient],
+    data_root: Path,
+    store_name: str,
+) -> None:
+    store = data_root / store_name
+    files = sorted(path for path in store.rglob("*") if path.is_file())
+    assert len(files) > 3
+
+    with client_factory() as client:
+        dataset_id = _link(client, store)["id"]
+        for path in files:
+            relative = path.relative_to(store).as_posix()
+            expected = path.read_bytes()
+            url = f"/zarr/{dataset_id}/{relative}"
+            response = client.get(url, headers=AUTH)
+            head = client.head(url, headers=AUTH)
+            suffix = client.get(url, headers={**AUTH, "Range": "bytes=-3"})
+
+            assert response.status_code == 200, relative
+            assert response.content == expected, relative
+            assert response.headers["content-length"] == str(len(expected))
+            assert head.status_code == 200, relative
+            assert head.headers["content-length"] == str(len(expected))
+            assert head.headers["etag"] == response.headers["etag"]
+            assert suffix.status_code == 206, relative
+            assert suffix.content == expected[-3:]
+            start = max(0, len(expected) - 3)
+            assert suffix.headers["content-range"] == (
+                f"bytes {start}-{len(expected) - 1}/{len(expected)}"
+            )
+
+
 def test_native_omero_channel_active_flags_are_preserved() -> None:
     channels = _channels(
         {
@@ -909,54 +866,7 @@ def test_native_omero_channel_active_flags_are_preserved() -> None:
 def test_native_plate_and_well_metadata_are_read_lazily(
     client_factory: Callable[[Path | None], TestClient], data_root: Path
 ) -> None:
-    plate = data_root / "native_plate.zarr"
-    _write_json(plate / ".zgroup", {"zarr_format": 2})
-    _write_json(
-        plate / ".zattrs",
-        {
-            "plate": {
-                "version": "0.4",
-                "name": "Native test plate",
-                "rows": [{"name": "A"}],
-                "columns": [{"name": "1"}],
-                "wells": [{"path": "A/1", "rowIndex": 0, "columnIndex": 0}],
-                "acquisitions": [{"id": 7, "name": "hourly"}],
-            }
-        },
-    )
-    _write_json(plate / "A" / "1" / ".zgroup", {"zarr_format": 2})
-    _write_json(
-        plate / "A" / "1" / ".zattrs",
-        {"well": {"version": "0.4", "images": [{"path": "0", "acquisition": 7}]}},
-    )
-    _write_json(plate / "A" / "1" / "0" / ".zgroup", {"zarr_format": 2})
-    _write_json(
-        plate / "A" / "1" / "0" / ".zattrs",
-        {
-            "multiscales": [
-                {
-                    "version": "0.4",
-                    "name": "field zero",
-                    "axes": [
-                        {"name": "t", "type": "time"},
-                        {"name": "c", "type": "channel"},
-                        {"name": "y", "type": "space"},
-                        {"name": "x", "type": "space"},
-                    ],
-                    "datasets": [{"path": "0"}],
-                }
-            ]
-        },
-    )
-    _write_json(
-        plate / "A" / "1" / "0" / "0" / ".zarray",
-        {
-            "zarr_format": 2,
-            "shape": [2, 1, 32, 32],
-            "chunks": [1, 1, 16, 16],
-            "dtype": "<u2",
-        },
-    )
+    plate = write_native_plate(data_root / "native_plate.zarr")
 
     with client_factory() as client:
         record = _link(client, plate)
@@ -1035,6 +945,28 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "/api/datasets/{dataset_id}/matches" in document["paths"]
     assert "/zarr/{dataset_id}/{resource_path}" in document["paths"]
     assert "openapi-placeholder" not in output
+
+
+def test_committed_openapi_matches_export(capsys: pytest.CaptureFixture[str]) -> None:
+    committed_path = (
+        Path(__file__).resolve().parents[3]
+        / "apps"
+        / "web"
+        / "src"
+        / "lib"
+        / "api"
+        / "dataserver.openapi.json"
+    )
+    assert main(["export-openapi"]) == 0
+    exported = json.loads(capsys.readouterr().out)
+    committed = json.loads(committed_path.read_text(encoding="utf-8"))
+
+    regenerate = "Run `pnpm -C apps/web gen:api` and commit the regenerated API files"
+    assert exported["info"]["version"] == __version__
+    assert committed["info"]["version"] == __version__, regenerate
+    for document in (exported, committed):
+        document["info"]["version"] = "<server version>"
+    assert exported == committed, regenerate
 
 
 def test_packed_cache_budget_must_be_positive(data_root: Path, tmp_path: Path) -> None:

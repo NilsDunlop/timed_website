@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { connect, disconnect, expect, test } from "./fixtures";
+import { exerciseIdr0080Flow } from "./idr0080";
 
 const cellHealthPlate = "Cell Health \u00b7 A549 \u00b7 SQ00014610";
 const secondCellHealthPlate = "Cell Health \u00b7 A549 \u00b7 SQ00014611";
@@ -178,9 +179,12 @@ test("chooses a dataset on Connect and restores a plate and well", async ({
   });
   await openedPlate.getByRole("button", { name: "Remove", exact: true }).click();
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Disconnect and stop server" })
-    .click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
+  await disconnect(page);
+});
+
+
+test("views Cell Health fields, display modes and comparisons locally", async ({ page }) => {
+  await connect(page, "local-datasets");
+  await exerciseIdr0080Flow(page);
+  await disconnect(page);
 });

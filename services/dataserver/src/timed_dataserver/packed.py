@@ -22,6 +22,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from .paths import PathForbiddenError, PathNotFoundError, RootGuard
+from .revisions import StatSignature, UnstableRevisionError, load_stable
 
 PACKED_INDEX_SUFFIX = ".index.parquet"
 REQUIRED_INDEX_COLUMNS = (
@@ -45,12 +46,8 @@ class PackedIndexError(ValueError):
     """Raised when a detected packed index cannot form a safe catalogue."""
 
 
-@dataclass(frozen=True, slots=True)
-class IndexSignature:
-    """The file identity used by the detection and catalogue caches."""
-
-    mtime_ns: int
-    size: int
+# The file identity used by the detection and catalogue caches.
+IndexSignature = StatSignature
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,8 +119,7 @@ class PackedVirtualPath:
 
 
 def _signature(path: Path) -> IndexSignature:
-    stat = path.stat()
-    return IndexSignature(mtime_ns=stat.st_mtime_ns, size=stat.st_size)
+    return StatSignature.of(path)
 
 
 def _is_string_type(value: pa.DataType) -> bool:
@@ -409,28 +405,31 @@ class PackedCatalogueCache:
         with self._lock:
             entry = self._entries.setdefault(resolved, _CatalogueEntry(threading.Lock()))
 
+        def read_signature() -> IndexSignature:
+            try:
+                return _signature(resolved)
+            except OSError as exc:
+                raise PackedIndexError(
+                    f"Packed index disappeared while loading: {resolved}"
+                ) from exc
+
+        def cached(signature: IndexSignature) -> PackedCatalogue | None:
+            return entry.catalogue if entry.signature == signature else None
+
         with entry.lock:
-            for _ in range(3):
-                try:
-                    before = _signature(resolved)
-                except OSError as exc:
-                    raise PackedIndexError(
-                        f"Packed index disappeared while loading: {resolved}"
-                    ) from exc
-                if entry.signature == before and entry.catalogue is not None:
-                    return entry.catalogue
-                catalogue = _load_catalogue(resolved, before)
-                try:
-                    after = _signature(resolved)
-                except OSError as exc:
-                    raise PackedIndexError(
-                        f"Packed index disappeared while loading: {resolved}"
-                    ) from exc
-                if before == after:
-                    entry.signature = after
-                    entry.catalogue = catalogue
-                    return catalogue
-            raise PackedIndexError(f"Packed index changed repeatedly while loading: {resolved}")
+            try:
+                catalogue, signature = load_stable(
+                    read_signature,
+                    lambda signature: _load_catalogue(resolved, signature),
+                    reuse=cached,
+                )
+            except UnstableRevisionError:
+                raise PackedIndexError(
+                    f"Packed index changed repeatedly while loading: {resolved}"
+                ) from None
+            entry.signature = signature
+            entry.catalogue = catalogue
+            return catalogue
 
     def clear(self) -> None:
         with self._lock:

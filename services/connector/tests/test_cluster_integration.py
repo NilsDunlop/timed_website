@@ -16,10 +16,13 @@ from timed_connector.models import ExistingJobChoice, Profile, RespondRequest
 from timed_connector.profiles import ProfileStore
 from timed_connector.session import ConnectorSession
 
-pytestmark = pytest.mark.skipif(
-    os.name == "nt",
-    reason="The local SSH/Slurm harness is POSIX-only",
-)
+pytestmark = [
+    pytest.mark.posix_only,
+    pytest.mark.skipif(
+        os.name == "nt",
+        reason="The local SSH/Slurm harness is POSIX-only",
+    ),
+]
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
@@ -213,30 +216,34 @@ async def test_real_test_cluster_hpc_flow(tmp_path: Path) -> None:
         assert first_job is not None
 
         app = create_app(store, first, port=8700)
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://127.0.0.1:8700",
-            timeout=30,
-        ) as client:
-            handshake = await client.get("/backend/api/handshake")
-            assert handshake.status_code == 200
-            linked = await client.post(
-                "/backend/api/datasets",
-                headers={"X-Timed-Client": "web"},
-                json={"path": str(image)},
-            )
-            assert linked.status_code == 201, linked.text
-            dataset_id = linked.json()["id"]
-            ranged = await client.get(
-                f"/backend/zarr/{dataset_id}/s0/0/0/0/0",
-                headers={"Range": "bytes=2-5"},
-            )
-            assert ranged.status_code == 206
-            assert ranged.content == b"2345"
-            assert ranged.headers["content-range"] == "bytes 2-5/8"
+        # The proxy client exists only inside the lifespan. Leaving the lifespan
+        # disconnects with cancel_job=True, so the job-keeping disconnect below
+        # must finish inside it for the reuse step to find the job.
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://127.0.0.1:8700",
+                timeout=30,
+            ) as client:
+                handshake = await client.get("/backend/api/handshake")
+                assert handshake.status_code == 200
+                linked = await client.post(
+                    "/backend/api/datasets",
+                    headers={"X-Timed-Client": "web"},
+                    json={"path": str(image)},
+                )
+                assert linked.status_code == 201, linked.text
+                dataset_id = linked.json()["id"]
+                ranged = await client.get(
+                    f"/backend/zarr/{dataset_id}/s0/0/0/0/0",
+                    headers={"Range": "bytes=2-5"},
+                )
+                assert ranged.status_code == 206
+                assert ranged.content == b"2345"
+                assert ranged.headers["content-range"] == "bytes 2-5/8"
 
-        await first.disconnect(cancel_job=False)
+            await first.disconnect(cancel_job=False)
 
         second = ConnectorSession(
             store,

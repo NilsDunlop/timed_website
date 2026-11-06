@@ -1,3 +1,7 @@
+import { positiveSiteFromPath } from "./fieldPath";
+import { setQcViewerSite } from "./qc/qcViewerLink";
+import { viewerQueryHref } from "./viewerLink";
+
 export type QcViewerScalar = string | number | boolean | null;
 
 export type QcFieldPayloadLike = {
@@ -316,31 +320,12 @@ export function applyQcDisplayRanges<T extends QcContrastChannel>(
   });
 }
 
-export function restoreDatasetContrasts<T extends QcContrastChannel>(
-  channels: readonly T[],
-  defaults: readonly QcContrastChannel[],
-): T[] {
-  const byChannel = new Map(defaults.map((channel) => [channel.name, channel.contrast]));
-  return channels.map((channel) => {
-    const contrast = byChannel.get(channel.name);
-    if (!contrast) throw new Error("Dataset-default contrast is missing for an image channel");
-    return { ...channel, contrast: [...contrast] as [number, number] };
-  });
-}
-
-function siteFromPath(path: string): number | null {
-  const match = /_s(\d+)\.zarr$/i.exec(path);
-  if (!match?.[1]) return null;
-  const site = Number.parseInt(match[1], 10);
-  return Number.isInteger(site) && site > 0 ? site : null;
-}
-
 export function qcSiteOptions(
   fields: readonly { path: string; acquisition?: number | string | null }[],
 ): QcSiteOption[] {
   const bySite = new Map<number, QcSiteOption>();
   for (const field of fields) {
-    const fromPath = siteFromPath(field.path);
+    const fromPath = positiveSiteFromPath(field.path);
     const fromAcquisition = finite(field.acquisition);
     const site =
       fromPath ??
@@ -370,8 +355,7 @@ export function buildQcSiteStepper(
 }
 
 export function qcSiteHref(search: string, option: QcSiteOption): string {
-  const query = new URLSearchParams(search);
-  query.set("path", option.path);
-  query.set("qcSite", String(option.site));
-  return `/view?${query.toString()}`;
+  return viewerQueryHref(
+    setQcViewerSite(new URLSearchParams(search), option.path, option.site),
+  );
 }

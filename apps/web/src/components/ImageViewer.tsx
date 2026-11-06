@@ -1,14 +1,10 @@
 import {
   DETAIL_VIEW_ID,
-  getChannelStats,
   getDefaultInitialViewState,
   loadOmeZarr,
   loadOmeZarrFromStore,
-  PictureInPictureViewer,
-  VivViewer,
 } from "@hms-dbmi/viv";
-import { SCALEBAR_VIEW_ID } from "@vivjs/views";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { components as ConnectorComponents } from "../lib/api/connector-schema";
 import type { components } from "../lib/api/dataserver-schema";
@@ -18,7 +14,29 @@ import {
   dataServerClient,
   webClientHeaders,
 } from "../lib/api/client";
-import { viewerReturnHref } from "../lib/collectionNavigation";
+import { fieldPathFor, timedWellPathFromField, wellIdFromPath } from "../lib/fieldPath";
+import { qcRequestFromQuery, type QcViewerRequest } from "../lib/qc/qcViewerSession";
+import { writeQcViewerLink } from "../lib/qc/qcViewerLink";
+import {
+  axisSize,
+  channelStates,
+  selectionFor,
+  type ChannelState,
+} from "../lib/viewerChannels";
+import { parseViewerSearch, viewerQueryHref, viewerReturnHref } from "../lib/viewerLink";
+import {
+  sitePositionFixNote,
+  viewerSourceIdentity,
+  type ViewerSourceIdentity,
+} from "../lib/viewerSourceIdentity";
+import {
+  encodedZarrPath,
+  imageFromSummary,
+  type FieldSummary,
+  type ImageSummary,
+  type Source,
+  type ViewerSourceState,
+} from "../lib/viewerSources";
 import {
   cacheImageLoader,
   type CacheableImageSource,
@@ -45,7 +63,6 @@ import {
   type ViewerDisplayMode,
   type ViewerDisplayPreference,
 } from "../lib/viewerDisplay";
-import { createViewerViewConfiguration } from "../lib/viewerViews";
 import { viewerDebug } from "../lib/viewerDebug";
 import {
   countAnnotatedQueueEntries,
@@ -70,79 +87,20 @@ import {
   selectQcDisplayRanges,
   type QcSiteStepper,
 } from "../lib/qcViewer";
-import PlateMetadataPanel, {
-  doseLabel,
-  findWellMetadata,
-  metadataLabels,
-  type PlateMetadata,
-  wellIdFromPath,
-} from "./PlateMetadataPanel";
+import PlateMetadataPanel from "./PlateMetadataPanel";
 import QcFieldPanel from "./QcFieldPanel";
 import type { QcAnnotationFormValue } from "./QcAnnotationPanel";
 import QcReviewBar from "./QcReviewBar";
+import VivCanvas, {
+  type CameraViewState,
+  type Dimensions,
+  type VivViewStateChangeEvent,
+} from "./viewer/VivCanvas";
 
-type ImageSummary = components["schemas"]["ImageSummary"];
-type FieldSummary = components["schemas"]["FieldSummary"];
-type Summary =
-  | ImageSummary
-  | components["schemas"]["PlateSummary"];
 type ConnectorProfile = ConnectorComponents["schemas"]["Profile"];
 type QcFieldResponse = components["schemas"]["QcFieldResponse"];
 type QcRowsResponse = components["schemas"]["QcRowsResponse"];
 type QcAnnotationsResponse = components["schemas"]["QcAnnotationsResponse"];
-type Loader = Awaited<ReturnType<typeof loadOmeZarr>>["data"];
-type Source = Loader[number];
-type Dimensions = { width: number; height: number };
-type CameraViewState = {
-  id: string;
-  target: number[];
-  zoom: number;
-  [key: string]: unknown;
-};
-type VivViewStateChangeEvent = {
-  viewId: string;
-  viewState: object;
-  oldViewState: object;
-};
-type VivViewStateChange = (event: VivViewStateChangeEvent) => object;
-
-type ChannelState = {
-  name: string;
-  color: [number, number, number];
-  visible: boolean;
-  domain: [number, number];
-  contrast: [number, number];
-};
-
-type ViewerSourceState = {
-  datasetId: string;
-  path: string;
-  image: ImageSummary;
-  field: FieldSummary | null;
-  metadata: PlateMetadata | null;
-  loader: Loader;
-  readyKey: string;
-};
-
-type ViewerSourceIdentity = {
-  compoundLabel: string;
-  compound: string;
-  concentration: string | null;
-  well: string;
-  site: string;
-  plate: string;
-};
-
-type QcViewerRequest = {
-  collectionId: string;
-  expectedExport: string;
-  plate: number;
-  well: string;
-  site: number;
-  scope: "field" | "well";
-  flaggedSites: readonly number[];
-};
-
 type PendingQcViewerContext = {
   payload: QcFieldResponse;
   rangeRows: QcRowsResponse["rows"];
@@ -170,50 +128,6 @@ type QcQueueContext = {
   backHref: string;
   warning: string;
 };
-
-const MAX_VIEWER_SOURCES = 4;
-
-function qcRequestFromQuery(
-  query: URLSearchParams,
-  selectedPath: string,
-  sourceCount: number,
-): QcViewerRequest | null {
-  if (query.get("qc") !== "1") return null;
-  const collectionId = query.get("collection")?.trim() ?? "";
-  const expectedExport = query.get("qcExport")?.trim() ?? "";
-  const plate = Number(query.get("qcPlate"));
-  const well = query.get("qcWell")?.trim().toUpperCase() ?? "";
-  const site = Number(query.get("qcSite"));
-  const rawFlaggedSites = query.get("qcFlaggedSites")?.trim() ?? "";
-  const flaggedSites = rawFlaggedSites
-    ? rawFlaggedSites.split(",").map(Number)
-    : [];
-  if (
-    !collectionId ||
-    !expectedExport ||
-    !Number.isInteger(plate) ||
-    plate <= 0 ||
-    !/^[A-Z]+\d+$/.test(well) ||
-    !Number.isInteger(site) ||
-    site <= 0 ||
-    sourceCount !== 1 ||
-    wellIdFromPath(selectedPath) !== well ||
-    Number(siteIdFromPath(selectedPath)) !== site ||
-    flaggedSites.some((candidate) => !Number.isInteger(candidate) || candidate <= 0) ||
-    new Set(flaggedSites).size !== flaggedSites.length
-  ) {
-    throw new Error("The QC viewer link is invalid");
-  }
-  return {
-    collectionId,
-    expectedExport,
-    plate,
-    well,
-    site,
-    scope: query.get("qcScope") === "well" ? "well" : "field",
-    flaggedSites,
-  };
-}
 
 function qcCollectionPath(
   profiles: readonly ConnectorProfile[],
@@ -318,59 +232,6 @@ async function loadQcViewerContext(
   };
 }
 
-const fallbackColors: [number, number, number][] = [
-  [0, 0, 255],
-  [0, 255, 0],
-  [255, 0, 0],
-  [255, 255, 255],
-  [255, 0, 255],
-  [0, 255, 255],
-];
-
-function parseColor(value: string | null | undefined, index: number) {
-  if (value && /^[0-9a-f]{6}$/i.test(value)) {
-    return [
-      Number.parseInt(value.slice(0, 2), 16),
-      Number.parseInt(value.slice(2, 4), 16),
-      Number.parseInt(value.slice(4, 6), 16),
-    ] as [number, number, number];
-  }
-  return fallbackColors[index % fallbackColors.length];
-}
-
-function imageFromSummary(summary: Summary): ImageSummary | null {
-  return summary.kind === "image" ? summary : (summary.first_image ?? null);
-}
-
-function siteIdFromPath(path: string): string | undefined {
-  const collection = /_s(\d+)\.zarr$/i.exec(path);
-  if (collection?.[1]) {
-    return String(Number.parseInt(collection[1], 10));
-  }
-  return /^[A-Za-z]+\/\d+\/([^/]+)(?:\/|$)/.exec(path)?.[1];
-}
-
-function timedWellPathFromField(path: string): string | null {
-  const match = /^([A-Za-z]+\d+)_s\d+\.zarr$/i.exec(path);
-  return match?.[1]?.toUpperCase() ?? null;
-}
-
-export function sitePositionFixNote(
-  fix: FieldSummary["site_position_fix"],
-): string | null {
-  if (!fix) return null;
-  const label = fix.repaired_timepoints.length === 1 ? "timepoint" : "timepoints";
-  return (
-    "Site position repaired at " +
-    label +
-    " " +
-    fix.repaired_timepoints.join(", ") +
-    ": this field holds grid position x = " +
-    String(fix.grid_x) +
-    " for the whole run."
-  );
-}
-
 function SitePositionFixNote({ field }: { field: FieldSummary | null }) {
   const note = sitePositionFixNote(field?.site_position_fix);
   if (!note) return null;
@@ -379,25 +240,6 @@ function SitePositionFixNote({ field }: { field: FieldSummary | null }) {
       {note}
     </p>
   );
-}
-
-function viewerSourceIdentity(source: ViewerSourceState): ViewerSourceIdentity {
-  const wellId = wellIdFromPath(source.path);
-  const well = findWellMetadata(source.metadata, wellId);
-  const labels = metadataLabels(source.metadata);
-  return {
-    compoundLabel: labels.compound,
-    compound:
-      well?.compound?.trim() ||
-      (well?.is_control ? labels.control : "Not specified"),
-    concentration:
-      source.metadata?.labels && well?.dose_um == null
-        ? null
-        : doseLabel(well?.dose_um),
-    well: wellId ?? "Not specified",
-    site: siteIdFromPath(source.path) ?? "Not specified",
-    plate: source.metadata?.plate?.plate_id?.trim() || "Not specified",
-  };
 }
 
 function ViewerSourceFacts({
@@ -441,203 +283,6 @@ function ViewerSourceFacts({
   );
 }
 
-function axisSize(source: Source, axis: string): number {
-  const index = Array.from(source.labels).indexOf(axis);
-  return index >= 0 ? source.shape[index] ?? 1 : 1;
-}
-
-function selectionFor(
-  source: Source,
-  channel: number,
-  time: number,
-  z: number,
-): Record<string, number> {
-  const values: Record<string, number> = {};
-  for (const label of source.labels) {
-    if (label === "x" || label === "y" || label === "_c") continue;
-    if (label === "c") values[label] = channel;
-    else if (label === "t") values[label] = time;
-    else if (label === "z") values[label] = z;
-    else values[label] = 0;
-  }
-  return values;
-}
-
-function encodedZarrPath(datasetId: string, imagePath: string): string {
-  const encodedPath = imagePath
-    .split("/")
-    .filter(Boolean)
-    .map(encodeURIComponent)
-    .join("/");
-  const path = (
-    "/backend/zarr/" +
-    encodeURIComponent(datasetId) +
-    "/" +
-    encodedPath
-  ).replace(/\/$/, "");
-  return new URL(path, window.location.origin).href;
-}
-
-async function channelStates(
-  loader: Loader,
-  image: ImageSummary,
-): Promise<ChannelState[]> {
-  const source = loader.at(-1);
-  if (!source) return [];
-  const channelCount = Math.max(axisSize(source, "c"), image.channels.length, 1);
-  const states: ChannelState[] = [];
-
-  for (let index = 0; index < channelCount; index += 1) {
-    const metadata = image.channels[index];
-    const minimum = metadata?.window?.min ?? 0;
-    const maximum = metadata?.window?.max ?? 65535;
-    let start = metadata?.window?.start;
-    let end = metadata?.window?.end;
-    let domain: [number, number] = [minimum, maximum];
-    const declaredContrast: [number, number] | null =
-      start != null && end != null ? [start, end] : null;
-
-    if (declaredContrast == null) {
-      try {
-        const raster = await source.getRaster({
-          selection: selectionFor(source, index, 0, 0),
-        });
-        const statistics = getChannelStats(raster.data);
-        domain = [statistics.domain[0], statistics.domain[1]];
-        [start, end] = statistics.contrastLimits;
-      } catch {
-        start = minimum;
-        end = maximum;
-      }
-    }
-
-    states.push({
-      name: metadata?.name ?? "Channel " + String(index + 1),
-      color: parseColor(metadata?.color, index),
-      visible: metadata?.active ?? true,
-      domain,
-      contrast: declaredContrast ?? [start ?? domain[0], domain[1]],
-    });
-  }
-  return states;
-}
-
-type VivCanvasProps = {
-  loader: Loader;
-  image: ImageSummary;
-  channels: ChannelState[];
-  selections: Record<string, number>[];
-  viewState: CameraViewState | null;
-  onViewStateChange: VivViewStateChange;
-  onReady: () => void;
-  onResize?: (dimensions: Dimensions) => void;
-  maxRequests: number;
-};
-
-const VivCanvas = memo(function VivCanvas({
-  loader,
-  image,
-  channels,
-  selections,
-  viewState,
-  onViewStateChange,
-  onReady,
-  onResize,
-  maxRequests,
-}: VivCanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState<Dimensions>({
-    width: 900,
-    height: 600,
-  });
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const update = () => {
-      const next = {
-        width: Math.max(320, Math.floor(container.clientWidth)),
-        height: Math.max(320, Math.floor(container.clientHeight)),
-      };
-      setDimensions(next);
-      onResize?.(next);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [onResize]);
-
-  const viewConfiguration = createViewerViewConfiguration({
-    loader,
-    image,
-    dimensions,
-  });
-  const singleResolutionLayerConfig = {
-    loader,
-    contrastLimits: channels.map((channel) => channel.contrast),
-    colors: channels.map((channel) => channel.color),
-    channelsVisible: channels.map((channel) => channel.visible),
-    selections,
-    excludeBackground: true,
-    maxRequests,
-    onViewportLoad: onReady,
-  };
-  const viewer =
-    viewConfiguration.kind === "picture-in-picture" ? (
-      <PictureInPictureViewer
-        loader={loader}
-        contrastLimits={channels.map((channel) => channel.contrast)}
-        colors={channels.map((channel) => channel.color)}
-        channelsVisible={channels.map((channel) => channel.visible)}
-        selections={selections}
-        overview={viewConfiguration.overview}
-        overviewOn
-        snapScaleBar={viewConfiguration.snapScaleBar}
-        height={dimensions.height}
-        width={dimensions.width}
-        viewStates={viewState ? [viewState] : undefined}
-        onViewStateChange={onViewStateChange}
-        onViewportLoad={onReady}
-      />
-    ) : (
-      <VivViewer
-        views={viewConfiguration.views}
-        layerProps={viewConfiguration.views.map(
-          () => singleResolutionLayerConfig,
-        )}
-        viewStates={[
-          viewState ?? {
-            ...getDefaultInitialViewState(loader, dimensions, 0.5),
-            id: DETAIL_VIEW_ID,
-          },
-          ...(viewConfiguration.hasPhysicalPixelSize
-            ? [
-                {
-                  id: SCALEBAR_VIEW_ID,
-                  zoom: 0,
-                  target: [dimensions.width / 2, dimensions.height / 2, 0],
-                },
-              ]
-            : []),
-        ]}
-        onViewStateChange={onViewStateChange}
-      />
-    );
-
-  return (
-    <div
-      className="canvas-frame"
-      data-scale-bar={
-        viewConfiguration.hasPhysicalPixelSize ? "true" : "false"
-      }
-      ref={containerRef}
-    >
-      {viewer}
-    </div>
-  );
-});
-
 export default function ImageViewer() {
   const [primaryDimensions, setPrimaryDimensions] = useState<Dimensions>({
     width: 900,
@@ -675,8 +320,8 @@ export default function ImageViewer() {
     viewerPixelCache.clear();
     async function load() {
       try {
-        const query = new URLSearchParams(window.location.search);
-        const requestedQueueId = query.get("qcQueue")?.trim() ?? "";
+        const viewerSearch = parseViewerSearch(window.location.search);
+        const { query, queueId: requestedQueueId } = viewerSearch;
         let loadedQcQueue: QcQueueContext | null = requestedQueueId
           ? {
               queue: null,
@@ -685,29 +330,9 @@ export default function ImageViewer() {
               warning: "This review queue is unavailable. Return to QC and start it again.",
             }
           : null;
-        const primaryDatasetId = query.get("dataset");
-        const selectedPath = query.get("path");
-        if (!primaryDatasetId || selectedPath == null) {
-          throw new Error("Choose an image field from the Data page first.");
-        }
-        const comparisonPaths = query
-          .getAll("compare")
-          .slice(0, MAX_VIEWER_SOURCES - 1);
-        const comparisonDatasetIds = query.getAll("compareDataset");
-        const requestedSources = [
-          { datasetId: primaryDatasetId, path: selectedPath },
-          ...comparisonPaths.map((path, index) => ({
-            datasetId: comparisonDatasetIds[index] ?? primaryDatasetId,
-            path,
-          })),
-        ];
-        const seenSources = new Set<string>();
-        const sourceSpecs = requestedSources.filter((source) => {
-          const key = source.datasetId + "\u0000" + source.path;
-          if (seenSources.has(key)) return false;
-          seenSources.add(key);
-          return true;
-        });
+        const primaryDatasetId = viewerSearch.primary.datasetId;
+        const selectedPath = viewerSearch.primary.path;
+        const sourceSpecs = viewerSearch.sources;
         let qcLinkError = false;
         let qcRequest: QcViewerRequest | null = null;
         try {
@@ -1117,10 +742,6 @@ export default function ImageViewer() {
   );
   const selections = selectionsBySource[0] ?? [];
   const frameKey = renderTime + ":" + z;
-  const requestBudget = Math.max(
-    1,
-    Math.floor(6 / Math.max(1, channelCount * sourceCount)),
-  );
 
   const completeFrame = useCallback(
     (
@@ -1592,25 +1213,27 @@ export default function ImageViewer() {
       if (!linked.data) {
         throw new Error(apiErrorMessage(linked.error, "The next review image could not be opened"));
       }
-      const query = new URLSearchParams(window.location.search);
-      query.set("dataset", linked.data.id);
-      query.set("path", `${entry.well}_s${entry.site}.zarr`);
-      query.set("collection", queue.collectionId);
-      query.set("qc", "1");
-      query.set("qcScope", entry.scope);
-      query.set("qcPlate", String(entry.plate));
-      query.set("qcWell", entry.well);
-      query.set("qcSite", String(entry.site));
-      query.set("qcExport", queue.exportId);
-      query.set("qcReturn", queue.returnHref);
-      query.set("qcQueue", queue.id);
-      query.set("qcIndex", String(nextIndex));
-      if (entry.flaggedSites?.length) {
-        query.set("qcFlaggedSites", entry.flaggedSites.join(","));
-      } else {
-        query.delete("qcFlaggedSites");
+      // Edits the current query, so parameters such as debug survive the move.
+      const query = writeQcViewerLink(
+        new URLSearchParams(window.location.search),
+        {
+          datasetId: linked.data.id,
+          path: fieldPathFor(entry.well, entry.site),
+          collectionId: queue.collectionId,
+          scope: entry.scope,
+          plate: entry.plate,
+          well: entry.well,
+          site: entry.site,
+          exportId: queue.exportId,
+          returnHref: queue.returnHref,
+          flaggedSites: entry.flaggedSites,
+        },
+        { queue, index: nextIndex },
+      );
+      if (!query) {
+        throw new Error("The next review image could not be opened");
       }
-      window.location.assign(`/view?${query.toString()}`);
+      window.location.assign(viewerQueryHref(query));
     } catch (cause) {
       setQcQueueBusy(false);
       setQcQueue((current) =>
@@ -2193,7 +1816,6 @@ export default function ImageViewer() {
                         onResize={
                           index === 0 ? setPrimaryDimensions : undefined
                         }
-                        maxRequests={requestBudget}
                       />
                     </article>
                   );
@@ -2211,7 +1833,6 @@ export default function ImageViewer() {
                   onViewStateChange={handleViewStateChange}
                   onReady={sourceReadyCallbacks[0]}
                   onResize={setPrimaryDimensions}
-                  maxRequests={requestBudget}
                 />
               </>
             ))}

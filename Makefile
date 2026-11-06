@@ -1,4 +1,4 @@
-.PHONY: dev test-cluster test test-e2e test-data gen-api lint
+.PHONY: dev test-cluster test test-e2e test-data gen-api check-api lint
 
 PROFILES ?= config/profiles.example.yaml
 
@@ -21,6 +21,9 @@ test-data:
 
 gen-api:
 	pnpm -C apps/web gen:api
+
+check-api: gen-api
+	git diff --exit-code -- apps/web/src/lib/api
 
 lint:
 	uv run ruff check .

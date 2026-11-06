@@ -1,17 +1,15 @@
-import { expect, test } from "@playwright/test";
-
+import { disconnect, expect, test } from "./fixtures";
 import { exerciseIdr0080Flow } from "./idr0080";
 import { pixelSignature } from "./viewer";
+
+test.skip(
+  process.env.TIMED_E2E_LOCAL_ONLY === "1",
+  "Run scripts/run_e2e.py without --local-only to include the SSH/Slurm test cluster.",
+);
 
 test("connects through Slurm and renders plate plus native OME-Zarr data", async ({
   page,
 }, testInfo) => {
-  const browserErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
-  });
-  page.on("pageerror", (reason) => browserErrors.push(reason.message));
-
   await page.goto("/");
   await page
     .getByLabel("Compute profile")
@@ -125,10 +123,5 @@ test("connects through Slurm and renders plate plus native OME-Zarr data", async
 
   await exerciseIdr0080Flow(page);
 
-  await page.getByRole("link", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Disconnect and cancel job" })
-    .click();
-  await expect(page.getByTestId("session-state")).toHaveText("disconnected");
-  expect(browserErrors).toEqual([]);
+  await disconnect(page, "Disconnect and cancel job");
 });

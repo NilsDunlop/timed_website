@@ -23,6 +23,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
+from .tar_io import open_flags
+
 ANNOTATION_CONFIDENCES = frozenset(("low", "medium", "high"))
 MAX_NOTE_LENGTH = 2_000
 _MAX_SHORT_TEXT = 256
@@ -392,12 +394,6 @@ class QcAnnotationStore:
         except OSError as exc:
             raise QcAnnotationUnavailableError("Annotation folder is unavailable") from exc
 
-    @staticmethod
-    def _flags(base: int) -> int:
-        for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
-            base |= getattr(os, name, 0)
-        return base
-
     def _open_regular(self, path: Path, flags: int, mode: int | None = None) -> int:
         try:
             if path.is_symlink():
@@ -405,9 +401,9 @@ class QcAnnotationStore:
             if path.parent.resolve(strict=True) != self.folder:
                 raise QcAnnotationUnavailableError("Annotation file is unavailable")
             fd = (
-                os.open(path, self._flags(flags))
+                os.open(path, open_flags(flags))
                 if mode is None
-                else os.open(path, self._flags(flags), mode)
+                else os.open(path, open_flags(flags), mode)
             )
         except QcAnnotationUnavailableError:
             raise

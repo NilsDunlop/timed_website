@@ -105,3 +105,27 @@ def test_browser_runner_writes_real_timed_copy_profile(tmp_path: Path) -> None:
             }
         ]
     }
+
+
+def test_local_only_runner_writes_only_the_local_profiles(tmp_path: Path) -> None:
+    profiles_path = tmp_path / "profiles.yaml"
+    timed_root = tmp_path / "timed"
+    idr0080_index = tmp_path / "idr0080-like" / "idr0080-raw.index.parquet"
+
+    _profile(
+        profiles_path,
+        "/unused",
+        str(timed_root),
+        "/unused/idr0080-raw.index.parquet",
+        str(idr0080_index),
+        tmp_path / "known_hosts",
+        cluster_qc_export="/unused",
+        local_qc_export=str(tmp_path / "qc-export"),
+        cluster_qc_annotations="/unused",
+        local_qc_annotations=str(tmp_path / "local-qc-annotations"),
+        include_cluster=False,
+    )
+
+    document = yaml.safe_load(profiles_path.read_text(encoding="utf-8"))
+    assert [profile["id"] for profile in document["profiles"]] == ["local", "local-datasets"]
+    assert "/unused" not in profiles_path.read_text(encoding="utf-8")

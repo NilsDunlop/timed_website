@@ -5,13 +5,13 @@ import json
 import os
 import signal
 from collections.abc import Callable
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from fastapi import FastAPI, Request
+from timed_connector import __version__
 from timed_connector.app import UPSTREAM_KEEPALIVE_EXPIRY_SECONDS, _proxy_client, create_app
 from timed_connector.cli import _first_plate, main
 from timed_connector.dataserver_connection import DataServerConnection
@@ -278,15 +278,6 @@ profiles:
 
 
 def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
-    external_template = (
-        Path(__file__).parents[1] / "templates" / "dataserver.sbatch.j2"
-    ).read_text(encoding="utf-8")
-    packaged_template = (
-        resources.files("timed_connector")
-        .joinpath("templates", "dataserver.sbatch.j2")
-        .read_text(encoding="utf-8")
-    )
-    assert packaged_template == external_template
     profile = slurm_profile(
         data_roots=["/data/with space"],
         metadata_root="/metadata/with space",
@@ -487,6 +478,28 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "qc_available" in collection_schema["properties"]
     assert "qc_export" not in collection_schema["properties"]
     assert "qc_annotations" not in collection_schema["properties"]
+
+
+def test_committed_openapi_matches_export(capsys: pytest.CaptureFixture[str]) -> None:
+    committed_path = (
+        Path(__file__).resolve().parents[3]
+        / "apps"
+        / "web"
+        / "src"
+        / "lib"
+        / "api"
+        / "connector.openapi.json"
+    )
+    assert main(["export-openapi"]) == 0
+    exported = json.loads(capsys.readouterr().out)
+    committed = json.loads(committed_path.read_text(encoding="utf-8"))
+
+    regenerate = "Run `pnpm -C apps/web gen:api` and commit the regenerated API files"
+    assert exported["info"]["version"] == __version__
+    assert committed["info"]["version"] == __version__, regenerate
+    for document in (exported, committed):
+        document["info"]["version"] = "<connector version>"
+    assert exported == committed, regenerate
 
 
 @pytest.mark.asyncio

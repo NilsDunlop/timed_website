@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
@@ -13,6 +14,9 @@ from timed_dataserver.qc_export import QcExportStore
 
 from scripts import make_test_data
 
+if TYPE_CHECKING:
+    from conftest import WriteAudit
+
 TOKEN = "qc-status-test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -20,6 +24,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 @pytest.fixture(scope="module")
 def qc_http_fixture(
     tmp_path_factory: pytest.TempPathFactory,
+    write_audit: WriteAudit,
 ) -> tuple[Path, Path, Path, Path]:
     output = tmp_path_factory.mktemp("qc-status")
     packed_root = make_test_data._write_packed_fixture(output)
@@ -27,6 +32,7 @@ def qc_http_fixture(
     annotations = output / "annotations"
     annotations.mkdir()
     index = packed_root / make_test_data.PACKED_INDEX_NAME
+    write_audit.watch(output, allow=(annotations,))
     return packed_root, index, export, annotations
 
 

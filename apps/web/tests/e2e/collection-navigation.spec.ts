@@ -11,11 +11,11 @@ import {
   qcNavigationHref,
   readCollectionPlace,
   readCollectionPreference,
-  viewerReturnHref,
   writeCollectionPlace,
   writeCollectionPreference,
   type DataCollection,
 } from "../../src/lib/collectionNavigation";
+import { viewerReturnHref } from "../../src/lib/viewerLink";
 
 const collections: DataCollection[] = [
   {
