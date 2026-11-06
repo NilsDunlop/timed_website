@@ -4,6 +4,9 @@ The per-route differences are deliberate and frozen until a separate API
 decision: OmeZarrError is 422 on summary and /zarr but 404 on wells, and
 PackedMetadataError is 503 under /api/qc but 422 under /api/datasets.
 
+Every detail checked here must also be free of absolute paths: errors name a
+file by its name or by its path inside its dataset, root or folder.
+
 Sites without a row here cannot be reached through the API today:
 ``linked`` "Packed plate is no longer available" (linking refuses indexes and
 experiments), the packed summary's PackedFacadeNotFoundError (linking already
@@ -11,9 +14,9 @@ validated the plate), the summary's PathForbiddenError (store readers raise
 OmeZarrError for escapes), the unknown packed facade resource after parsing (the
 parser returns only metadata or chunk requests), the QC payload's
 PackedMetadataError and QcPayloadError (metadata and the core contract are
-checked before payloads are built), and the listing OSError and symlinked
-private-path check (both need platform-specific setup). PackedReadError's 422
-on /zarr is pinned by test_packed_resources.py.
+checked before payloads are built), and the symlinked private-path check (it
+needs platform-specific setup). PackedReadError's 422 on /zarr is pinned by
+test_packed_resources.py.
 """
 
 from __future__ import annotations
@@ -21,7 +24,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -87,8 +92,41 @@ def _link(client: TestClient, path: Path) -> str:
     return str(response.json()["id"])
 
 
+# An absolute Windows path (C:\ or C:/), a UNC path, or a POSIX path that starts a word.
+ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|\\\\|/(?=[\w.~-]))")
+
+
+def _detail(response: httpx.Response) -> str:
+    """An error detail, which names files relative to their dataset or root."""
+    detail = response.json()["detail"]
+    assert isinstance(detail, str), detail
+    assert not ABSOLUTE_PATH.search(detail), detail
+    return detail
+
+
 def _status(response: httpx.Response) -> Expected:
-    return response.status_code, response.json()["detail"]
+    return response.status_code, _detail(response)
+
+
+def test_the_absolute_path_detector_finds_every_platform_form() -> None:
+    for message in (
+        "Path does not exist: /tmp/pytest-of-user/pytest-1/root/missing",
+        "Path does not exist: C:\\Users\\user\\AppData\\Local\\Temp\\missing",
+        "Could not read metadata C:/Users/user/store.zarr/zarr.json",
+        "[Errno 2] No such file or directory: 'C:\\\\Users\\\\user\\\\x.csv'",
+        "Could not open \\\\server\\share\\x.tar",
+        "/abs/at/start",
+    ):
+        assert ABSOLUTE_PATH.search(message), message
+    for message in (
+        "Path does not exist: A01_s1.zarr/c/9/9/9/9",
+        "Well metadata CSV is empty: csv/test_plate.csv",
+        "Unknown packed dataset path: idr0080-raw.index.parquet/idr0080-A549/14610/A01",
+        "Packed chunk is out of range: 9/9",
+        "Parent path segments are not allowed: ../outside",
+        "TIMED field must use uint16 pixels: B01_s2.zarr",
+    ):
+        assert not ABSOLUTE_PATH.search(message), message
 
 
 def _assert_table(table: list[tuple[str, httpx.Response, Expected]]) -> None:
@@ -141,7 +179,7 @@ def test_link_and_unlink_error_statuses(pristine: Path, tmp_path: Path) -> None:
             )),
             ("too deep", link(str(index / "idr0080-A549" / "14610" / "A01")), (
                 404,
-                f"Unknown packed dataset path: {index / 'idr0080-A549' / '14610' / 'A01'}",
+                f"Unknown packed dataset path: {index.name}/idr0080-A549/14610/A01",
             )),
             ("index outside roots", link(str(outside / "idr0080-A549" / "14610")), (
                 403,
@@ -184,7 +222,7 @@ def test_store_route_error_statuses(pristine: Path, tmp_path: Path) -> None:
             )),
             ("header-only plate metadata", get(f"/api/datasets/{plate}/metadata"), (
                 422,
-                f"Well metadata CSV is empty: {metadata_csv}",
+                "Well metadata CSV is empty: csv/test_plate.csv",
             )),
             ("zarr directory", get(f"/zarr/{image}/s0"), (
                 404,
@@ -211,6 +249,54 @@ def test_store_route_error_statuses(pristine: Path, tmp_path: Path) -> None:
         ]
 
     _assert_table(table)
+
+
+def test_metadata_errors_name_files_inside_their_folders(pristine: Path, tmp_path: Path) -> None:
+    root = _copy(pristine, tmp_path / "root", "test_plate.zarr", "metadata", "packed")
+    (root / "metadata" / "acquisition" / "test_plate.json").write_text("[]", encoding="utf-8")
+    packed = root / "packed" / make_test_data.PACKED_FIXTURE_DIRECTORY
+    packed_csv = packed / "metadata" / "metadata_idr0080.csv"
+    header = packed_csv.read_text(encoding="utf-8").splitlines()[0]
+    packed_csv.write_text(header + "\n", encoding="utf-8")
+    index = packed / make_test_data.PACKED_INDEX_NAME
+
+    with _client((root,), tmp_path / "state", metadata_root=root / "metadata") as client:
+        plate = _link(client, root / "test_plate.zarr")
+        packed_plate = _link(client, index / "idr0080-A549" / "14610")
+        table = [
+            ("acquisition", client.get(f"/api/datasets/{plate}/metadata", headers=AUTH), (
+                422,
+                "Acquisition metadata is not a JSON object: acquisition/test_plate.json",
+            )),
+            ("packed", client.get(f"/api/datasets/{packed_plate}/metadata", headers=AUTH), (
+                422,
+                "Packed metadata CSV is empty: metadata/metadata_idr0080.csv",
+            )),
+        ]
+
+    _assert_table(table)
+
+
+def test_listing_os_errors_give_their_reason_without_the_path(
+    pristine: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _copy(pristine, tmp_path / "root", "test_plate.zarr")
+    unreadable = root / "unreadable"
+    unreadable.mkdir()
+    iterdir = Path.iterdir
+
+    def refuse_one_folder(path: Path) -> Iterator[Path]:
+        if path == unreadable:
+            raise PermissionError(13, "Permission denied", str(path))
+        return iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", refuse_one_folder)
+    with _client((root,), tmp_path / "state") as client:
+        response = client.get("/api/fs/list", headers=AUTH, params={"path": str(unreadable)})
+
+    assert _status(response) == (403, "Could not list directory: Permission denied")
 
 
 def _break_field(field: Path) -> None:
@@ -252,10 +338,8 @@ def test_broken_timed_fields_keep_their_per_route_statuses(
     _assert_table(first_field)
     assert summary.status_code == 200
     assert untouched.status_code == 200
-    assert well.status_code == 404
-    assert resource.status_code == 422
-    assert well.json()["detail"] == resource.json()["detail"]
-    assert "B01_s2.zarr" in well.json()["detail"]
+    assert _status(well) == (404, "TIMED field must use uint16 pixels: B01_s2.zarr")
+    assert _status(resource) == (422, "TIMED field must use uint16 pixels: B01_s2.zarr")
 
 
 def test_listing_error_statuses(pristine: Path, tmp_path: Path) -> None:
@@ -289,7 +373,7 @@ def test_listing_error_statuses(pristine: Path, tmp_path: Path) -> None:
             ("outside", listing(str(tmp_path)), (403, "Path is outside the configured data roots")),
             ("missing", listing(str(root / "missing")), (
                 404,
-                f"Path does not exist: {root / 'missing'}",
+                "Path does not exist: missing",
             )),
             ("file", listing(str(root / "test_plate.zarr" / "acquisition_config.json")), (
                 400,
@@ -308,7 +392,7 @@ def test_listing_error_statuses(pristine: Path, tmp_path: Path) -> None:
 
     _assert_table(table)
     assert malformed.status_code == 422
-    assert "duplicate field/channel key" in malformed.json()["detail"]
+    assert "duplicate field/channel key" in _detail(malformed)
 
 
 def _rewrite_metadata_gene(packed: Path, gene: str) -> None:
@@ -370,7 +454,7 @@ def test_packed_route_error_statuses(pristine: Path, tmp_path: Path) -> None:
     _assert_table([row for row in table if row[0] != "matches unknown well"])
     for response in (metadata, matches):
         assert response.status_code == 422
-        assert "inconsistent 'cell_type'" in response.json()["detail"]
+        assert "inconsistent 'cell_type'" in _detail(response)
 
 
 def _qc_tree(pristine: Path, tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -423,7 +507,7 @@ def test_qc_error_statuses(pristine: Path, tmp_path: Path) -> None:
             )),
             ("missing", get("dictionary", str(root / "missing.index.parquet")), (
                 404,
-                f"Path does not exist: {root / 'missing.index.parquet'}",
+                "Path does not exist: missing.index.parquet",
             )),
             ("unconfigured", get("dictionary", str(other_index)), (
                 404,
@@ -486,7 +570,7 @@ def test_qc_unavailable_export_and_index_statuses(pristine: Path, tmp_path: Path
         status = client.get("/api/qc/status", headers=AUTH, params={"path": str(index)})
 
     assert unavailable.status_code == 503
-    assert unavailable.json()["detail"]
+    assert _detail(unavailable)
     assert _status(unloadable) == (503, "Configured QC index could not be loaded")
     assert status.status_code == 200
     assert status.json()["available"] is False
@@ -575,4 +659,4 @@ def test_failed_generic_profile_probe_is_unprocessable(pristine: Path, tmp_path:
 
     for response in (listing, linking):
         assert response.status_code == 422
-        assert response.json()["detail"].startswith("Invalid generic packed USTAR header")
+        assert _detail(response).startswith("Invalid generic packed USTAR header")

@@ -25,6 +25,7 @@ from .models import (
 )
 from .packed import PackedCatalogue, PackedVirtualPath
 from .packed_profiles import PackedDatasetProfile
+from .paths import error_reason, os_error_reason
 from .tar_io import open_flags, same_file_revision
 
 MAX_DATASET_MATCHES = 200
@@ -188,13 +189,18 @@ class PackedMetadataCatalog:
         try:
             self.index_path = index_path.expanduser().resolve(strict=True)
         except OSError as exc:
-            raise PackedMetadataError(f"Packed index does not exist: {index_path}") from exc
+            raise PackedMetadataError(f"Packed index does not exist: {index_path.name}") from exc
         self.profile = profile
         self._lock = threading.Lock()
         self._loaded = False
         self._missing = False
         self._groups: _RowsByPlate = {}
         self._responses: dict[_PlateKey, PlateMetadataResponse] = {}
+
+    @property
+    def _metadata_label(self) -> str:
+        """The metadata CSV as errors name it: relative to its index directory."""
+        return self.profile.metadata_path or "metadata"
 
     def _metadata_candidate(self) -> Path | None:
         relative = self.profile.metadata_path
@@ -228,11 +234,11 @@ class PackedMetadataCatalog:
             path_stat = os.stat(resolved, follow_symlinks=False)
             if not stat.S_ISREG(descriptor_stat.st_mode) or not stat.S_ISREG(path_stat.st_mode):
                 raise PackedMetadataError(
-                    f"Packed metadata is not a regular file: {candidate}"
+                    f"Packed metadata is not a regular file: {self._metadata_label}"
                 )
             if not same_file_revision(descriptor_stat, path_stat):
                 raise PackedMetadataError(
-                    f"Packed metadata changed while opening: {candidate}"
+                    f"Packed metadata changed while opening: {self._metadata_label}"
                 )
             handle = os.fdopen(fd, "r", encoding="utf-8-sig", newline="")
             fd = None
@@ -253,7 +259,9 @@ class PackedMetadataCatalog:
                     "Packed metadata path escapes its index directory: "
                     f"{self.profile.metadata_path}"
                 ) from path_exc
-            raise PackedMetadataError(f"Could not open packed metadata {candidate}: {exc}") from exc
+            raise PackedMetadataError(
+                f"Could not open packed metadata {self._metadata_label}: {os_error_reason(exc)}"
+            ) from exc
         finally:
             if fd is not None:
                 with suppress(OSError):
@@ -263,7 +271,8 @@ class PackedMetadataCatalog:
         opened = self._open_metadata()
         if opened is None:
             return None
-        path, handle = opened
+        _path, handle = opened
+        label = self._metadata_label
         try:
             with handle:
                 reader = csv.DictReader(handle)
@@ -276,7 +285,7 @@ class PackedMetadataCatalog:
                 mutable: dict[_PlateKey, list[dict[str, str]]] = {}
                 seen_wells: dict[_PlateKey, set[str]] = {}
                 for line, row in enumerate(reader, start=2):
-                    context = f"row {line} of {path}"
+                    context = f"row {line} of {label}"
                     experiment = _required(row, "experiment_name", context=context)
                     plate = _plate_number(
                         _required(row, "plate", context=context),
@@ -293,9 +302,11 @@ class PackedMetadataCatalog:
         except FileNotFoundError:
             return None
         except (OSError, UnicodeError, csv.Error) as exc:
-            raise PackedMetadataError(f"Could not read packed metadata {path}: {exc}") from exc
+            raise PackedMetadataError(
+                f"Could not read packed metadata {label}: {error_reason(exc)}"
+            ) from exc
         if not mutable:
-            raise PackedMetadataError(f"Packed metadata CSV is empty: {path}")
+            raise PackedMetadataError(f"Packed metadata CSV is empty: {label}")
         return {key: tuple(rows) for key, rows in mutable.items()}
 
     def _ensure_loaded(self) -> None:
@@ -454,7 +465,7 @@ class PackedMetadataCache:
             resolved = index_path.expanduser().resolve(strict=True)
             index_stat = resolved.stat()
         except OSError as exc:
-            raise PackedMetadataError(f"Packed index does not exist: {index_path}") from exc
+            raise PackedMetadataError(f"Packed index does not exist: {index_path.name}") from exc
         key = (
             resolved,
             index_stat.st_dev,

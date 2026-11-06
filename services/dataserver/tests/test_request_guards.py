@@ -176,12 +176,12 @@ def test_linked_records_are_revalidated_against_current_roots(
         deleted_id = _link(client, deleted_store)
         outside_id = _link(client, moved_store)
 
-    deleted_record = deleted_store.resolve()
     shutil.rmtree(deleted_store)
     with _client(first_root, state) as client:
         _expect_everywhere(client, "0" * 32, 404, "Dataset is not linked")
         _expect_everywhere(client, outside_id, 403, "Path is outside the configured data roots")
-        _expect_everywhere(client, deleted_id, 404, f"Path does not exist: {deleted_record}")
+        # Named relative to its data root, never by its absolute path.
+        _expect_everywhere(client, deleted_id, 404, "Path does not exist: gone.zarr")
         listed = client.get("/api/datasets", headers=AUTH)
 
     assert listed.status_code == 200
@@ -199,7 +199,7 @@ def test_linked_packed_plate_is_revalidated_against_the_current_index(tmp_path: 
         pq.write_table(table.filter(pc.not_equal(table["plate"], 14610)), index)
         _expect_everywhere(client, dataset_id, 404, "Unknown packed plate: 14610")
         index.unlink()
-        _expect_everywhere(client, dataset_id, 404, f"Path does not exist: {index}")
+        _expect_everywhere(client, dataset_id, 404, f"Path does not exist: {index.name}")
 
 
 def test_link_rejects_outside_and_missing_paths(data_root: Path, tmp_path: Path) -> None:
@@ -225,7 +225,7 @@ def test_link_rejects_outside_and_missing_paths(data_root: Path, tmp_path: Path)
     )
     assert (responses["missing"].status_code, responses["missing"].json()) == (
         404,
-        {"detail": f"Path does not exist: {missing}"},
+        {"detail": "Path does not exist: missing.zarr"},
     )
     assert (responses["parent"].status_code, responses["parent"].json()) == (
         403,

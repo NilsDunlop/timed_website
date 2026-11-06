@@ -15,6 +15,7 @@ from .models import (
     PlateMetadataResponse,
     WellMetadataSummary,
 )
+from .paths import error_reason
 
 DATASET_NAME = re.compile(
     r"^(?P<barcode>[A-Za-z]+\d+)_(?P<plate>P(?P<series>\d+)\.(?P<replicate>\d+))$"
@@ -69,13 +70,15 @@ def _interval_minutes(grid: dict[str, Any]) -> float | None:
     )
 
 
-def _acquisition(path: Path) -> PlateAcquisitionSummary:
+def _acquisition(path: Path, label: str) -> PlateAcquisitionSummary:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PlateMetadataError(f"Could not read acquisition metadata {path}: {exc}") from exc
+        raise PlateMetadataError(
+            f"Could not read acquisition metadata {label}: {error_reason(exc)}"
+        ) from exc
     if not isinstance(value, dict):
-        raise PlateMetadataError(f"Acquisition metadata is not a JSON object: {path}")
+        raise PlateMetadataError(f"Acquisition metadata is not a JSON object: {label}")
 
     grid = _mapping(value.get("grid"))
     plate_type = _mapping(value.get("wellplate_type"))
@@ -146,6 +149,10 @@ class PlateMetadataCatalog:
             raise PlateMetadataError(f"Metadata root does not exist: {self.root}")
         self._cache: dict[str, PlateMetadataResponse] = {}
 
+    def _label(self, path: Path) -> str:
+        """A metadata file as errors name it: relative to the metadata root."""
+        return path.relative_to(self.root).as_posix()
+
     def _csv_path(self, stem: str, plate_id: str | None) -> Path | None:
         csv_root = self.root / "csv"
         if not csv_root.is_dir():
@@ -183,13 +190,16 @@ class PlateMetadataCatalog:
         if csv_path is None:
             raise PlateMetadataError(f"No well metadata CSV found for {stem}")
 
+        csv_label = self._label(csv_path)
         try:
             with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
                 rows = list(csv.DictReader(handle))
         except (OSError, UnicodeError, csv.Error) as exc:
-            raise PlateMetadataError(f"Could not read well metadata {csv_path}: {exc}") from exc
+            raise PlateMetadataError(
+                f"Could not read well metadata {csv_label}: {error_reason(exc)}"
+            ) from exc
         if not rows:
-            raise PlateMetadataError(f"Well metadata CSV is empty: {csv_path}")
+            raise PlateMetadataError(f"Well metadata CSV is empty: {csv_label}")
 
         first = rows[0]
         csv_barcode = _text(first.get("plate_barcode"))
@@ -199,10 +209,10 @@ class PlateMetadataCatalog:
             )
         wells = [_well_metadata(row) for row in rows]
         if any(not well.well for well in wells):
-            raise PlateMetadataError(f"Well metadata contains an empty well: {csv_path}")
+            raise PlateMetadataError(f"Well metadata contains an empty well: {csv_label}")
         well_names = [well.well for well in wells]
         if len(well_names) != len(set(well_names)):
-            raise PlateMetadataError(f"Well metadata contains duplicate wells: {csv_path}")
+            raise PlateMetadataError(f"Well metadata contains duplicate wells: {csv_label}")
 
         explicit_plate_id = _text(first.get("plate_id"))
         resolved_plate_id = explicit_plate_id or plate_id or stem
@@ -210,7 +220,11 @@ class PlateMetadataCatalog:
             r"P(?P<series>\d+)\.(?P<replicate>\d+)",
             resolved_plate_id,
         )
-        acquisition = _acquisition(acquisition_path) if acquisition_path.is_file() else None
+        acquisition = (
+            _acquisition(acquisition_path, self._label(acquisition_path))
+            if acquisition_path.is_file()
+            else None
+        )
         response = PlateMetadataResponse(
             available=True,
             plate=PlateExperimentSummary(

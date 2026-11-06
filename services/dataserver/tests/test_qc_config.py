@@ -7,6 +7,7 @@ from types import MappingProxyType
 import pytest
 import timed_dataserver.cli as dataserver_cli
 from fastapi.testclient import TestClient
+from served_stores import write_native_plate
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.qc_config import (
     QcConfigurationError,
@@ -161,6 +162,74 @@ def test_nested_qc_export_is_filtered_and_its_descendants_are_forbidden(
     assert parent_listing.status_code == 200
     assert [entry["name"] for entry in parent_listing.json()["entries"]] == ["visible"]
     assert all(response.status_code == 403 for response in forbidden)
+
+
+def test_a_store_inside_a_qc_export_cannot_be_linked(tmp_path: Path) -> None:
+    root, index, _outside_export, annotations = _paths(tmp_path)
+    export = root / "review-support" / "private-export"
+    inside = write_native_plate(export / "inside.zarr")
+    packed_looking = export / "hidden.index.parquet"
+    packed_looking.write_bytes(b"private")
+    outside = write_native_plate(root / "outside.zarr")
+    settings = ServerSettings(
+        data_roots=(root,),
+        state_dir=tmp_path / "state",
+        environment="local",
+        qc_paths=(QcPathConfig(index, export, annotations),),
+    )
+
+    with TestClient(create_app(settings, TOKEN)) as client:
+        refused = [
+            client.post("/api/datasets", headers=AUTH, json={"path": value})
+            for value in (
+                str(inside),
+                str(inside.relative_to(root)),
+                str(export),
+                str(packed_looking / "idr0080-A549" / "14610"),
+            )
+        ]
+        allowed = client.post("/api/datasets", headers=AUTH, json={"path": str(outside)})
+        linked = client.get("/api/datasets", headers=AUTH)
+
+    assert [response.status_code for response in refused] == [403, 403, 403, 403]
+    assert all(
+        response.json() == {"detail": "Configured QC folders cannot be linked"}
+        for response in refused
+    )
+    assert allowed.status_code == 201
+    assert [record["name"] for record in linked.json()["datasets"]] == ["outside.zarr"]
+
+
+def test_a_qc_export_inside_a_linked_store_is_not_served(tmp_path: Path) -> None:
+    root, index, _outside_export, annotations = _paths(tmp_path)
+    store = write_native_plate(root / "store.zarr")
+    export = store / "qc-export"
+    export.mkdir()
+    (export / "site_metrics.csv").write_text("hidden_column\nprivate\n", encoding="utf-8")
+    settings = ServerSettings(
+        data_roots=(root,),
+        state_dir=tmp_path / "state",
+        environment="local",
+        qc_paths=(QcPathConfig(index, export, annotations),),
+    )
+
+    with TestClient(create_app(settings, TOKEN)) as client:
+        linked = client.post("/api/datasets", headers=AUTH, json={"path": str(store)})
+        assert linked.status_code == 201
+        dataset = linked.json()["id"]
+        store_metadata = client.get(f"/zarr/{dataset}/.zattrs", headers=AUTH)
+        private = [
+            client.get(f"/zarr/{dataset}/{resource}", headers=AUTH)
+            for resource in ("qc-export/site_metrics.csv", "qc-export/missing.csv", "qc-export")
+        ]
+
+    assert store_metadata.status_code == 200
+    assert [response.status_code for response in private] == [403, 403, 403]
+    assert all(
+        response.json() == {"detail": "Configured QC folders are not served"}
+        for response in private
+    )
+    assert all(b"private" not in response.content for response in private)
 
 
 @pytest.mark.parametrize("location", ("equal", "inside", "contains"))

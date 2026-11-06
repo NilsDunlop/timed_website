@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import timed_dataserver.qc_annotations as annotation_module
@@ -86,6 +88,73 @@ def test_reviewer_is_sanitized_and_only_selects_a_fixed_file(tmp_path: Path) -> 
     assert uuid.UUID(str(record["id"]))
     assert str(record["time"]).endswith("Z")
     assert sanitize_reviewer("///") == "reviewer"
+
+
+_USER_VARIABLES = ("LOGNAME", "USER", "LNAME", "USERNAME")
+
+
+def _process(
+    monkeypatch: pytest.MonkeyPatch,
+    os_name: str,
+    *,
+    account: str | None = None,
+    **variables: str,
+) -> None:
+    """Simulate a platform: its os.name, its user variables and its pwd module."""
+    monkeypatch.setattr(annotation_module.os, "name", os_name)
+    for name in _USER_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    if account is None:
+        # Windows has no pwd module; `import pwd` then raises ImportError.
+        monkeypatch.setitem(sys.modules, "pwd", None)
+    else:
+        entry = SimpleNamespace(pw_name=account)
+        monkeypatch.setitem(sys.modules, "pwd", SimpleNamespace(getpwuid=lambda _uid: entry))
+        monkeypatch.setattr(annotation_module.os, "getuid", lambda: 1000, raising=False)
+
+
+def test_posix_reviewer_is_the_account_of_the_process_user_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _process(monkeypatch, "posix", account="posix-account", USER="shell-user")
+
+    assert annotation_module._process_reviewer() == "posix-account"
+
+
+def test_windows_reviewer_prefers_username_over_shell_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _process(
+        monkeypatch,
+        "nt",
+        LOGNAME="shell-login",
+        USER="shell-user",
+        USERNAME="Windows User",
+    )
+
+    assert annotation_module._process_reviewer() == "Windows User"
+
+
+def test_windows_reviewer_falls_back_to_the_getpass_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _process(monkeypatch, "nt", USER="shell-user")
+
+    assert annotation_module._process_reviewer() == "shell-user"
+
+
+def test_windows_reviewer_without_user_variables_is_reviewer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _process(monkeypatch, "nt")
+
+    assert annotation_module._process_reviewer() == "reviewer"
+    folder = tmp_path / "annotations"
+    folder.mkdir()
+    assert QcAnnotationStore(folder).path == folder / "annotations_reviewer.jsonl"
 
 
 def test_append_uses_one_write_and_fsync_without_changing_earlier_bytes(

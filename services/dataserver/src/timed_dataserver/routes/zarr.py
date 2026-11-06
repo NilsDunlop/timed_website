@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 import anyio
@@ -19,8 +20,15 @@ from ..packed_facade import (
     parse_packed_resource,
 )
 from ..packed_io import PackedReadError
+from ..paths import PathForbiddenError
 
 router = APIRouter()
+
+
+def _refuse_qc_folders(ctx: ServerContext, path: Path) -> None:
+    """Never serve a configured QC folder: blind=1 protects only /api/qc."""
+    if ctx.qc_private_roots.contains(path):
+        raise PathForbiddenError("Configured QC folders are not served")
 
 
 @router.head(
@@ -79,7 +87,9 @@ async def get_zarr_resource(
         )
     try:
         with translate_path_errors():
-            ctx.guard.child(dataset_path, resource_path, must_exist=False)
+            requested = ctx.guard.child(dataset_path, resource_path, must_exist=False)
+            # Checked before existence, so a private folder's contents stay unknown.
+            _refuse_qc_folders(ctx, requested)
             virtual = (
                 collection_resource(dataset_path, resource_path)
                 if descriptor.layout == "timed-collection"
@@ -99,6 +109,7 @@ async def get_zarr_resource(
                 else resource_path
             )
             file_path = ctx.guard.child(dataset_path, mapped_path)
+            _refuse_qc_folders(ctx, file_path)
     except OmeZarrError as exc:
         raise unprocessable(exc) from exc
     if not file_path.is_file():

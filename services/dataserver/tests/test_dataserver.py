@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 import stat
+import subprocess
+import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -930,6 +934,96 @@ async def test_connection_file_mode_and_cleanup(data_root: Path, tmp_path: Path)
         if server_holder:
             server_holder[0].should_exit = True  # type: ignore[attr-defined]
         await asyncio.wait_for(task, timeout=10)
+    assert not connection_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_connection_file_is_gone_when_uvicorn_reraises_sigterm(
+    data_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uvicorn re-raises a captured SIGTERM after shutdown with the default
+    handler restored, which ends the process before serve() reaches its finally
+    block. Record what exists at that moment instead of ending the process."""
+    connection_file = tmp_path / "runtime" / "connection.json"
+    settings = ServerSettings(
+        data_roots=(data_root,),
+        state_dir=tmp_path / "runtime-state",
+        environment="local",
+    )
+    present_at_reraise: list[bool] = []
+
+    def reraise(signum: int) -> None:
+        assert signum == signal.SIGTERM
+        present_at_reraise.append(connection_file.exists())
+
+    def stop_with_sigterm(server: object) -> None:
+        assert connection_file.exists()
+        server.handle_exit(signal.SIGTERM, None)  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(signal, "raise_signal", reraise)
+    await asyncio.wait_for(
+        serve(
+            settings,
+            host="127.0.0.1",
+            port=0,
+            connection_file=connection_file,
+            token=TOKEN,
+            on_started=stop_with_sigterm,
+        ),
+        timeout=20,
+    )
+
+    assert present_at_reraise == [False]
+    assert not connection_file.exists()
+
+
+@pytest.mark.posix_only
+@pytest.mark.skipif(os.name == "nt", reason="SIGTERM delivery to a child process is POSIX-only")
+def test_sigterm_removes_the_connection_file_and_still_ends_by_signal(
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    connection_file = tmp_path / "runtime" / "connection.json"
+    log_path = tmp_path / "server.log"
+    with log_path.open("wb") as log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "timed_dataserver.cli",
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+                "--data-root",
+                str(data_root),
+                "--connection-file",
+                str(connection_file),
+                "--environment",
+                "local",
+                "--state-dir",
+                str(tmp_path / "state"),
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 60
+            while not connection_file.exists():
+                assert process.poll() is None, log_path.read_text(errors="replace")
+                assert time.monotonic() < deadline, "the server never wrote its file"
+                time.sleep(0.05)
+            process.send_signal(signal.SIGTERM)
+            returncode = process.wait(timeout=30)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+    assert returncode == -signal.SIGTERM
     assert not connection_file.exists()
 
 

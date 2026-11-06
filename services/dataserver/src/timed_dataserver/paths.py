@@ -1,9 +1,37 @@
-"""Centralized path containment checks for all filesystem access."""
+"""Centralized path containment checks for all filesystem access.
+
+User-facing errors never show an absolute path: they name a file by its name or
+by its path inside its data root, dataset or folder, and give an OS error's
+reason without the file name that ``str(exc)`` appends.
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path, PurePosixPath
+
+
+def os_error_reason(exc: OSError) -> str:
+    """The reason of an OS error, without the file names ``str(exc)`` includes."""
+    if exc.strerror:
+        return exc.strerror
+    if exc.filename is None and exc.filename2 is None:
+        return str(exc) or type(exc).__name__
+    return type(exc).__name__
+
+
+def error_reason(exc: Exception, path: Path | None = None) -> str:
+    """An exception's reason for a user-facing message.
+
+    An OS error gives its reason without file names. Libraries such as pyarrow
+    write the file into the message itself, so any spelling of ``path`` is
+    replaced by its name.
+    """
+    reason = os_error_reason(exc) if isinstance(exc, OSError) else str(exc)
+    if path is not None:
+        for spelling in {str(path), path.as_posix()}:
+            reason = reason.replace(spelling, path.name)
+    return reason
 
 
 class PathAccessError(ValueError):
@@ -76,10 +104,20 @@ class RootGuard:
         try:
             resolved_supplied = candidates[0].resolve(strict=False)
         except OSError as exc:
-            raise PathNotFoundError(f"Path does not exist: {raw}") from exc
+            raise PathNotFoundError(self._missing(raw, supplied, None)) from exc
         if not any(_is_within(resolved_supplied, root) for root in self.roots):
             raise PathForbiddenError("Path is outside the configured data roots")
-        raise PathNotFoundError(f"Path does not exist: {raw}")
+        raise PathNotFoundError(self._missing(raw, supplied, resolved_supplied))
+
+    def _missing(self, raw: str, supplied: Path, resolved: Path | None) -> str:
+        """Name a missing path relative to its data root, never absolutely."""
+        if not supplied.is_absolute():
+            return f"Path does not exist: {raw}"
+        for root in self.roots:
+            if resolved is not None and _is_within(resolved, root):
+                relative = Path(os.path.relpath(resolved, root)).as_posix()
+                return f"Path does not exist: {relative}"
+        return "Path does not exist"
 
     def child(self, base: Path, relative: str, *, must_exist: bool = True) -> Path:
         """Resolve a URL-style child path without allowing escape from base."""

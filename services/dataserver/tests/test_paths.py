@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from timed_dataserver.paths import PathForbiddenError, PathNotFoundError, RootGuard
+from timed_dataserver.paths import (
+    PathForbiddenError,
+    PathNotFoundError,
+    RootGuard,
+    error_reason,
+    os_error_reason,
+)
 
 WINDOWS = os.name == "nt"
 PARENT = "Parent path segments are not allowed"
@@ -89,6 +95,46 @@ def test_resolve_distinguishes_outside_from_missing(layout: Layout) -> None:
         layout.guard.resolve("missing.zarr")
     assert layout.guard.resolve("missing.zarr", must_exist=False) == missing
     assert layout.guard.resolve(str(missing), must_exist=False) == missing
+
+
+def test_missing_absolute_paths_are_named_relative_to_their_root(layout: Layout) -> None:
+    missing = layout.root / "store" / "missing.zarr"
+    for raw in (str(missing), missing.as_posix()):
+        with pytest.raises(
+            PathNotFoundError, match="^Path does not exist: store/missing.zarr$"
+        ):
+            layout.guard.resolve(raw)
+    with pytest.raises(PathNotFoundError, match="^Path does not exist: store/missing.zarr$"):
+        layout.guard.resolve("store/missing.zarr")
+
+
+def test_os_error_reasons_never_carry_the_file_name(tmp_path: Path) -> None:
+    named = FileNotFoundError(2, "No such file or directory", str(tmp_path / "x.csv"))
+    assert os_error_reason(named) == "No such file or directory"
+    assert os_error_reason(PermissionError(13, "Permission denied", "private.csv")) == (
+        "Permission denied"
+    )
+    assert os_error_reason(OSError("connection reset by peer")) == "connection reset by peer"
+    assert os_error_reason(OSError()) == "OSError"
+    try:
+        (tmp_path / "missing.txt").read_text(encoding="utf-8")
+    except OSError as exc:
+        assert tmp_path.name in str(exc)
+        assert tmp_path.name not in os_error_reason(exc)
+
+
+def test_error_reasons_replace_every_spelling_of_a_named_path(tmp_path: Path) -> None:
+    index = tmp_path / "idr0080-raw.index.parquet"
+    arrow_style = ValueError(f"Could not open Parquet input source '{index.as_posix()}': bad")
+    native_style = ValueError(f"Could not open {index}: bad")
+
+    assert error_reason(arrow_style, index) == (
+        "Could not open Parquet input source 'idr0080-raw.index.parquet': bad"
+    )
+    assert error_reason(native_style, index) == "Could not open idr0080-raw.index.parquet: bad"
+    assert error_reason(OSError(f"Failed to open local file '{index.as_posix()}'"), index) == (
+        "Failed to open local file 'idr0080-raw.index.parquet'"
+    )
 
 
 def test_resolve_treats_drive_letters_by_platform(layout: Layout) -> None:
