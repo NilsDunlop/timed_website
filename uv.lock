@@ -2064,6 +2064,8 @@ version = "0.5.1"
 source = { editable = "services/dataserver" }
 dependencies = [
     { name = "fastapi" },
+    { name = "numcodecs" },
+    { name = "numpy" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "tifffile" },
@@ -2074,6 +2076,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = "==0.142.2" },
+    { name = "numcodecs", specifier = "==0.17.0" },
+    { name = "numpy", specifier = "==2.5.3" },
     { name = "pyarrow", specifier = "==26.0.0" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "tifffile", specifier = "==2026.10.15" },

@@ -320,18 +320,6 @@ export function applyQcDisplayRanges<T extends QcContrastChannel>(
   });
 }
 
-export function restoreDatasetContrasts<T extends QcContrastChannel>(
-  channels: readonly T[],
-  defaults: readonly QcContrastChannel[],
-): T[] {
-  const byChannel = new Map(defaults.map((channel) => [channel.name, channel.contrast]));
-  return channels.map((channel) => {
-    const contrast = byChannel.get(channel.name);
-    if (!contrast) throw new Error("Dataset-default contrast is missing for an image channel");
-    return { ...channel, contrast: [...contrast] as [number, number] };
-  });
-}
-
 export function qcSiteOptions(
   fields: readonly { path: string; acquisition?: number | string | null }[],
 ): QcSiteOption[] {

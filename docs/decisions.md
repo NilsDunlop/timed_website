@@ -819,3 +819,25 @@ cluster path. This compatibility work is released as 0.5.1. The former 0.5.1
 reservation for the still-future blinded QC interface is superseded; that work
 has no assigned release number. Segmentation remains separate and starts later
 from a fresh branch.
+
+## 2026-11-06: remove no-op viewer props and dead code, declare used dependencies
+
+Viv 0.23 renders single-resolution fields with `ImageLayer`, which reads neither
+`maxRequests` nor `excludeBackground`; only `MultiscaleImageLayer` does. The
+viewer no longer passes them or computes a request budget. The 2026-10-06 entry
+credits `excludeBackground` with keeping the last TIMED frame visible while the
+next one loads; `ImageLayer` does that itself, because it keeps its previous
+rasters until every raster of the new selection has arrived.
+
+The unused Related fields component and its styles, the dataset-contrast restore
+that only the removed QC range switch needed, and the test-only copy of the
+Slurm job template are deleted. The packed matches endpoint stays, as decided on
+2026-10-27.
+
+The data server now declares `numpy` and `numcodecs`, which it imports, at their
+locked versions; the `numcodecs` version is part of every packed chunk ETag.
+`zarr` stays declared although the server does not import it, because the tests
+and `scripts/make_test_data.py` do. `.gitattributes` keeps the generated OpenAPI
+JSON files LF on every platform, and the MCP browser is pinned to
+`@playwright/mcp` 0.0.80 with Playwright's Chromium, the build the browser suite
+installs.

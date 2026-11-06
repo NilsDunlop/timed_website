@@ -742,10 +742,6 @@ export default function ImageViewer() {
   );
   const selections = selectionsBySource[0] ?? [];
   const frameKey = renderTime + ":" + z;
-  const requestBudget = Math.max(
-    1,
-    Math.floor(6 / Math.max(1, channelCount * sourceCount)),
-  );
 
   const completeFrame = useCallback(
     (
@@ -1820,7 +1816,6 @@ export default function ImageViewer() {
                         onResize={
                           index === 0 ? setPrimaryDimensions : undefined
                         }
-                        maxRequests={requestBudget}
                       />
                     </article>
                   );
@@ -1838,7 +1833,6 @@ export default function ImageViewer() {
                   onViewStateChange={handleViewStateChange}
                   onReady={sourceReadyCallbacks[0]}
                   onResize={setPrimaryDimensions}
-                  maxRequests={requestBudget}
                 />
               </>
             ))}

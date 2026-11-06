@@ -35,7 +35,6 @@ type VivCanvasProps = {
   onViewStateChange: VivViewStateChange;
   onReady: () => void;
   onResize?: (dimensions: Dimensions) => void;
-  maxRequests: number;
   overlayLayers?: readonly Layer[];
 };
 
@@ -48,7 +47,6 @@ const VivCanvas = memo(function VivCanvas({
   onViewStateChange,
   onReady,
   onResize,
-  maxRequests,
   overlayLayers,
 }: VivCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -85,8 +83,6 @@ const VivCanvas = memo(function VivCanvas({
     colors: channels.map((channel) => channel.color),
     channelsVisible: channels.map((channel) => channel.visible),
     selections,
-    excludeBackground: true,
-    maxRequests,
     onViewportLoad: onReady,
   };
   // Without overlays both viewers get exactly the props they had before.

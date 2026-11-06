@@ -183,12 +183,14 @@ Playwright test-results folder.
 
 ## Playwright MCP
 
-The project-scoped server is declared in `.mcp.json`. Restart the coding session
-after first checkout and approve the project-scoped `playwright` server once.
-Then run the app at `http://localhost:4321` and use the MCP browser after every UI
-change to walk Connect -> Data -> View, capture relevant screenshots, and inspect
-the browser console. Prefer headed Chromium for Viv; if WebGL is blank in
-headless mode, add a checked-in MCP configuration with working SwiftShader flags.
+The project-scoped server is declared in `.mcp.json`, pinned to
+`@playwright/mcp` 0.0.80 with `--browser chromium`, which uses the Chromium build
+the browser suite installs. Restart the coding session after first checkout and
+approve the project-scoped `playwright` server once. Then run the app at
+`http://localhost:4321` and use the MCP browser after every UI change to walk
+Connect -> Data -> View, capture relevant screenshots, and inspect the browser
+console. Prefer headed Chromium for Viv; if WebGL is blank in headless mode, add
+a checked-in MCP configuration with working SwiftShader flags.
 
 ## TIMED real data
 

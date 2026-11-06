@@ -5,7 +5,6 @@ import json
 import os
 import signal
 from collections.abc import Callable
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -279,15 +278,6 @@ profiles:
 
 
 def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
-    external_template = (
-        Path(__file__).parents[1] / "templates" / "dataserver.sbatch.j2"
-    ).read_text(encoding="utf-8")
-    packaged_template = (
-        resources.files("timed_connector")
-        .joinpath("templates", "dataserver.sbatch.j2")
-        .read_text(encoding="utf-8")
-    )
-    assert packaged_template == external_template
     profile = slurm_profile(
         data_roots=["/data/with space"],
         metadata_root="/metadata/with space",
