@@ -93,27 +93,30 @@ export default function PrimaryNavigation({ currentPath }: Props) {
     return qcNavigationHref(profile.collections ?? [], selection.collectionId);
   }, [profiles, selection]);
 
+  // The built site serves its pages under trailing-slash paths such as /data/.
+  const activePath = currentPath.replace(/\/+$/, "") || "/";
+
   return (
     <nav aria-label="Primary navigation">
-      <a href="/" aria-current={currentPath === "/" ? "page" : undefined}>
+      <a href="/" aria-current={activePath === "/" ? "page" : undefined}>
         Connect
       </a>
       <a
         href="/data"
-        aria-current={currentPath === "/data" ? "page" : undefined}
+        aria-current={activePath === "/data" ? "page" : undefined}
       >
         Data
       </a>
       <a
         href="/view"
-        aria-current={currentPath === "/view" ? "page" : undefined}
+        aria-current={activePath === "/view" ? "page" : undefined}
       >
         View
       </a>
       {qcHref && (
         <a
           href={qcHref}
-          aria-current={currentPath === "/qc" ? "page" : undefined}
+          aria-current={activePath === "/qc" ? "page" : undefined}
         >
           QC
         </a>

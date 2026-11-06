@@ -20,6 +20,7 @@ import { writeQcViewerLink } from "../lib/qc/qcViewerLink";
 import {
   axisSize,
   channelStates,
+  contrastStep,
   selectionFor,
   type ChannelState,
 } from "../lib/viewerChannels";
@@ -1596,10 +1597,7 @@ export default function ImageViewer() {
         {channelControlIndexes.map((index) => {
           const channel = channels[index];
           if (!channel) return null;
-          const step = Math.max(
-            1,
-            (channel.domain[1] - channel.domain[0]) / 1000,
-          );
+          const step = qcMode ? "any" : contrastStep(source?.dtype, channel);
           return (
             <fieldset key={channel.name + String(index)} className="channel-control">
               <legend>
@@ -1633,7 +1631,7 @@ export default function ImageViewer() {
                   disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
-                  step={qcMode ? "any" : step}
+                  step={step}
                   value={channel.contrast[0]}
                   onChange={(event) => {
                     const value = Number(event.target.value);
@@ -1651,7 +1649,7 @@ export default function ImageViewer() {
                   disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
-                  step={qcMode ? "any" : step}
+                  step={step}
                   value={channel.contrast[1]}
                   onChange={(event) => {
                     const value = Number(event.target.value);

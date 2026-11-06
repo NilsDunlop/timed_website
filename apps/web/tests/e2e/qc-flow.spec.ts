@@ -755,12 +755,12 @@ test("clears the overview selection and the category filters", async ({ page }) 
   await expect(plateMaps).toHaveCount(1);
   await expect(page).toHaveURL(/qc\.plate=14610/);
   await clearOverview.click();
-  // Clearing the selection also collapses the overview.
-  await expect(overview).not.toHaveAttribute("open");
   await expect(plateMaps).toHaveCount(3);
   await expect(page).not.toHaveURL(/qc\.plate=/);
   await expect(page).not.toHaveURL(/qc\.channel=/);
-  await overviewSummary.click();
+  // Clearing the selection keeps the overview open. Checked only once the
+  // cleared state has rendered, because the selection updates in a transition.
+  await expect(overview).toHaveAttribute("open", "");
   await expect(overviewCell).toHaveAttribute("aria-pressed", "false");
   await expect(clearOverview).toHaveCount(0);
 
@@ -772,13 +772,91 @@ test("clears the overview selection and the category filters", async ({ page }) 
   await expect(plateMaps).toHaveCount(1);
   await clearCategories.click();
   await expect(cellLine).toHaveValues([]);
-  await expect(overview).not.toHaveAttribute("open");
   await expect(plateMaps).toHaveCount(3);
   await expect(page).not.toHaveURL(/qc\.plate=/);
   await expect(page).not.toHaveURL(/qc\.category\./);
   await expect(clearCategories).toHaveCount(0);
-  await overviewSummary.click();
+  await expect(overview).toHaveAttribute("open", "");
   await expect(overviewCell).toHaveAttribute("aria-pressed", "false");
+  // The reader still opens and closes it.
+  await overviewSummary.click();
+  await expect(overview).not.toHaveAttribute("open");
+  await overviewSummary.click();
+  await expect(overview).toHaveAttribute("open", "");
+  await disconnect(page);
+});
+
+test("restores the site scope of the plate overview after a reload", async ({ page }) => {
+  await connectCellHealth(page);
+  await page.getByRole("link", { name: "QC", exact: true }).click();
+  await page.getByText("Plate overview", { exact: true }).click();
+  const siteCell = page.getByRole("button", { name: /^Plate 14610, site:/ });
+  await siteCell.click();
+  await expect(siteCell).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveURL(/qc\.plate=14610/);
+  await expect(page).toHaveURL(/qc\.channel=site/);
+
+  await page.reload();
+  await expect(siteCell).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveURL(/qc\.plate=14610/);
+  await expect(page).toHaveURL(/qc\.channel=site/);
+  await disconnect(page);
+});
+
+test("keeps the QC page working when a status poll or a URL write fails", async ({
+  page,
+  browserErrors,
+}) => {
+  browserErrors.allow(/net::ERR_FAILED/, "the test aborts one QC status poll");
+  // Firefox and Safari refuse frequent history writes with a SecurityError.
+  await page.addInitScript(() => {
+    const replaceState = History.prototype.replaceState;
+    History.prototype.replaceState = function (
+      this: History,
+      ...args: Parameters<History["replaceState"]>
+    ) {
+      if ((window as { refuseHistoryWrites?: boolean }).refuseHistoryWrites) {
+        throw new DOMException("Too many calls to the History API", "SecurityError");
+      }
+      return replaceState.apply(this, args);
+    };
+  });
+  await connectCellHealth(page);
+  let failStatus = false;
+  await page.route("**/backend/api/qc/status?*", async (route) => {
+    if (failStatus) await route.abort();
+    else await route.continue();
+  });
+  await page.clock.install();
+  await page.goto("/qc?collection=idr0080");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Cell Health", exact: true }),
+  ).toBeVisible();
+
+  failStatus = true;
+  const failedPoll = page.waitForEvent("requestfailed", (request) =>
+    request.url().includes("/backend/api/qc/status"),
+  );
+  await page.clock.fastForward(15_000);
+  await failedPoll;
+  failStatus = false;
+
+  await page.evaluate(() => {
+    (window as { refuseHistoryWrites?: boolean }).refuseHistoryWrites = true;
+  });
+  await page.getByText("Plate overview", { exact: true }).click();
+  const plateMaps = page.locator("[data-qc-plate]");
+  await page.getByRole("button", { name: /^Plate 14610, DNA:/ }).click();
+  await expect(plateMaps).toHaveCount(1);
+  await expect(page).not.toHaveURL(/qc\.plate=/);
+
+  // The next write carries the whole state, including the refused change.
+  await page.evaluate(() => {
+    (window as { refuseHistoryWrites?: boolean }).refuseHistoryWrites = false;
+  });
+  await page.getByRole("button", { name: "Wells", exact: true }).click();
+  await expect(page).toHaveURL(/qc\.table=wells/);
+  await expect(page).toHaveURL(/qc\.plate=14610/);
   await disconnect(page);
 });
 

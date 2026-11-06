@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { overviewChannels } from "../lib/qc/qcOverview";
 import type { QcColumnDefinition } from "../lib/qcModel";
 import { qcDisplayLabel, qcDisplayQuestion } from "../lib/qcViewer";
 
@@ -41,10 +42,10 @@ export default function QcOverview({
       ),
     [rows],
   );
-  const channels = useMemo(
-    () => [...new Set(rows.map((row) => String(row.channel ?? "")))].filter(Boolean),
-    [rows],
-  );
+  const channels = useMemo(() => overviewChannels(rows), [rows]);
+  // A restored selection opens the overview. After that only the reader opens
+  // or closes it, so clearing the selection leaves it open.
+  const [open, setOpen] = useState(selectedPlate !== null || selectedChannel !== null);
   const definitions = dictionary.filter(
     (definition) =>
       definition.file === "triage_plate_channel.csv" && definition.metric !== "",
@@ -76,7 +77,8 @@ export default function QcOverview({
   return (
     <details
       className="panel qc-overview-disclosure"
-      open={selectedPlate !== null || selectedChannel !== null ? true : undefined}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary id="qc-overview-heading">
         <span>Plate overview</span>

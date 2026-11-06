@@ -2,7 +2,7 @@ import { getChannelStats } from "@hms-dbmi/viv";
 import { expect, test } from "@playwright/test";
 
 import type { PlateMetadata } from "../../src/lib/plateMetadata";
-import { channelStates } from "../../src/lib/viewerChannels";
+import { channelStates, contrastStep } from "../../src/lib/viewerChannels";
 import {
   sitePositionFixNote,
   viewerSourceIdentity,
@@ -120,6 +120,33 @@ test("channelStates falls back to the declared range when pixels cannot be read"
 
 test("channelStates returns no channels for an empty loader", async () => {
   expect(await channelStates([], image([{ name: "DNA" }]))).toEqual([]);
+});
+
+test("contrastStep puts every whole window value of integer data on the slider", () => {
+  const timed = { domain: [0, 65535], contrast: [100, 65535] } as const;
+  const cellHealthDna = { domain: [0, 27000], contrast: [292, 11552] } as const;
+  for (const dtype of ["Uint8", "Uint16", "Uint32", "Int8", "Int16", "Int32"]) {
+    expect(contrastStep(dtype, timed)).toBe(1);
+  }
+  expect(contrastStep("Uint16", cellHealthDna)).toBe(1);
+  // Measured limits of integer data are pixel values, so they are whole too.
+  expect(contrastStep("Uint16", { domain: [3, 4093], contrast: [17, 4093] })).toBe(1);
+});
+
+test("contrastStep accepts any value for other data and fractional windows", () => {
+  expect(contrastStep("Float32", { domain: [0, 1], contrast: [0.1, 0.9] })).toBe("any");
+  expect(contrastStep("Float64", { domain: [0, 65535], contrast: [100, 65535] })).toBe(
+    "any",
+  );
+  expect(contrastStep("Uint16", { domain: [0, 65535], contrast: [100.5, 65535] })).toBe(
+    "any",
+  );
+  expect(contrastStep("Uint16", { domain: [0.5, 65535], contrast: [100, 65535] })).toBe(
+    "any",
+  );
+  expect(contrastStep(undefined, { domain: [0, 65535], contrast: [100, 65535] })).toBe(
+    "any",
+  );
 });
 
 test("viewerSourceIdentity describes legacy plate metadata", () => {

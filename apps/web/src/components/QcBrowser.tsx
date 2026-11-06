@@ -58,6 +58,7 @@ import {
   type QcUrlState,
 } from "../lib/qcUrlState";
 import { fieldPathFor } from "../lib/fieldPath";
+import { overviewChannels } from "../lib/qc/qcOverview";
 import { writeQcViewerLink } from "../lib/qc/qcViewerLink";
 import { viewerQueryHref } from "../lib/viewerLink";
 import QcOverview from "./QcOverview";
@@ -555,7 +556,7 @@ export default function QcBrowser() {
       categoryIds: nextCategories.map((category) => category.column),
       sortableIds: [...Object.keys(model.columns), "flaggedSiteCount", "siteCount"],
       collectionIds: (selection.profile.collections ?? []).map((collection) => collection.id),
-      channels,
+      channels: overviewChannels(triageRows),
       plates: uniqueQcValues(model, "plate").filter(
         (value): value is number => typeof value === "number",
       ),
@@ -616,7 +617,9 @@ export default function QcBrowser() {
           ) {
             setNewExport(true);
           }
-        });
+        })
+        // An unreachable connector is simply asked again at the next poll.
+        .catch(() => undefined);
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [loaded]);
@@ -705,7 +708,12 @@ export default function QcBrowser() {
         ]),
       ),
     };
-    window.history.replaceState(window.history.state, "", `/qc${qcUrlSearch(state)}`);
+    try {
+      window.history.replaceState(window.history.state, "", `/qc${qcUrlSearch(state)}`);
+    } catch {
+      // Firefox and Safari refuse frequent history writes with a SecurityError.
+      // Every write carries the whole state, so the next one catches up.
+    }
   }, [
     categoryStates,
     loaded,

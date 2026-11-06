@@ -151,20 +151,21 @@ test("starts a local server, renders time data, and stops it", async ({
       has: checkbox,
     });
     await expect(checkbox).toBeVisible();
-    await expect(
-      page.getByRole("slider", {
-        name: `${channel} contrast minimum`,
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("slider", {
-        name: `${channel} contrast maximum`,
-        exact: true,
-      }),
-    ).toBeVisible();
+    const contrastMinimum = page.getByRole("slider", {
+      name: `${channel} contrast minimum`,
+      exact: true,
+    });
+    const contrastMaximum = page.getByRole("slider", {
+      name: `${channel} contrast maximum`,
+      exact: true,
+    });
+    await expect(contrastMinimum).toBeVisible();
+    await expect(contrastMaximum).toBeVisible();
     await expect(channelControl).toContainText("Contrast minimum: 100");
     await expect(channelControl).toContainText("Contrast maximum: 65535");
+    // The sliders sit exactly on the declared window that the labels name.
+    await expect(contrastMinimum).toHaveValue("100");
+    await expect(contrastMaximum).toHaveValue("65535");
   }
   expect(
     viewerDiagnostics.some((message) => message.includes("viewer:loader-ready")),
@@ -319,6 +320,17 @@ test("starts a local server, renders time data, and stops it", async ({
   ).toBe(true);
   await page.getByRole("button", { name: "Show controls" }).click();
   await expect(page.getByTestId("time-slider")).toHaveValue("3");
+
+  // A keyboard step keeps the slider and its label on the same whole value.
+  const blueMinimum = page.getByRole("slider", {
+    name: "405 nm contrast minimum",
+    exact: true,
+  });
+  await blueMinimum.press("ArrowRight");
+  await expect(blueMinimum).toHaveValue("101");
+  await expect(
+    page.locator(".channel-control").filter({ has: blueMinimum }),
+  ).toContainText("Contrast minimum: 101");
 
   await page.getByRole("link", { name: "Data", exact: true }).click();
   await expect(
