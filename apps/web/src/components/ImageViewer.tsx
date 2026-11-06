@@ -3,11 +3,8 @@ import {
   getDefaultInitialViewState,
   loadOmeZarr,
   loadOmeZarrFromStore,
-  PictureInPictureViewer,
-  VivViewer,
 } from "@hms-dbmi/viv";
-import { SCALEBAR_VIEW_ID } from "@vivjs/views";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { components as ConnectorComponents } from "../lib/api/connector-schema";
 import type { components } from "../lib/api/dataserver-schema";
@@ -37,7 +34,6 @@ import {
   imageFromSummary,
   type FieldSummary,
   type ImageSummary,
-  type Loader,
   type Source,
   type ViewerSourceState,
 } from "../lib/viewerSources";
@@ -67,7 +63,6 @@ import {
   type ViewerDisplayMode,
   type ViewerDisplayPreference,
 } from "../lib/viewerDisplay";
-import { createViewerViewConfiguration } from "../lib/viewerViews";
 import { viewerDebug } from "../lib/viewerDebug";
 import {
   countAnnotatedQueueEntries,
@@ -96,25 +91,16 @@ import PlateMetadataPanel from "./PlateMetadataPanel";
 import QcFieldPanel from "./QcFieldPanel";
 import type { QcAnnotationFormValue } from "./QcAnnotationPanel";
 import QcReviewBar from "./QcReviewBar";
+import VivCanvas, {
+  type CameraViewState,
+  type Dimensions,
+  type VivViewStateChangeEvent,
+} from "./viewer/VivCanvas";
 
 type ConnectorProfile = ConnectorComponents["schemas"]["Profile"];
 type QcFieldResponse = components["schemas"]["QcFieldResponse"];
 type QcRowsResponse = components["schemas"]["QcRowsResponse"];
 type QcAnnotationsResponse = components["schemas"]["QcAnnotationsResponse"];
-type Dimensions = { width: number; height: number };
-type CameraViewState = {
-  id: string;
-  target: number[];
-  zoom: number;
-  [key: string]: unknown;
-};
-type VivViewStateChangeEvent = {
-  viewId: string;
-  viewState: object;
-  oldViewState: object;
-};
-type VivViewStateChange = (event: VivViewStateChangeEvent) => object;
-
 type PendingQcViewerContext = {
   payload: QcFieldResponse;
   rangeRows: QcRowsResponse["rows"];
@@ -296,122 +282,6 @@ function ViewerSourceFacts({
     </dl>
   );
 }
-
-type VivCanvasProps = {
-  loader: Loader;
-  image: ImageSummary;
-  channels: ChannelState[];
-  selections: Record<string, number>[];
-  viewState: CameraViewState | null;
-  onViewStateChange: VivViewStateChange;
-  onReady: () => void;
-  onResize?: (dimensions: Dimensions) => void;
-  maxRequests: number;
-};
-
-const VivCanvas = memo(function VivCanvas({
-  loader,
-  image,
-  channels,
-  selections,
-  viewState,
-  onViewStateChange,
-  onReady,
-  onResize,
-  maxRequests,
-}: VivCanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState<Dimensions>({
-    width: 900,
-    height: 600,
-  });
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const update = () => {
-      const next = {
-        width: Math.max(320, Math.floor(container.clientWidth)),
-        height: Math.max(320, Math.floor(container.clientHeight)),
-      };
-      setDimensions(next);
-      onResize?.(next);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [onResize]);
-
-  const viewConfiguration = createViewerViewConfiguration({
-    loader,
-    image,
-    dimensions,
-  });
-  const singleResolutionLayerConfig = {
-    loader,
-    contrastLimits: channels.map((channel) => channel.contrast),
-    colors: channels.map((channel) => channel.color),
-    channelsVisible: channels.map((channel) => channel.visible),
-    selections,
-    excludeBackground: true,
-    maxRequests,
-    onViewportLoad: onReady,
-  };
-  const viewer =
-    viewConfiguration.kind === "picture-in-picture" ? (
-      <PictureInPictureViewer
-        loader={loader}
-        contrastLimits={channels.map((channel) => channel.contrast)}
-        colors={channels.map((channel) => channel.color)}
-        channelsVisible={channels.map((channel) => channel.visible)}
-        selections={selections}
-        overview={viewConfiguration.overview}
-        overviewOn
-        snapScaleBar={viewConfiguration.snapScaleBar}
-        height={dimensions.height}
-        width={dimensions.width}
-        viewStates={viewState ? [viewState] : undefined}
-        onViewStateChange={onViewStateChange}
-        onViewportLoad={onReady}
-      />
-    ) : (
-      <VivViewer
-        views={viewConfiguration.views}
-        layerProps={viewConfiguration.views.map(
-          () => singleResolutionLayerConfig,
-        )}
-        viewStates={[
-          viewState ?? {
-            ...getDefaultInitialViewState(loader, dimensions, 0.5),
-            id: DETAIL_VIEW_ID,
-          },
-          ...(viewConfiguration.hasPhysicalPixelSize
-            ? [
-                {
-                  id: SCALEBAR_VIEW_ID,
-                  zoom: 0,
-                  target: [dimensions.width / 2, dimensions.height / 2, 0],
-                },
-              ]
-            : []),
-        ]}
-        onViewStateChange={onViewStateChange}
-      />
-    );
-
-  return (
-    <div
-      className="canvas-frame"
-      data-scale-bar={
-        viewConfiguration.hasPhysicalPixelSize ? "true" : "false"
-      }
-      ref={containerRef}
-    >
-      {viewer}
-    </div>
-  );
-});
 
 export default function ImageViewer() {
   const [primaryDimensions, setPrimaryDimensions] = useState<Dimensions>({
