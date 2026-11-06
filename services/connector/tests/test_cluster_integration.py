@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import socket
+import subprocess
 import sys
 from contextlib import suppress
 from pathlib import Path
@@ -135,6 +136,26 @@ async def _drive(
     raise AssertionError(f"Session timed out in state {session.snapshot().state}")
 
 
+def _assert_installed_versions_are_locked(home: Path) -> None:
+    """The remote environment holds only the versions exported from uv.lock."""
+    [marker] = (home / ".timed" / "server").glob("*/installed.ok")
+    [constraints] = marker.parent.glob("timed_dataserver-*-constraints.txt")
+    locked = {
+        line.split(";", 1)[0].strip()
+        for line in constraints.read_text(encoding="utf-8").splitlines()
+    }
+    frozen = subprocess.run(
+        ["uv", "pip", "freeze", "--python", str(marker.parent / "venv" / "bin" / "python")],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    installed = {line for line in frozen if not line.startswith("timed-dataserver")}
+    assert installed, frozen
+    assert installed <= locked, sorted(installed - locked)
+    assert any(line.startswith("starlette==") for line in installed)
+
+
 @pytest.mark.asyncio
 async def test_real_test_cluster_hpc_flow(tmp_path: Path) -> None:
     port = _free_port()
@@ -212,6 +233,7 @@ async def test_real_test_cluster_hpc_flow(tmp_path: Path) -> None:
         ), first.snapshot().model_dump_json(indent=2)
         assert "queued" in first_states
         assert any("Installed remote data-server" in line for line in first.snapshot().logs)
+        _assert_installed_versions_are_locked(cluster_state / "home")
         first_job = first.snapshot().job_id
         assert first_job is not None
 

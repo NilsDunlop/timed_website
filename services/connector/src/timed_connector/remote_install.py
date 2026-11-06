@@ -16,6 +16,7 @@ from .ssh_backend import RemotePaths, SSHBackendError, run_remote, sftp_exists
 
 LogCallback = Callable[[str], None]
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+BUILD_DIRECTORY = REPOSITORY_ROOT / ".timed" / "connector-build"
 
 
 def _join(base: str, *parts: str) -> str:
@@ -25,13 +26,48 @@ def _join(base: str, *parts: str) -> str:
     return str(value)
 
 
-def _wheel_digest(wheel: Path) -> str:
-    with wheel.open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()[:12]
+def _install_digest(wheel: Path, constraints: Path) -> str:
+    """Identify a development install by its wheel and its locked dependencies."""
+    digest = hashlib.sha256()
+    for path in (wheel, constraints):
+        with path.open("rb") as handle:
+            digest.update(hashlib.file_digest(handle, "sha256").digest())
+    return digest.hexdigest()[:12]
+
+
+async def _export_constraints(log: LogCallback, output: Path = BUILD_DIRECTORY) -> Path:
+    """Write the data server's runtime dependencies from uv.lock as pip constraints."""
+    output.mkdir(parents=True, exist_ok=True)
+    constraints = output / f"timed_dataserver-{dataserver_version}-constraints.txt"
+    log("Exporting the data server's locked dependencies")
+    process = await asyncio.create_subprocess_exec(
+        "uv",
+        "export",
+        "--frozen",
+        "--no-dev",
+        "--package",
+        "timed-dataserver",
+        "--no-emit-workspace",
+        "--no-hashes",
+        "--no-header",
+        "--no-annotate",
+        "--format",
+        "requirements.txt",
+        "--output-file",
+        str(constraints),
+        cwd=REPOSITORY_ROOT,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        detail = stderr.decode(errors="replace").strip()[-1000:]
+        raise SSHBackendError(f"Could not export the data server's locked dependencies: {detail}")
+    return constraints
 
 
 async def _build_wheel(log: LogCallback) -> Path:
-    output = REPOSITORY_ROOT / ".timed" / "connector-build"
+    output = BUILD_DIRECTORY
     output.mkdir(parents=True, exist_ok=True)
     log(f"Building timed-dataserver {dataserver_version} wheel")
     process = await asyncio.create_subprocess_exec(
@@ -67,12 +103,18 @@ async def prepare_remote_server(
     paths: RemotePaths,
     log: LogCallback,
 ) -> str:
-    """Return the remote executable for this release or development wheel."""
+    """Return the remote executable for this release or development wheel.
+
+    The remote environment installs the wheel constrained to the versions in
+    uv.lock, the ones the local suite ran against.
+    """
     wheel: Path | None = None
+    constraints: Path | None = None
     install_key = dataserver_version
     if ".dev" in dataserver_version:
         wheel = await _build_wheel(log)
-        install_key = f"{dataserver_version}-{_wheel_digest(wheel)}"
+        constraints = await _export_constraints(log)
+        install_key = f"{dataserver_version}-{_install_digest(wheel, constraints)}"
 
     shell_version_dir = _join(paths.shell_state_dir, "server", install_key)
     sftp_version_dir = _join(paths.sftp_state_dir, "server", install_key)
@@ -84,11 +126,15 @@ async def prepare_remote_server(
 
     if wheel is None:
         wheel = await _build_wheel(log)
+    if constraints is None:
+        constraints = await _export_constraints(log)
     await sftp.makedirs(sftp_version_dir, exist_ok=True)
     remote_wheel_sftp = _join(sftp_version_dir, wheel.name)
     remote_wheel_shell = _join(shell_version_dir, wheel.name)
+    remote_constraints_shell = _join(shell_version_dir, constraints.name)
     log("Uploading data-server wheel")
     await sftp.put(wheel, remote_wheel_sftp)
+    await sftp.put(constraints, _join(sftp_version_dir, constraints.name))
 
     module_prefix = _module_prefix(profile)
     find_uv = f"{module_prefix} && command -v uv" if module_prefix else "command -v uv"
@@ -109,6 +155,7 @@ async def prepare_remote_server(
         (
             f"{shlex.quote(uv_path)} pip install --python "
             f"{shlex.quote(_join(venv, 'bin', 'python'))} "
+            f"-c {shlex.quote(remote_constraints_shell)} "
             f"{shlex.quote(remote_wheel_shell)}"
         ),
     ]
