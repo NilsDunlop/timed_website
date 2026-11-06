@@ -57,6 +57,9 @@ import {
   type QcTableMode,
   type QcUrlState,
 } from "../lib/qcUrlState";
+import { fieldPathFor } from "../lib/fieldPath";
+import { writeQcViewerLink } from "../lib/qc/qcViewerLink";
+import { viewerQueryHref } from "../lib/viewerLink";
 import QcOverview from "./QcOverview";
 import QcPlateMaps, { type QcWellTarget } from "./QcPlateMaps";
 import QcSliderPanel from "./QcSliderPanel";
@@ -647,6 +650,9 @@ export default function QcBrowser() {
     [filterState, filteredModel],
   );
 
+  // This effect also writes on its first run after loading. That write replaces the
+  // served `/qc/` URL with `/qc` and its query, which viewer links and stored queues
+  // then capture as `qcReturn`; both qcReturn validators accept only `/qc` and `/qc?...`.
   useEffect(() => {
     if (!loaded) return;
     const sliders: QcUrlState["sliders"] = {};
@@ -965,26 +971,24 @@ export default function QcBrowser() {
       if (!linked.data) {
         throw new Error(apiErrorMessage(linked.error, "Could not open the QC plate"));
       }
-      const query = new URLSearchParams({
-        dataset: linked.data.id,
-        path: `${target.well}_s${target.site}.zarr`,
-        collection: loaded.collection.id,
-        qc: "1",
-        qcScope: scope,
-        qcPlate: String(target.plate),
-        qcWell: target.well,
-        qcSite: String(target.site),
-        qcExport: loaded.status.export_id ?? "",
-        qcReturn: `${window.location.pathname}${window.location.search}`,
-      });
-      if (queue) {
-        query.set("qcQueue", queue.id);
-        query.set("qcIndex", String(queueIndex));
-      }
-      if (target.flaggedSites?.length) {
-        query.set("qcFlaggedSites", target.flaggedSites.join(","));
-      }
-      window.location.assign(`/view?${query.toString()}`);
+      const query = writeQcViewerLink(
+        new URLSearchParams(),
+        {
+          datasetId: linked.data.id,
+          path: fieldPathFor(target.well, target.site),
+          collectionId: loaded.collection.id,
+          scope,
+          plate: target.plate,
+          well: target.well,
+          site: target.site,
+          exportId: loaded.status.export_id ?? "",
+          returnHref: `${window.location.pathname}${window.location.search}`,
+          flaggedSites: target.flaggedSites,
+        },
+        queue ? { queue, index: queueIndex } : undefined,
+      );
+      if (!query) throw new Error("Could not open the QC plate");
+      window.location.assign(viewerQueryHref(query));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setBusy(false);

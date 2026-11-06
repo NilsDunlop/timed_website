@@ -26,12 +26,14 @@ import {
   imageAxisSize,
   imageChannelLabels,
 } from "../lib/imageSummary";
-import PlateMetadataPanel, {
+import {
   doseLabel,
   findWellMetadata,
   metadataLabels,
   type PlateMetadata,
-} from "./PlateMetadataPanel";
+} from "../lib/plateMetadata";
+import { viewerQueryHref, writeViewerLink } from "../lib/viewerLink";
+import PlateMetadataPanel from "./PlateMetadataPanel";
 import PlateGrid, {
   plateGridKey,
   type PlateGridWell,
@@ -90,19 +92,17 @@ function viewerHref(
   collectionId: string | null = null,
   returnDatasetId: string | null = null,
 ): string {
-  const query = new URLSearchParams({
-    dataset: primary.datasetId,
-    path: primary.imagePath,
-  });
-  for (const comparison of comparisons) {
-    query.append("compare", comparison.imagePath);
-    query.append("compareDataset", comparison.datasetId);
-  }
-  if (collectionId) {
-    query.set("collection", collectionId);
-    if (returnDatasetId) query.set("returnDataset", returnDatasetId);
-  }
-  return "/view?" + query.toString();
+  return viewerQueryHref(
+    writeViewerLink(new URLSearchParams(), {
+      primary: { datasetId: primary.datasetId, path: primary.imagePath },
+      comparisons: comparisons.map((comparison) => ({
+        datasetId: comparison.datasetId,
+        path: comparison.imagePath,
+      })),
+      collectionId,
+      returnDatasetId,
+    }),
+  );
 }
 
 function ComparisonTray({

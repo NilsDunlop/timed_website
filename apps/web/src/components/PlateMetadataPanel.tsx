@@ -1,62 +1,17 @@
-import type { components } from "../lib/api/dataserver-schema";
-
-export type PlateMetadata = components["schemas"]["PlateMetadataResponse"];
-export type WellMetadata = components["schemas"]["WellMetadataSummary"];
-export type PlateMetadataLabels = components["schemas"]["PlateMetadataLabels"];
+import {
+  doseLabel,
+  findWellMetadata,
+  hasValue,
+  metadataLabels,
+  shown,
+  type PlateMetadata,
+} from "../lib/plateMetadata";
 
 type Props = {
   metadata: PlateMetadata | null;
   selectedWell?: string;
   detailsOnly?: boolean;
 };
-
-const defaultLabels: PlateMetadataLabels = {
-  compound: "Compound",
-  moa: "MOA",
-  control: "Control",
-};
-
-export function wellIdFromPath(path: string): string | undefined {
-  const collection = /^([A-Za-z]+)(\d+)_s\d+\.zarr$/.exec(path);
-  if (collection) {
-    return collection[1].toUpperCase() + collection[2].padStart(2, "0");
-  }
-  const native = /^([A-Za-z]+)\/(\d+)(?:\/|$)/.exec(path);
-  if (native) {
-    return native[1].toUpperCase() + native[2].padStart(2, "0");
-  }
-  return undefined;
-}
-
-function shown(value: string | number | boolean | null | undefined): string {
-  if (value == null || value === "") return "Not specified";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
-}
-
-function hasValue(value: unknown): boolean {
-  return value != null && value !== "";
-}
-
-export function metadataLabels(
-  metadata: PlateMetadata | null | undefined,
-): PlateMetadataLabels {
-  return metadata?.labels ?? defaultLabels;
-}
-
-export function doseLabel(value: number | null | undefined): string {
-  if (value == null) return "Not specified";
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " \u00b5M";
-}
-
-export function findWellMetadata(
-  metadata: PlateMetadata | null,
-  selectedWell: string | undefined,
-): WellMetadata | undefined {
-  if (!selectedWell) return undefined;
-  const canonical = wellIdFromPath(selectedWell) ?? selectedWell.toUpperCase();
-  return metadata?.wells?.find((well) => well.well.toUpperCase() === canonical);
-}
 
 export default function PlateMetadataPanel({
   metadata,

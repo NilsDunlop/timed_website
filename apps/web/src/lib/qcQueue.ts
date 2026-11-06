@@ -129,6 +129,8 @@ function safeFlaggedSites(value: unknown): value is readonly number[] {
   );
 }
 
+// Guards the return href stored with a review queue. The viewer's back link has
+// its own, looser check (normalizedQcReturnHref in viewerLink.ts).
 export function safeQcReturnHref(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 8192 || value.includes("\\")) {
     return false;
