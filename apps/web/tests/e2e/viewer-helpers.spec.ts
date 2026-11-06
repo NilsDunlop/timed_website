@@ -3,10 +3,7 @@ import { expect, test } from "@playwright/test";
 
 import type { PlateMetadata } from "../../src/lib/plateMetadata";
 import { channelStates, contrastStep } from "../../src/lib/viewerChannels";
-import {
-  sitePositionFixNote,
-  viewerSourceIdentity,
-} from "../../src/lib/viewerSourceIdentity";
+import { viewerSourceIdentity } from "../../src/lib/viewerSourceIdentity";
 import type {
   ImageSummary,
   Loader,
@@ -206,16 +203,5 @@ test("viewerSourceIdentity uses labelled metadata and hides a missing dose", () 
   });
   expect(viewerSourceIdentity(viewerSource("A02_s3.zarr", metadata)).concentration).toBe(
     "10 µM",
-  );
-});
-
-test("sitePositionFixNote describes one or several repaired timepoints", () => {
-  expect(sitePositionFixNote(null)).toBeNull();
-  expect(sitePositionFixNote(undefined)).toBeNull();
-  expect(sitePositionFixNote({ grid_x: 2, repaired_timepoints: [3] })).toBe(
-    "Site position repaired at timepoint 3: this field holds grid position x = 2 for the whole run.",
-  );
-  expect(sitePositionFixNote({ grid_x: 0, repaired_timepoints: [3, 4] })).toBe(
-    "Site position repaired at timepoints 3, 4: this field holds grid position x = 0 for the whole run.",
   );
 });

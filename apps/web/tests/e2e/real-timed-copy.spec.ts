@@ -46,10 +46,9 @@ test("opens the read-only Berzelius-layout TIMED copy", async ({
     timeout: 180_000,
   });
   await expect(page.getByTestId("displayed-time")).toHaveText("t 1 / 48");
-  const repairNote = page.getByTestId("site-position-fix-note");
-  await expect(repairNote).toHaveText(
-    "Site position repaired at timepoint 0: this field holds grid position x = 1 for the whole run.",
-  );
+  // C03 site 1 carries repair metadata, but the viewer shows no repair note.
+  await expect(page.getByTestId("site-position-fix-note")).toHaveCount(0);
+  await expect(page.getByText(/Site position repaired/)).toHaveCount(0);
 
   const canvas = page.locator(".canvas-frame canvas").first();
   await expect(canvas).toBeVisible();

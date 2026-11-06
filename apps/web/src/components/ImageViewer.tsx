@@ -26,7 +26,6 @@ import {
 } from "../lib/viewerChannels";
 import { parseViewerSearch, viewerQueryHref, viewerReturnHref } from "../lib/viewerLink";
 import {
-  sitePositionFixNote,
   viewerSourceIdentity,
   type ViewerSourceIdentity,
 } from "../lib/viewerSourceIdentity";
@@ -231,16 +230,6 @@ async function loadQcViewerContext(
     collectionPath: path,
     siteStepper,
   };
-}
-
-function SitePositionFixNote({ field }: { field: FieldSummary | null }) {
-  const note = sitePositionFixNote(field?.site_position_fix);
-  if (!note) return null;
-  return (
-    <p className="site-position-fix-note" role="note" data-testid="site-position-fix-note">
-      {note}
-    </p>
-  );
 }
 
 function ViewerSourceFacts({
@@ -1802,7 +1791,6 @@ export default function ImageViewer() {
                           <ViewerSourceFacts identity={identity} compact />
                         </div>
                       </header>
-                       <SitePositionFixNote field={viewerSource.field} />
                       <VivCanvas
                         loader={viewerSource.loader}
                         image={viewerSource.image}
@@ -1821,7 +1809,6 @@ export default function ImageViewer() {
               </div>
             ) : (
               <>
-                <SitePositionFixNote field={primaryViewerSource?.field ?? null} />
                 <VivCanvas
                   loader={loader}
                   image={image}

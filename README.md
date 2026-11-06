@@ -150,7 +150,8 @@ dataset contracts and onboarding steps.
 - Version 0.5.3 fixes the review findings: exact contrast sliders, the QC
   overview's open state and site scope, path-free error details, private QC
   folders, a Windows reviewer rule, connection-file removal after SIGTERM, and
-  remote installs constrained to `uv.lock`.
+  remote installs constrained to `uv.lock`. The viewer no longer shows the
+  site-position repair note.
 
 Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
 the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its

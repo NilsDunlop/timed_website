@@ -896,3 +896,7 @@ that failed first.
   dependencies exported from `uv.lock` and uploaded beside the wheel. A
   development install key covers the wheel and those constraints, so a lock
   change reinstalls; a release keeps its version as the key.
+- **No site-position note.** At the operator's request the viewer no longer
+  shows the repair note for repaired TIMED fields, superseding the 0.5.1 note.
+  The server still validates `site_position_fix` and reports it in the field
+  summary, and field names and pixels are still never remapped.
