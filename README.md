@@ -50,6 +50,9 @@ The isolated browser suite exercises both the SSH/Slurm harness and local mode:
 pnpm -C apps/web test
 ```
 
+On Windows the suite starts the test cluster inside WSL with uv;
+`uv run python scripts/run_e2e.py --local-only` runs it without the cluster.
+
 An external real-data sample can be tested without copying it into the
 repository. The store must be an immediate child of the supplied data root:
 
@@ -132,16 +135,18 @@ dataset contracts and onboarding steps.
 - Cell Health Phase 1 is complete: collection selection, packed-image browsing,
   metadata-aware plate views, Color/Grayscale viewing, comparison, and scale
   bars have been accepted on Arrhenius.
-- Cell Health QC review is in active Phase 2 development. The optional QC page
-  reads a versioned export, presents a compact reason-first Sites/Wells
-  workflow, carries exact flagged sites into well review, and records
-  append-only site or well annotations. The viewer applies the export's fixed
-  QC windows and shows only registered review metrics. Segmentation outlines
-  remain a later, separate part of Phase 2.
+- Cell Health QC review (Part B) was accepted on Arrhenius and released as
+  0.5.0. The optional QC page reads a versioned export, presents a compact
+  reason-first Sites/Wells workflow, carries exact flagged sites into well
+  review, and records append-only site or well annotations. The viewer applies
+  the export's fixed QC windows and shows only registered review metrics.
+  Segmentation outlines (Part C) come later.
 - Version 0.5.1 adds strict, geometry-independent TIMED field validation for
   the Berzelius P2.1 layout, its per-plate metadata and optional site-repair
   note. The same layout is validated read-only through the external-drive
   mirror while Berzelius is unavailable.
+- Version 0.5.2 restructures the data server and viewer for segmentation
+  without changing behaviour, the API, URLs or stored data.
 
 Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
 the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its

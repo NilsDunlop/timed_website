@@ -56,6 +56,40 @@ plates. On Data, a valid `dataset` URL parameter reopens that linked plate
 within the collection. A profile without `collections` retains the legacy
 filesystem browser.
 
+### Optional QC review
+
+A packed collection offers the QC page when it names its QC export and the
+folder that receives reviewers' annotations:
+
+```yaml
+      - id: screen
+        title: Packed screen
+        path: /data/microscopy/screen/screen.index.parquet
+        qc_export: /review/screen/qc-export
+        qc_annotations: /review/screen/qc-annotations
+```
+
+- Set both keys or neither. Slurm profiles need absolute POSIX paths, and local
+  paths are resolved like collection paths. No path in the mapping may
+  contain `=`.
+- The collection path must be the packed index the export describes. The
+  connector passes each pair to the data server as `--qc-export INDEX=FOLDER`
+  and `--qc-annotations INDEX=FOLDER`. The browser learns only that QC is
+  available, never the folders.
+- Both folders are trusted configuration, not data roots, and neither may
+  contain a data root. The annotations folder must also lie outside every data
+  root and must not overlap the export. Neither folder is browsable, even when
+  the export sits inside a data root.
+- Annotations are saved only while their folder exists and is writable;
+  otherwise review stays read-only. [`data/QC_EXPORT.md`](data/QC_EXPORT.md)
+  describes the export itself.
+
+### Segmentation masks
+
+Reserved for Part C. Mask stores are declared in the code profile, relative to
+the packed index, rather than as collection keys; see the
+[mask-store contract](data/IDR0080.md#mask-store-contract-part-c).
+
 ## Supported data layouts
 
 ### Native OME-Zarr

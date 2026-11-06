@@ -56,7 +56,9 @@ file.
 
 Run `uv run timed-dataserver export-openapi` to print the complete API schema.
 The `serve` command accepts one or more data roots, a host and port (including
-dynamic port `0`), an environment, and a connection-file path.
+dynamic port `0`), an environment, a connection-file path and a state directory,
+plus an optional metadata root, the packed cache budget and repeated
+`--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings.
 
 The server writes the selected port and random bearer token to the connection
 file only after Uvicorn is accepting connections, and removes the file on clean
@@ -86,10 +88,10 @@ macOS/Linux (or WSL), and run `make dev` in another terminal.
 
 The connector binds loopback only, validates `Host`, and requires
 `X-Timed-Client: web` on state-changing connector routes. Authentication
-prompts are held only by an in-memory future and are absent from the public
-session model. The data-server token remains private to the connector's proxy.
-The test cluster chroots SFTP to its disposable home and allows direct TCP
-forwarding only to loopback destinations.
+answers are held only by an in-memory future; the public session model carries
+each prompt's text and echo flag, never an answer. The data-server token remains
+private to the connector's proxy. The test cluster chroots SFTP to its
+disposable home and allows direct TCP forwarding only to loopback destinations.
 
 ## Local mode
 
@@ -108,7 +110,7 @@ the Slurm-specific `cancel_job` request field.
 
 ## Web application
 
-The three Astro pages mount React islands for the Connect, Data, and View
+The four Astro pages mount React islands for the Connect, Data, View, and QC
 workflows. API calls use the committed `openapi-typescript` schemas and
 `openapi-fetch` clients in `apps/web/src/lib/api`. Run `make gen-api` after a
 response model or route changes, then commit the regenerated files.
@@ -144,10 +146,11 @@ gets no scale bar; never infer one.
 
 `make test-e2e` creates isolated legacy and collection-aware test-cluster and
 local profiles. It drives Connect -> Data -> View for TIMED and the packed
-idr0080-like fixture, verifies viewer state and pixels, checks the browser
-console, disconnects, confirms that no Slurm job remains, and proves that the
-local child stops. Successful runs retain screenshots under the gitignored
-Playwright test-results folder.
+idr0080-like fixture, verifies viewer state and pixels, fails every flow on an
+unexpected browser console error (`tests/e2e/fixtures.ts`), disconnects,
+confirms that no Slurm job remains, and proves that the local child stops.
+Successful runs retain screenshots under the gitignored Playwright
+test-results folder.
 
 ## Conventions
 
@@ -201,8 +204,9 @@ Zarr groups or OME-Zarr plates. Each field is a bare Zarr v3 array named like
 
 - Every field is `uint16`, shape `(48, 3, 2500, 2500)`, axes `(t, c, y, x)`,
   and one resolution level. `dimension_names` is absent.
-- Channels are 405, 505, and 625 nm. There are no OMERO colours or windows;
-  use viewer defaults and computed statistics.
+- Channels are 405, 505, and 625 nm. The arrays carry no OMERO colours or
+  windows; the facade declares blue, green and red with a fixed 100-65,535
+  window, so TIMED never falls back to computed statistics.
 - Arrhenius logical chunks are `(1, 1, 625, 625)` inside one whole-array shard
   of `(48, 3, 2500, 2500)`. The Berzelius P2.1 copy instead uses whole-plane
   `(1, 1, 2500, 2500)` chunks. The server derives and strictly validates each
@@ -225,11 +229,17 @@ Zarr groups or OME-Zarr plates. Each field is a bare Zarr v3 array named like
   support HTTP Range requests.
 
 `scripts/make_test_data.py` creates `test-data/test_plate.zarr` in the real
-plain-collection layout: A1, A2, and B1 with two bare fields each, B2 absent,
-six timepoints, three channels, 512 by 512 pixels, chunks `(1, 1, 128, 128)`,
-and one whole-array shard per field. It also creates single-resolution native
-`test_image_v04.zarr` (Zarr v2) and `test_image_v05.zarr` (Zarr v3). The output
-is deterministic and gitignored.
+plain-collection layout: A01, A02, and B01 with two bare fields each, B02
+absent, six timepoints, three channels, 512 by 512 pixels, chunks
+`(1, 1, 128, 128)`, and one whole-array shard per field. `test_plate_2.zarr` to
+`test_plate_4.zarr` hold B01's two fields for comparisons, and `metadata/` holds
+each plate's metadata CSV and acquisition file. It also creates
+single-resolution native `test_image_v04.zarr` (Zarr v2) and
+`test_image_v05.zarr` (Zarr v3), the packed idr0080-like fixture under
+`packed/idr0080-like/` (an index beside three plate shards of five-channel,
+64 by 64 fields, with well metadata and decoy fragment and mask indexes), and
+the QC exports `qc-export/` and `qc-export-next/`. The output is deterministic
+and gitignored.
 
 ## Cell Health / idr0080 real data
 
@@ -274,10 +284,12 @@ Segmentation masks remain Part C and must not be folded into QC review or Phase
 - Windows does not expose meaningful POSIX mode bits. The connection-file test
   verifies mode `0600` on POSIX (including Arrhenius); Windows local mode uses
   the private temporary directory's inherited user ACL.
-- The test cluster itself is POSIX-only. It was verified from this Windows
-  workstation in WSL2 using an isolated environment:
-  `UV_PROJECT_ENVIRONMENT=/tmp/timed-wsl-venv uv run pytest
-  services/connector/tests/test_cluster_integration.py -q`.
+- The test cluster itself is POSIX-only, so the cluster test and the tests
+  marked `posix_only` or `needs_symlinks` skip on Windows. Run them from this
+  workstation in WSL2 with an isolated environment, last verified on
+  2026-11-06: `UV_PROJECT_ENVIRONMENT=/tmp/timed-wsl-venv uv run --frozen pytest
+  -m "needs_symlinks or posix_only"`. On Windows, `scripts/run_e2e.py` starts
+  the test cluster inside WSL with uv; `--local-only` skips it.
 - `ome-zarr==0.19.2` requires Pydantic below 2.13, so both services pin the
   newest compatible release, `pydantic==2.12.5`.
 - `openapi-typescript==7.13.0` declares a TypeScript 5 peer range while this
@@ -288,10 +300,11 @@ Segmentation masks remain Part C and must not be folded into QC review or Phase
 - Keep `.canvas-frame` positioned; deck.gl otherwise places its canvas relative
   to the page and can cover the viewer controls.
 - Viv 0.23 recreates its deck.gl tile cache when `selections` change. TIMED
-  therefore keeps a bounded 128 MiB decoded-tile cache below Viv, prefetches one
-  adjacent timepoint with bounded concurrency, and distinguishes requested,
-  rendering, and displayed time. Preserve those semantics when changing the
-  viewer; readiness must describe pixels on screen, not the slider value.
+  therefore keeps a lazily allocated 256 MiB decoded-pixel cache below Viv,
+  prefetches one adjacent timepoint with bounded concurrency, and distinguishes
+  requested, rendering, and displayed time. Preserve those semantics when
+  changing the viewer; readiness must describe pixels on screen, not the slider
+  value.
 - `scripts/run_e2e.py --built-ui --connector-port <free-port>` serves the
   production build directly from an isolated connector. Use it when another
   Astro development server already owns this checkout's singleton dev lock.

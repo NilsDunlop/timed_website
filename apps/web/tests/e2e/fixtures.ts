@@ -2,8 +2,6 @@
 // error, and connects and disconnects through the same helpers.
 import { expect, test as base, type Page } from "@playwright/test";
 
-import { captureViewerTimings } from "./refactor-snapshots/timings";
-
 type AllowedBrowserError = { pattern: RegExp; reason: string };
 
 export type BrowserErrors = {
@@ -15,15 +13,7 @@ export type BrowserErrors = {
 export const test = base.extend<{
   browserErrors: BrowserErrors;
   sessionCleanup: void;
-  viewerTimings: void;
 }>({
-  // Temporary refactor timing capture; removed with the refactor snapshots.
-  viewerTimings: [
-    async ({ page }, use, testInfo) => {
-      await captureViewerTimings(page, testInfo, use);
-    },
-    { auto: true },
-  ],
   // A failed flow can leave the connector connected, which would make every
   // later flow fail on the disabled profile choice. Disconnect it.
   sessionCleanup: [
