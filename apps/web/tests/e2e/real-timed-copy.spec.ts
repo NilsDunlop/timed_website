@@ -49,6 +49,8 @@ test("opens the read-only Berzelius-layout TIMED copy", async ({
   // C03 site 1 carries repair metadata, but the viewer shows no repair note.
   await expect(page.getByTestId("site-position-fix-note")).toHaveCount(0);
   await expect(page.getByText(/Site position repaired/)).toHaveCount(0);
+  // The copy's masks cover four other fields, so this one offers no outlines.
+  await expect(page.getByTestId("segmentation-panel")).toHaveCount(0);
 
   const canvas = page.locator(".canvas-frame canvas").first();
   await expect(canvas).toBeVisible();

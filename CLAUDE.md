@@ -97,7 +97,8 @@ Its Arrhenius profile declares both the **TIMED** and **Cell Health** collection
 with TIMED carrying the sole `default: true`. Dataset choice remains available
 on Connect before and after connecting. The Berzelius and `local-timed`
 profiles expose only TIMED; the latter reads the external downtime mirror at
-`D:/TIMED` and must remain read-only. For a manual test-cluster run, replace
+`D:/TIMED`, including the masks under `D:/TIMED/corrected`, and must remain
+read-only. For a manual test-cluster run, replace
 the profile's absolute-path placeholders, run `make test-cluster` on
 macOS/Linux (or WSL), and run `make dev` in another terminal.
 
