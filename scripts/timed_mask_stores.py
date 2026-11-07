@@ -1,11 +1,12 @@
 """Deterministic TIMED segmentation masks for the synthetic TIMED plates.
 
 The layout mirrors the 2026-11 presentation export (docs/data/CONVERSION.md):
-``timed-masks/<plate>.zarr/<well>_s<site>.zarr`` is a Zarr v3 group holding a
-``masks_raw`` uint16 (t, y, x) array with the field's ``t_indices``, one
-whole-array shard of single-plane inner chunks, ``v2`` chunk keys and a CRC32C
-index. Each frame's cells are discs numbered 1..N without gaps. They move from
-frame to frame and N changes, so counts and outlines both follow the
+``timed-masks/<plate>.zarr/<well>_s<site>.zarr`` is a Zarr v3 group holding
+the uint16 (t, y, x) arrays ``masks_raw`` (cells) and ``nuclei`` with the
+field's ``t_indices``, each one whole-array shard of single-plane inner chunks,
+``v2`` chunk keys and a CRC32C index. Each frame's cells are discs numbered
+1..N without gaps, and every cell but the last holds one smaller nucleus. They
+move from frame to frame and N changes, so counts and outlines both follow the
 timepoint. As zarr writes them, chunks holding only background are left out
 of the shard.
 """
@@ -21,6 +22,7 @@ from zarr.codecs import BloscCodec
 
 TIMED_MASKS_DIRECTORY = "timed-masks"
 MASK_ARRAY = "masks_raw"
+NUCLEUS_ARRAY = "nuclei"
 MASKED_FIELDS = (
     ("test_plate", "A01", 1),
     ("test_plate", "A02", 1),
@@ -29,6 +31,7 @@ MASKED_FIELDS = (
 )
 INNER_CHUNK = (128, 128)
 RADIUS = 32
+NUCLEUS_RADIUS = 12
 _ROW_SPACING = 96
 
 
@@ -37,22 +40,45 @@ def cell_count(field_index: int, t: int) -> int:
     return 2 + (field_index + t) % 4
 
 
-def frame_labels(field_index: int, t: int, height: int, width: int) -> np.ndarray:
-    """One frame's discs, numbered from 1, shifted right by the timepoint."""
-    labels = np.zeros((height, width), dtype=np.uint16)
-    rows, columns = np.ogrid[:height, :width]
+def nucleus_count(field_index: int, t: int) -> int:
+    """Nuclei in one frame: every cell but the last has one."""
+    return cell_count(field_index, t) - 1
+
+
+def _discs(field_index: int, t: int, count: int, radius: int, shape: tuple[int, int]) -> np.ndarray:
+    labels = np.zeros(shape, dtype=np.uint16)
+    rows, columns = np.ogrid[: shape[0], : shape[1]]
     center_x = RADIUS + 16 + 40 * t + 8 * field_index
-    for cell in range(cell_count(field_index, t)):
-        center_y = RADIUS + 16 + cell * _ROW_SPACING
-        disc = (rows - center_y) ** 2 + (columns - center_x) ** 2 <= RADIUS**2
-        labels[disc] = cell + 1
+    for index in range(count):
+        center_y = RADIUS + 16 + index * _ROW_SPACING
+        disc = (rows - center_y) ** 2 + (columns - center_x) ** 2 <= radius**2
+        labels[disc] = index + 1
     return labels
 
 
+def frame_labels(field_index: int, t: int, height: int, width: int) -> np.ndarray:
+    """One frame's cell discs, numbered from 1, shifted right by the timepoint."""
+    return _discs(field_index, t, cell_count(field_index, t), RADIUS, (height, width))
+
+
+def frame_nuclei(field_index: int, t: int, height: int, width: int) -> np.ndarray:
+    """One frame's nuclei, centred in every cell but the last."""
+    return _discs(
+        field_index, t, nucleus_count(field_index, t), NUCLEUS_RADIUS, (height, width)
+    )
+
+
 def field_labels(field_index: int, timepoints: int, height: int, width: int) -> np.ndarray:
-    """Every frame of one field's masks, as (t, y, x)."""
+    """Every frame of one field's cell masks, as (t, y, x)."""
     return np.stack(
         [frame_labels(field_index, t, height, width) for t in range(timepoints)]
+    )
+
+
+def field_nuclei(field_index: int, timepoints: int, height: int, width: int) -> np.ndarray:
+    """Every frame of one field's nucleus masks, as (t, y, x)."""
+    return np.stack(
+        [frame_nuclei(field_index, t, height, width) for t in range(timepoints)]
     )
 
 
@@ -98,9 +124,12 @@ def write_fixture_timed_masks(
     root = output / TIMED_MASKS_DIRECTORY
     root.mkdir()
     for index, (plate, well, site) in enumerate(MASKED_FIELDS):
+        group = root / f"{plate}.zarr" / f"{well}_s{site}.zarr"
+        write_mask_array(group, field_labels(index, timepoints, height, width), range(timepoints))
         write_mask_array(
-            root / f"{plate}.zarr" / f"{well}_s{site}.zarr",
-            field_labels(index, timepoints, height, width),
+            group,
+            field_nuclei(index, timepoints, height, width),
             range(timepoints),
+            array_name=NUCLEUS_ARRAY,
         )
     return root

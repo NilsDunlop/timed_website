@@ -83,9 +83,9 @@ listing answers every linked dataset, with no models when it has none. Decoded
 masks share a 512 MiB LRU (`serve --mask-cache-mb`) and outline PNGs a 256 MiB
 one. Mask readers never open leases, `profiles/`, the run ledger or QC tables.
 A TIMED collection's `masks_root` mirrors its plates and fields; each field's
-`masks_raw` array (model `masks_raw`, kind `cells`) holds one plane per image
-timepoint, so counts and outlines take `?t=`, and caches and ETags key on `t`
-and the files' identities. TIMED masks appear only in a listing that names a
+`masks_raw` and `nuclei` arrays (model `masks_raw`, kinds `cells` and
+`nuclei`) hold one plane per image timepoint, so counts and outlines take
+`?t=`, and caches and ETags key on `t` and the files' identities. TIMED masks appear only in a listing that names a
 field with `well` and `site`; fields without masks list none. Mask folders are
 read-only and, like the QC folders, never browsable, linkable or served.
 
@@ -266,9 +266,9 @@ single-resolution native `test_image_v04.zarr` (Zarr v2) and
 `packed/idr0080-like/` (an index beside three plate shards of five-channel,
 64 by 64 fields, with well metadata, `tar+wal/v1` mask stores for two models
 from `scripts/mask_stores.py`, and decoy fragment and mask indexes),
-`timed-masks/` (time-varying `masks_raw` arrays for four TIMED fields from
-`scripts/timed_mask_stores.py`), and the QC exports `qc-export/` and
-`qc-export-next/`. The output is deterministic and gitignored.
+`timed-masks/` (time-varying `masks_raw` and `nuclei` arrays for four TIMED
+fields from `scripts/timed_mask_stores.py`), and the QC exports `qc-export/`
+and `qc-export-next/`. The output is deterministic and gitignored.
 
 ## Cell Health / idr0080 real data
 

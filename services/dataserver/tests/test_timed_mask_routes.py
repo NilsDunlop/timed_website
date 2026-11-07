@@ -31,8 +31,8 @@ SHAPE = (make_test_data.HEIGHT, make_test_data.WIDTH)
 MODEL = "masks_raw"
 MASKS_RAW = {
     "model_tag": MODEL,
-    "recipe": "Cellpose-SAM · raw 505 + 625 nm",
-    "kinds": ["cells"],
+    "recipe": "Cellpose-SAM cells (raw 505 + 625 nm) · classical nuclei (raw 625 nm)",
+    "kinds": ["nuclei", "cells"],
     "frozen": True,
     "created_at": None,
     "available": True,
@@ -114,7 +114,10 @@ def test_counts_follow_the_timepoint(client: TestClient, data_root: Path) -> Non
                 "model_tag": MODEL,
                 "well": well,
                 "site": site,
-                "counts": {"cells": timed_mask_stores.cell_count(index, t)},
+                "counts": {
+                    "nuclei": timed_mask_stores.nucleus_count(index, t),
+                    "cells": timed_mask_stores.cell_count(index, t),
+                },
             }
 
 
@@ -142,7 +145,7 @@ def test_missing_models_fields_masks_and_kinds_answer_404(
         (f"masks/{MODEL}/A01/2", "No masks for A01 site 2"),
         (f"masks/{MODEL}/C09/1", "TIMED field does not exist: C09 site 1"),
         (f"masks/{MODEL}/A-1/1", "TIMED field does not exist: A-1 site 1"),
-        (f"masks/{MODEL}/A01/1/nuclei.png", "No nuclei mask for A01 site 1"),
+        (f"masks/{MODEL}/A01/1/membranes.png", "No membranes mask for A01 site 1"),
     ):
         response = _get(client, dataset, route, t=0)
         assert response.status_code == 404, (route, response.text)
@@ -150,8 +153,10 @@ def test_missing_models_fields_masks_and_kinds_answer_404(
         assert str(data_root) not in response.text
 
 
-def _outline(client: TestClient, dataset: str, t: int, **params: Any) -> httpx.Response:
-    return _get(client, dataset, f"masks/{MODEL}/A01/1/cells.png", t=t, **params)
+def _outline(
+    client: TestClient, dataset: str, t: int, kind: str = "cells", **params: Any
+) -> httpx.Response:
+    return _get(client, dataset, f"masks/{MODEL}/A01/1/{kind}.png", t=t, **params)
 
 
 def test_outlines_draw_the_requested_frame(client: TestClient, data_root: Path) -> None:
@@ -165,6 +170,9 @@ def test_outlines_draw_the_requested_frame(client: TestClient, data_root: Path) 
         labels = timed_mask_stores.frame_labels(0, t, *SHAPE)
         assert np.array_equal(image.pixels, outline_mask(labels, 2))
         pixels.append(image.pixels)
+        nuclei = read_png(_outline(client, dataset, t, "nuclei", color="FFD400").content)
+        expected = outline_mask(timed_mask_stores.frame_nuclei(0, t, *SHAPE), 2)
+        assert np.array_equal(nuclei.pixels, expected)
     assert all(not np.array_equal(pixels[t], pixels[t + 1]) for t in range(len(pixels) - 1))
 
 
@@ -195,8 +203,9 @@ def test_outline_etags_include_the_timepoint_and_answer_304_without_rendering(
         _outline(client, dataset, 2).headers["etag"],
         _outline(client, dataset, 1, color="FFD400").headers["etag"],
         _outline(client, dataset, 1, width=3).headers["etag"],
+        _outline(client, dataset, 1, "nuclei").headers["etag"],
     }
-    assert len(others) == 3 and etag not in others
+    assert len(others) == 4 and etag not in others
 
 
 def _isolated_copy(data_root: Path, tmp_path: Path) -> Path:
@@ -225,8 +234,9 @@ def test_a_regenerated_export_is_served_without_a_restart(
             field_group, regenerated, range(make_test_data.TIMEPOINTS)
         )
         after = _get(client, dataset, f"masks/{MODEL}/A01/1", t=0).json()["counts"]
-        assert before == {"cells": timed_mask_stores.cell_count(0, 0)}
-        assert after == {"cells": int(regenerated[0].max())}
+        nuclei = timed_mask_stores.nucleus_count(0, 0)
+        assert before == {"nuclei": nuclei, "cells": timed_mask_stores.cell_count(0, 0)}
+        assert after == {"nuclei": nuclei, "cells": int(regenerated[0].max())}
         assert after != before
         refreshed = _outline(client, dataset, 0)
         assert refreshed.headers["etag"] != etag
@@ -250,12 +260,27 @@ def test_invalid_masks_answer_409_without_absolute_paths(
             assert response.status_code == 409
             assert response.json() == {
                 "detail": (
-                    "TIMED masks masks_raw/test_plate.zarr/A01_s1.zarr are invalid: "
+                    "TIMED masks test_plate.zarr/A01_s1.zarr/masks_raw are invalid: "
                     "the shard index fails its CRC32C check"
                 )
             }
             assert str(tmp_path) not in response.text
         assert _get(client, dataset, "masks", well="A01", site=1).json() == {"models": [MASKS_RAW]}
+
+
+def test_a_field_without_one_kind_offers_the_others(data_root: Path, tmp_path: Path) -> None:
+    root = _isolated_copy(data_root, tmp_path)
+    field = root / timed_mask_stores.TIMED_MASKS_DIRECTORY / "test_plate.zarr" / "A01_s1.zarr"
+    shutil.rmtree(field / timed_mask_stores.NUCLEUS_ARRAY)
+    with TestClient(create_app(_settings(root, tmp_path / "state"), TOKEN)) as client:
+        dataset = _link(client, root / "test_plate.zarr")
+        assert _get(client, dataset, "masks", well="A01", site=1).json() == {"models": [MASKS_RAW]}
+        counts = _get(client, dataset, f"masks/{MODEL}/A01/1", t=2).json()["counts"]
+        assert counts == {"cells": timed_mask_stores.cell_count(0, 2)}
+        assert _outline(client, dataset, 2).status_code == 200
+        missing = _outline(client, dataset, 2, "nuclei")
+        assert missing.status_code == 404
+        assert missing.json() == {"detail": "No nuclei mask for A01 site 1"}
 
 
 def test_mask_folders_are_never_browsable_linkable_or_listed(

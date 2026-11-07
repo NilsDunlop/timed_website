@@ -4,11 +4,13 @@ import { connect, disconnect, expect, test } from "./fixtures";
 import { colorPixelCount } from "./viewer";
 
 // Fixture masks come from scripts/timed_mask_stores.py: each frame of a masked
-// field holds 2 + (field + t) % 4 discs, field 0 = test_plate A01 s1,
-// 2 = test_plate B01 s1 and 3 = test_plate_2 B01 s1. A01 s2 has no masks.
+// field holds 2 + (field + t) % 4 cells, every one but the last with a nucleus;
+// field 0 = test_plate A01 s1, 2 = test_plate B01 s1 and 3 = test_plate_2 B01 s1.
+// A01 s2 has no masks.
 const MODEL = "masks_raw";
-const RECIPE = "Cellpose-SAM · raw 505 + 625 nm";
+const RECIPE = "Cellpose-SAM cells (raw 505 + 625 nm) · classical nuclei (raw 625 nm)";
 const WHITE = [255, 255, 255] as const;
+const YELLOW = [255, 212, 0] as const;
 // The 512 px fixture field is drawn smaller than its pixels, so outline edges
 // blend; near-white still comes only from outlines on the dark fixture image.
 const NEAR_WHITE = 48;
@@ -17,8 +19,13 @@ function cells(field: number, t: number): number {
   return 2 + ((field + t) % 4);
 }
 
-function cellLine(count: number): string {
-  return `${count} ${count === 1 ? "cell" : "cells"}`;
+function countLine(field: number, t: number): string {
+  const nuclei = cells(field, t) - 1;
+  const cellCount = cells(field, t);
+  return (
+    `${nuclei} ${nuclei === 1 ? "nucleus" : "nuclei"} · ` +
+    `${cellCount} ${cellCount === 1 ? "cell" : "cells"}`
+  );
 }
 
 async function expectImageReady(page: Page, text = "Image ready") {
@@ -57,11 +64,16 @@ function panelParts(page: Page) {
     model: panel.getByRole("combobox", { name: "Model", exact: true }),
     counts: panel.getByTestId("segmentation-counts"),
     cells: panel.getByRole("checkbox", { name: "Cells", exact: true }),
+    nuclei: panel.getByRole("checkbox", { name: "Nuclei", exact: true }),
   };
 }
 
 async function whitePixels(page: Page, canvas: Locator): Promise<number> {
   return colorPixelCount(page, canvas, WHITE, NEAR_WHITE);
+}
+
+async function yellowPixels(page: Page, canvas: Locator): Promise<number> {
+  return colorPixelCount(page, canvas, YELLOW, NEAR_WHITE);
 }
 
 test("TIMED outlines and counts follow the displayed frame", async ({ page }) => {
@@ -73,14 +85,19 @@ test("TIMED outlines and counts follow the displayed frame", async ({ page }) =>
   await page.getByTestId("open-selected").click();
   await expectImageReady(page);
 
-  const { panel, model, counts, cells: cellsBox } = panelParts(page);
+  const { panel, model, counts, cells: cellsBox, nuclei: nucleiBox } = panelParts(page);
   await expect(panel).toBeVisible();
   await expect(model).toHaveValue(MODEL);
   await expect(model.locator("option")).toHaveText([MODEL]);
   await expect(panel.getByTestId("segmentation-recipe")).toHaveText(RECIPE);
   await expect(panel.getByTestId("segmentation-unfrozen")).toHaveCount(0);
-  await expect(counts).toHaveText(cellLine(cells(0, 0)));
+  await expect(counts).toHaveText(countLine(0, 0));
+  await expect(panel.getByRole("group", { name: "Outlines" }).locator("label")).toHaveText([
+    "Nuclei",
+    "Cells",
+  ]);
   await expect(cellsBox).not.toBeChecked();
+  await expect(nucleiBox).not.toBeChecked();
 
   const canvas = page.locator(".canvas-frame canvas").first();
   const background = await whitePixels(page, canvas);
@@ -91,7 +108,7 @@ test("TIMED outlines and counts follow the displayed frame", async ({ page }) =>
 
   for (const t of [1, 2]) {
     await stepForward(page, t);
-    await expect(counts).toHaveText(cellLine(cells(0, t)));
+    await expect(counts).toHaveText(countLine(0, t));
   }
   // Frame 2 has four discs to frame 0's two, so its outline covers more pixels.
   await expect.poll(() => whitePixels(page, canvas)).toBeGreaterThan(firstFrame);
@@ -100,10 +117,17 @@ test("TIMED outlines and counts follow the displayed frame", async ({ page }) =>
   expect(Math.max(...requested)).toBe(2);
   expect(requested.every((t) => [0, 1, 2].includes(t))).toBe(true);
 
+  // Frame 3 has three nuclei; they draw in yellow above the cells.
+  const yellowBefore = await yellowPixels(page, canvas);
+  await nucleiBox.check();
+  await expect.poll(() => yellowPixels(page, canvas)).toBeGreaterThan(yellowBefore + 40);
+  await expect(page).toHaveURL(/[?&]outlines=cells%2Cnuclei(&|$)/);
+
   await page.reload();
   await expectImageReady(page);
   await expect(cellsBox).toBeChecked();
-  await expect(counts).toHaveText(cellLine(cells(0, 0)));
+  await expect(nucleiBox).toBeChecked();
+  await expect(counts).toHaveText(countLine(0, 0));
   await expect.poll(() => whitePixels(page, canvas)).toBeGreaterThan(background + 40);
   await disconnect(page);
 });
@@ -141,8 +165,8 @@ test("each TIMED comparison panel draws its own source's outlines", async ({ pag
   const { counts, cells: cellsBox } = panelParts(page);
   const lines = counts.locator("li");
   await expect(lines).toHaveCount(2);
-  await expect(lines.nth(0)).toHaveText("A" + cellLine(cells(2, 0)));
-  await expect(lines.nth(1)).toHaveText("B" + cellLine(cells(3, 0)));
+  await expect(lines.nth(0)).toHaveText("A" + countLine(2, 0));
+  await expect(lines.nth(1)).toHaveText("B" + countLine(3, 0));
 
   const canvases = page.getByTestId("comparison-view").locator("canvas");
   await expect(canvases).toHaveCount(2);
@@ -157,8 +181,8 @@ test("each TIMED comparison panel draws its own source's outlines", async ({ pag
       .toBeGreaterThan(backgrounds[index] + 40);
   }
   await stepForward(page, 1, "Images ready");
-  await expect(lines.nth(0)).toHaveText("A" + cellLine(cells(2, 1)));
-  await expect(lines.nth(1)).toHaveText("B" + cellLine(cells(3, 1)));
+  await expect(lines.nth(0)).toHaveText("A" + countLine(2, 1));
+  await expect(lines.nth(1)).toHaveText("B" + countLine(3, 1));
   await expect(page.getByTestId("viewer-status")).toHaveText("Images ready");
 
   await page.getByRole("link", { name: "Back to data" }).click();

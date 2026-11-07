@@ -107,8 +107,8 @@ The server check opens the plate through the HTTP facade, loads all 196 metadata
 rows, decodes one real 2500 by 2500 plane from C03 site 1, verifies its repair
 metadata and confirms the source metadata files were unchanged. The browser
 check follows Connect to Data to View, renders that plane and confirms that the
-viewer shows no repair note. The masks check compares every frame's cell count
-on the four masked fields with the export's `counts.csv` tables and two
+viewer shows no repair note. The masks check compares every frame's nucleus and
+cell counts on the four masked fields with the export's `counts.csv` tables and two
 outlines with zarr's own decoding, and confirms the mask tree is unchanged.
 
 ## Manual validation

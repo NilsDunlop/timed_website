@@ -2,9 +2,9 @@
 
 Set TIMED_TEST_REAL_TIMED_MASKS=1 (and optionally TIMED_REAL_TIMED_COPY_ROOT,
 default D:/TIMED) to run it against a copy holding zarr/ and the presentation
-export's corrected/ folder. It checks every frame's count against the
-export's own counts tables, compares outlines with zarr's decoding of the same
-frames, and proves that no file or folder in the mask tree changed.
+export's corrected/ folder. It checks every frame's nucleus and cell counts
+against the export's own counts tables, compares outlines with zarr's decoding
+of the same frames, and proves that no file or folder in the mask tree changed.
 """
 
 from __future__ import annotations
@@ -39,13 +39,13 @@ def _digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _export_counts(masks_root: Path) -> dict[tuple[str, int, int], int]:
-    counts: dict[tuple[str, int, int], int] = {}
+def _export_counts(masks_root: Path) -> dict[tuple[str, int, int], dict[str, int]]:
+    counts: dict[tuple[str, int, int], dict[str, int]] = {}
     for name in COUNT_TABLES:
         with (masks_root / name).open(newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
                 key = (row["well"], int(row["site"]), int(row["time_index"]))
-                counts[key] = int(row["n_cells_raw"])
+                counts[key] = {"nuclei": int(row["n_nuclei"]), "cells": int(row["n_cells_raw"])}
     return counts
 
 
@@ -61,8 +61,9 @@ async def test_real_timed_masks_follow_the_exports_counts_read_only(tmp_path: Pa
     masks_plate = masks_root / f"{PLATE_NAME}.zarr"
     assert plate.is_dir() and masks_plate.is_dir()
     protected = [
-        masks_plate / f"{well}_s{site}.zarr" / "masks_raw" / name
+        masks_plate / f"{well}_s{site}.zarr" / array / name
         for well, site in FIELDS
+        for array in ("masks_raw", "nuclei")
         for name in ("zarr.json", "0.0.0")
     ]
     def entries() -> list[str]:
@@ -95,7 +96,7 @@ async def test_real_timed_masks_follow_the_exports_counts_read_only(tmp_path: Pa
                     f"{masks}/masks_raw/{well}/{site}", headers=AUTH, params={"t": t}
                 )
                 assert counted.status_code == 200, counted.text
-                assert counted.json()["counts"] == {"cells": expected[(well, site, t)]}, (
+                assert counted.json()["counts"] == expected[(well, site, t)], (
                     well,
                     site,
                     t,
@@ -106,13 +107,14 @@ async def test_real_timed_masks_follow_the_exports_counts_read_only(tmp_path: Pa
         assert missing_t.status_code == 422
 
         for (well, site), t in zip(FIELDS[::3], (0, TIMEPOINTS - 1), strict=True):
-            outline = await client.get(
-                f"{masks}/masks_raw/{well}/{site}/cells.png", headers=AUTH, params={"t": t}
-            )
-            assert outline.status_code == 200, outline.text
-            stored = zarr.open_array(masks_plate / f"{well}_s{site}.zarr" / "masks_raw", mode="r")
-            labels = np.asarray(stored[t])
-            assert np.array_equal(read_png(outline.content).pixels, outline_mask(labels, 2))
+            for kind, array in (("cells", "masks_raw"), ("nuclei", "nuclei")):
+                outline = await client.get(
+                    f"{masks}/masks_raw/{well}/{site}/{kind}.png", headers=AUTH, params={"t": t}
+                )
+                assert outline.status_code == 200, outline.text
+                stored = zarr.open_array(masks_plate / f"{well}_s{site}.zarr" / array, mode="r")
+                labels = np.asarray(stored[t])
+                assert np.array_equal(read_png(outline.content).pixels, outline_mask(labels, 2))
 
     assert entries() == original_entries
     assert {path: _digest(path) for path in protected} == original_digests

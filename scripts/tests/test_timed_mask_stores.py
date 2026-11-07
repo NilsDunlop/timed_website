@@ -22,15 +22,14 @@ def _write(tmp_path: Path) -> Path:
     )
 
 
-def test_fixture_writes_one_masks_raw_group_per_masked_field(tmp_path: Path) -> None:
+def test_fixture_writes_cells_and_nuclei_for_each_masked_field(tmp_path: Path) -> None:
     root = _write(tmp_path)
     assert root == tmp_path / timed_mask_stores.TIMED_MASKS_DIRECTORY
-    written = sorted(
-        path.relative_to(root).as_posix() for path in root.glob("*.zarr/*.zarr/masks_raw")
-    )
+    written = sorted(path.relative_to(root).as_posix() for path in root.glob("*.zarr/*.zarr/*"))
     assert written == sorted(
-        f"{plate}.zarr/{well}_s{site}.zarr/masks_raw"
+        f"{plate}.zarr/{well}_s{site}.zarr/{name}"
         for plate, well, site in timed_mask_stores.MASKED_FIELDS
+        for name in ("masks_raw", "nuclei", "zarr.json")
     )
     group = json.loads((root / "test_plate.zarr" / "A01_s1.zarr" / "zarr.json").read_text("utf-8"))
     assert group["node_type"] == "group"
@@ -67,6 +66,15 @@ def test_labels_run_from_one_without_gaps_and_change_with_time(tmp_path: Path) -
             assert np.unique(labels[t]).tolist() == list(range(count + 1))
         assert len(set(counts)) > 1
         assert not np.array_equal(labels[0] > 0, labels[1] > 0)
+
+        nuclei_store = zarr.open_array(root / f"{plate}.zarr" / f"{well}_s{site}.zarr" / "nuclei")
+        nuclei = np.asarray(nuclei_store[:])
+        assert np.array_equal(nuclei, timed_mask_stores.field_nuclei(index, *SHAPE))
+        for t in range(SHAPE[0]):
+            count = timed_mask_stores.nucleus_count(index, t)
+            assert np.unique(nuclei[t]).tolist() == list(range(count + 1))
+            # Each nucleus lies inside the cell with the same number.
+            assert np.array_equal(labels[t][nuclei[t] > 0], nuclei[t][nuclei[t] > 0])
 
 
 def test_regenerating_replaces_only_the_mask_folder(tmp_path: Path) -> None:

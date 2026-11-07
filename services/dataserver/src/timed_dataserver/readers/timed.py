@@ -42,20 +42,22 @@ _WELL = re.compile(r"[A-Z]+[0-9]+")
 
 @dataclass(frozen=True, slots=True)
 class TimedMaskModel:
-    """A mask model pinned in code: the field array that holds it and its kind."""
+    """A mask model pinned in code: each kind and the field array that holds it."""
 
     tag: str
-    array: str
-    kind: str
+    arrays: tuple[tuple[str, str], ...]
     recipe: str
+
+    @property
+    def kinds(self) -> tuple[str, ...]:
+        return tuple(kind for kind, _array in self.arrays)
 
 
 TIMED_MASK_MODELS = (
     TimedMaskModel(
         tag="masks_raw",
-        array="masks_raw",
-        kind="cells",
-        recipe="Cellpose-SAM · raw 505 + 625 nm",
+        arrays=(("nuclei", "nuclei"), ("cells", "masks_raw")),
+        recipe="Cellpose-SAM cells (raw 505 + 625 nm) · classical nuclei (raw 625 nm)",
     ),
 )
 
@@ -121,8 +123,8 @@ class TimedMaskSource:
     def _folder(field: MaskField) -> str:
         return f"{field.well}_s{field.site}.zarr"
 
-    def _array_dir(self, model: TimedMaskModel, field: MaskField) -> Path:
-        return self._masks_plate / self._folder(field) / model.array
+    def _array_dir(self, field: MaskField, array: str) -> Path:
+        return self._masks_plate / self._folder(field) / array
 
     def _image_field(self, field: MaskField) -> Path | None:
         try:
@@ -135,8 +137,10 @@ class TimedMaskSource:
         return resolved
 
     def _covers(self, model: TimedMaskModel, field: MaskField) -> bool:
-        return self._image_field(field) is not None and has_array(
-            self._array_dir(model, field), self._masks_root
+        """A model covers a field whose image exists and that holds any of its arrays."""
+        return self._image_field(field) is not None and any(
+            has_array(self._array_dir(field, array), self._masks_root)
+            for _kind, array in model.arrays
         )
 
     def models(self, field: MaskField | None = None) -> list[MaskModelEntry]:
@@ -147,7 +151,7 @@ class TimedMaskSource:
                 model=MaskModel(
                     tag=model.tag,
                     recipe=model.recipe,
-                    kinds=(model.kind,),
+                    kinds=model.kinds,
                     frozen=True,
                     created_at=None,
                     directory=self._masks_plate,
@@ -172,7 +176,13 @@ class TimedMaskSource:
             raise MaskRequestError("TIMED masks have one plane per timepoint: give t")
         return t
 
-    def _array(self, model: TimedMaskModel, field: MaskField) -> TimedMaskArray:
+    def _arrays(
+        self,
+        model: TimedMaskModel,
+        field: MaskField,
+        kinds: tuple[str, ...],
+    ) -> dict[str, TimedMaskArray]:
+        """The field's validated arrays for these kinds; absent kinds are left out."""
         missing = f"TIMED field does not exist: {field.well} site {field.site}"
         image = self._image_field(field)
         if image is None:
@@ -181,30 +191,42 @@ class TimedMaskSource:
             shape, t_indices = timed_field_geometry(image)
         except OmeZarrError:
             raise MaskNotFoundError(missing) from None
-        array = self._masks.timed_arrays.get(
-            f"{model.tag}/{self._masks_plate.name}/{self._folder(field)}",
-            self._array_dir(model, field),
-            self._masks_root,
-            shape,
-            t_indices,
-        )
-        if array is None:
-            raise MaskNotFoundError(f"No masks for {field.well} site {field.site}")
-        return array
+        found: dict[str, TimedMaskArray] = {}
+        for kind, array_name in model.arrays:
+            if kind not in kinds:
+                continue
+            array = self._masks.timed_arrays.get(
+                f"{self._masks_plate.name}/{self._folder(field)}/{array_name}",
+                self._array_dir(field, array_name),
+                self._masks_root,
+                shape,
+                t_indices,
+            )
+            if array is not None:
+                found[kind] = array
+        return found
 
-    def _plane(self, model: TimedMaskModel, field: MaskField, t: int) -> TimedMaskPlane:
-        array = self._array(model, field)
+    @staticmethod
+    def _check_timepoint(array: TimedMaskArray, t: int) -> int:
         if t >= array.timepoints:
             raise MaskRequestError(
                 f"Timepoint {t} is outside this field's {array.timepoints} timepoints "
                 f"(0 to {array.timepoints - 1})"
             )
-        return TimedMaskPlane(self._masks, array, model.kind, t)
+        return t
 
     def counts(self, model_tag: str, field: MaskField, t: int | None = None) -> dict[str, int]:
         model = self._model(model_tag)
         timepoint = self._require_timepoint(t)
-        return {model.kind: self._plane(model, field, timepoint).labels().count}
+        arrays = self._arrays(model, field, model.kinds)
+        if not arrays:
+            raise MaskNotFoundError(f"No masks for {field.well} site {field.site}")
+        return {
+            kind: TimedMaskPlane(self._masks, array, kind, self._check_timepoint(array, timepoint))
+            .labels()
+            .count
+            for kind, array in arrays.items()
+        }
 
     def open_plane(
         self,
@@ -214,9 +236,13 @@ class TimedMaskSource:
         t: int | None = None,
     ) -> TimedMaskPlane:
         model = self._model(model_tag)
-        if kind != model.kind:
+        if kind not in model.kinds:
             raise MaskNotFoundError(f"No {kind} mask for {field.well} site {field.site}")
-        return self._plane(model, field, self._require_timepoint(t))
+        timepoint = self._require_timepoint(t)
+        array = self._arrays(model, field, (kind,)).get(kind)
+        if array is None:
+            raise MaskNotFoundError(f"No {kind} mask for {field.well} site {field.site}")
+        return TimedMaskPlane(self._masks, array, kind, self._check_timepoint(array, timepoint))
 
 
 class TimedCollectionReader(NativeStoreReader):

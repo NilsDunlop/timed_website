@@ -182,7 +182,8 @@ async def test_timed_mask_sources_need_a_timepoint_inside_the_field(
     assert source.models(source.field("A01", 2)) == []
     for t in range(make_test_data.TIMEPOINTS):
         assert source.counts("masks_raw", field, t) == {
-            "cells": timed_mask_stores.cell_count(0, t)
+            "nuclei": timed_mask_stores.nucleus_count(0, t),
+            "cells": timed_mask_stores.cell_count(0, t),
         }
     first, second = (source.open_plane("masks_raw", field, "cells", t) for t in (0, 1))
     assert first.etag("FFFFFF", 2) != second.etag("FFFFFF", 2)
