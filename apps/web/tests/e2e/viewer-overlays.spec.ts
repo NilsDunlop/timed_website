@@ -46,4 +46,9 @@ test("overlay layers are unpickable deck.gl bitmaps with a shared opacity", () =
     { id: "overlay-centroid-#detail#", bounds: [0, 400, 600, 0], opacity: 0.6, pickable: false },
   ]);
   expect(viewerOverlayLayers(source, [], 1)).toEqual([]);
+  // Nearest magnification keeps one-pixel outlines crisp when zoomed in.
+  expect(layers.map(({ props }) => props.textureParameters)).toEqual([
+    { magFilter: "nearest" },
+    { magFilter: "nearest" },
+  ]);
 });

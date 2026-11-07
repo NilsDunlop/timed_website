@@ -38,6 +38,8 @@ export function viewerOverlayLayers(
         bounds,
         opacity,
         pickable: false,
+        // Nearest magnification keeps one-pixel outlines crisp when zoomed in.
+        textureParameters: { magFilter: "nearest" },
       }),
   );
 }
