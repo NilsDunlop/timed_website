@@ -1,14 +1,16 @@
-"""Mask models, decoded labels and object counts for packed plates.
+"""Mask models, decoded labels, object counts and outline images for packed plates.
 
 The routes call these blocking methods in worker threads. Each store's offset
 table is rebuilt whenever its revision or file identity changes, so a store
-that grows is picked up. Decoded labels are kept in a byte-bounded LRU keyed by
-the member's place in its tar, which append-only stores never rewrite, so a
-growing store keeps the masks already decoded.
+that grows is picked up. Decoded labels and encoded outlines are kept in two
+byte-bounded LRUs keyed by the member's place in its tar, which append-only
+stores never rewrite, so a growing store keeps the masks already decoded.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 from collections.abc import Hashable
 from dataclasses import dataclass
@@ -16,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import __version__
 from .caches import ByteBoundedSingleFlightLru
 from .mask_catalogue import (
     MaskCatalogue,
@@ -25,6 +28,7 @@ from .mask_catalogue import (
     plate_available,
     plate_files,
 )
+from .mask_outlines import outline_mask, outline_png
 from .mask_store import (
     MaskMember,
     MaskRecord,
@@ -38,6 +42,7 @@ from .mask_store import (
 from .packed_profiles import PackedMasks
 
 DEFAULT_MASK_CACHE_BYTES = 512 * 1024 * 1024
+DEFAULT_OUTLINE_CACHE_BYTES = 256 * 1024 * 1024
 DEFAULT_MASK_WORKERS = 4
 _STORE_TABLE_ENTRIES = 64
 
@@ -91,6 +96,29 @@ def _decoded_bytes(mask: DecodedMask) -> int:
     return mask.labels.nbytes
 
 
+def _rgb(color: str) -> tuple[int, int, int]:
+    return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+
+
+def outline_etag(target: MaskTarget, color: str, width: int) -> str:
+    """Validator from the store revision, the member, the kind, colour and width."""
+    revision = target.revision
+    identity = json.dumps(
+        {
+            "server": __version__,
+            "store": target.files.label,
+            "revision": [revision.log_size, revision.log_mtime_ns, revision.tar_size],
+            "member": [target.member.offset, target.member.size],
+            "kind": target.member.kind,
+            "color": color,
+            "width": width,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f'"{hashlib.sha256(identity).hexdigest()}"'
+
+
 class MaskReader:
     """Serve one application's mask stores synchronously and thread-safely."""
 
@@ -98,12 +126,16 @@ class MaskReader:
         self,
         *,
         cache_bytes: int = DEFAULT_MASK_CACHE_BYTES,
+        outline_cache_bytes: int = DEFAULT_OUTLINE_CACHE_BYTES,
         max_workers: int = DEFAULT_MASK_WORKERS,
     ) -> None:
         if max_workers <= 0:
             raise ValueError("Mask decoding concurrency must be positive")
         self.cache: ByteBoundedSingleFlightLru[Hashable, DecodedMask] = (
             ByteBoundedSingleFlightLru(cache_bytes, _decoded_bytes)
+        )
+        self.outlines: ByteBoundedSingleFlightLru[Hashable, bytes] = ByteBoundedSingleFlightLru(
+            outline_cache_bytes, len
         )
         self.catalogue = MaskCatalogue()
         self._slots = threading.BoundedSemaphore(max_workers)
@@ -117,6 +149,7 @@ class MaskReader:
             self._tables.clear()
             self._table_locks.clear()
         self.cache.clear()
+        self.outlines.clear()
 
     def models(
         self,
@@ -203,9 +236,9 @@ class MaskReader:
             raise MaskNotFoundError(f"No masks for {well} site {site}")
         return record
 
-    def labels(self, target: MaskTarget, shape: tuple[int, int]) -> DecodedMask:
-        """Decoded labels for one member, through the single-flight LRU."""
-        key = _MaskKey(
+    @staticmethod
+    def _key(target: MaskTarget, shape: tuple[int, int]) -> _MaskKey:
+        return _MaskKey(
             tar=str(target.files.tar),
             tar_identity=target.table.tar_identity,
             offset=target.member.offset,
@@ -213,6 +246,10 @@ class MaskReader:
             name=f"{target.record.well}_s{target.record.site}_{target.member.kind}",
             shape=shape,
         )
+
+    def labels(self, target: MaskTarget, shape: tuple[int, int]) -> DecodedMask:
+        """Decoded labels for one member, through the single-flight LRU."""
+        key = self._key(target, shape)
 
         def load() -> DecodedMask:
             with self._slots:
@@ -237,3 +274,20 @@ class MaskReader:
             kind: self.labels(MaskTarget(files, table, record, member), shape).count
             for kind, member in record.members.items()
         }
+
+    def outline(
+        self,
+        target: MaskTarget,
+        shape: tuple[int, int],
+        color: str,
+        width: int,
+    ) -> bytes:
+        """One member's outline PNG in an upper-case ``RRGGBB`` colour."""
+
+        def load() -> bytes:
+            decoded = self.labels(target, shape)
+            with self._slots:
+                return outline_png(outline_mask(decoded.labels, width), _rgb(color))
+
+        content, _status = self.outlines.get_or_load((self._key(target, shape), color, width), load)
+        return content

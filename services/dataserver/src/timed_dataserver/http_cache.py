@@ -61,6 +61,11 @@ def etag_matches(value: str | None, etag: str) -> bool:
     )
 
 
+def not_modified(etag: str) -> Response:
+    """The 304 answer memory_response gives once a validator matches."""
+    return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=cache_headers(etag))
+
+
 def range_for_validator(
     range_header: str | None,
     if_range: str | None,

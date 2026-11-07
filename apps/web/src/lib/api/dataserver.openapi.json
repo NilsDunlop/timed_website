@@ -552,6 +552,119 @@
         "title": "ImageSummary",
         "type": "object"
       },
+      "MaskFieldResponse": {
+        "additionalProperties": false,
+        "description": "One model's object counts for one field: each kind's largest label.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "model_tag": {
+            "title": "Model Tag",
+            "type": "string"
+          },
+          "site": {
+            "title": "Site",
+            "type": "integer"
+          },
+          "well": {
+            "title": "Well",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_tag",
+          "well",
+          "site",
+          "counts"
+        ],
+        "title": "MaskFieldResponse",
+        "type": "object"
+      },
+      "MaskModelSummary": {
+        "additionalProperties": false,
+        "description": "One segmentation model and whether it covers the plate.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "default": {
+            "title": "Default",
+            "type": "boolean"
+          },
+          "frozen": {
+            "title": "Frozen",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "model_tag": {
+            "title": "Model Tag",
+            "type": "string"
+          },
+          "recipe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
+          }
+        },
+        "required": [
+          "model_tag",
+          "recipe",
+          "kinds",
+          "frozen",
+          "created_at",
+          "available",
+          "default"
+        ],
+        "title": "MaskModelSummary",
+        "type": "object"
+      },
+      "MaskModelsResponse": {
+        "additionalProperties": false,
+        "description": "A linked dataset's segmentation models; empty when it has none.",
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/MaskModelSummary"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "title": "MaskModelsResponse",
+        "type": "object"
+      },
       "MetadataDetailSummary": {
         "additionalProperties": false,
         "properties": {
@@ -2159,6 +2272,276 @@
           }
         ],
         "summary": "Unlink Dataset"
+      }
+    },
+    "/api/datasets/{dataset_id}/masks": {
+      "get": {
+        "operationId": "list_mask_models_api_datasets__dataset_id__masks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaskModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Mask Models"
+      }
+    },
+    "/api/datasets/{dataset_id}/masks/{model}/{well}/{site}": {
+      "get": {
+        "operationId": "mask_field_counts_api_datasets__dataset_id__masks__model___well___site__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "model",
+            "required": true,
+            "schema": {
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "well",
+            "required": true,
+            "schema": {
+              "title": "Well",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "site",
+            "required": true,
+            "schema": {
+              "title": "Site",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaskFieldResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mask Field Counts"
+      }
+    },
+    "/api/datasets/{dataset_id}/masks/{model}/{well}/{site}/{kind}.png": {
+      "get": {
+        "operationId": "mask_outline_api_datasets__dataset_id__masks__model___well___site___kind__png_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "model",
+            "required": true,
+            "schema": {
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "well",
+            "required": true,
+            "schema": {
+              "title": "Well",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "site",
+            "required": true,
+            "schema": {
+              "title": "Site",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "color",
+            "required": false,
+            "schema": {
+              "default": "FFFFFF",
+              "pattern": "^[0-9A-Fa-f]{6}$",
+              "title": "Color",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "width",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "maximum": 4,
+              "minimum": 1,
+              "title": "Width",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Range"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 1-bit palette PNG at plane size; index 0 is transparent"
+          },
+          "304": {
+            "description": "The outline is unchanged"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mask Outline"
       }
     },
     "/api/datasets/{dataset_id}/matches": {

@@ -39,6 +39,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/masks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Mask Models */
+        get: operations["list_mask_models_api_datasets__dataset_id__masks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/datasets/{dataset_id}/masks/{model}/{well}/{site}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mask Field Counts */
+        get: operations["mask_field_counts_api_datasets__dataset_id__masks__model___well___site__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/datasets/{dataset_id}/masks/{model}/{well}/{site}/{kind}.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mask Outline */
+        get: operations["mask_outline_api_datasets__dataset_id__masks__model___well___site___kind__png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/{dataset_id}/matches": {
         parameters: {
             query?: never;
@@ -484,6 +535,50 @@ export interface components {
              * @enum {integer}
              */
             zarr_format: 2 | 3;
+        };
+        /**
+         * MaskFieldResponse
+         * @description One model's object counts for one field: each kind's largest label.
+         */
+        MaskFieldResponse: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Model Tag */
+            model_tag: string;
+            /** Site */
+            site: number;
+            /** Well */
+            well: string;
+        };
+        /**
+         * MaskModelSummary
+         * @description One segmentation model and whether it covers the plate.
+         */
+        MaskModelSummary: {
+            /** Available */
+            available: boolean;
+            /** Created At */
+            created_at: string | null;
+            /** Default */
+            default: boolean;
+            /** Frozen */
+            frozen: boolean;
+            /** Kinds */
+            kinds: string[];
+            /** Model Tag */
+            model_tag: string;
+            /** Recipe */
+            recipe: string | null;
+        };
+        /**
+         * MaskModelsResponse
+         * @description A linked dataset's segmentation models; empty when it has none.
+         */
+        MaskModelsResponse: {
+            /** Models */
+            models: components["schemas"]["MaskModelSummary"][];
         };
         /** MetadataDetailSummary */
         MetadataDetailSummary: {
@@ -1062,6 +1157,120 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mask_models_api_datasets__dataset_id__masks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaskModelsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mask_field_counts_api_datasets__dataset_id__masks__model___well___site__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                model: string;
+                well: string;
+                site: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaskFieldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mask_outline_api_datasets__dataset_id__masks__model___well___site___kind__png_get: {
+        parameters: {
+            query?: {
+                color?: string;
+                width?: number;
+            };
+            header?: {
+                Range?: string | null;
+                "If-None-Match"?: string | null;
+                "If-Range"?: string | null;
+            };
+            path: {
+                dataset_id: string;
+                model: string;
+                well: string;
+                site: number;
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A 1-bit palette PNG at plane size; index 0 is transparent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description The outline is unchanged */
+            304: {
                 headers: {
                     [name: string]: unknown;
                 };

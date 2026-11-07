@@ -17,6 +17,8 @@ differences below are deliberate and frozen until a separate API decision:
 | QcFieldNotFoundError | 404 | /api/qc/field |
 | QcPayloadError, QcAnnotationUnavailableError | 503 | /api/qc |
 | QcAnnotationValidationError | 422 | POST /api/qc/annotations |
+| MaskNotFoundError | 404 | /api/datasets masks routes |
+| MaskStoreError | 409 | /api/datasets masks routes |
 
 Errors under /api/qc/ use the QC JSON response contract: gzip, a weak ETag and
 private no-cache headers. Their ``blind`` parser accepts 1, true, on and yes
@@ -42,6 +44,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import __version__
 from .paths import PathForbiddenError, PathNotFoundError
 from .qc_http import qc_json_response
+
+
+def conflict(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 def forbidden(exc: Exception) -> HTTPException:
