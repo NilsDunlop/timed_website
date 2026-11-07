@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..context import ServerContext, get_context
 from ..errors import forbidden, translate_path_errors, unprocessable
-from ..linked import PACKED_PLATE_DESCRIPTOR, packed_path, packed_profile
+from ..linked import PACKED_PLATE_INFO, packed_path, packed_profile
 from ..models import FilesystemEntry, FilesystemListResponse
 from ..omezarr import inspect_store
 from ..packed import PackedCatalogue, PackedIndexError, get_catalogue_in_thread, is_packed_index
@@ -80,7 +80,7 @@ async def list_files(
                     name=profile.plate_display_name(packed.experiment, plate),
                     path=str(Path(packed.registry_key) / str(plate)),
                     kind="dir",
-                    ome_zarr=PACKED_PLATE_DESCRIPTOR.info,
+                    ome_zarr=PACKED_PLATE_INFO,
                     detail=(
                         f"{_quantity(len(plate_info.wells), 'well')} · "
                         f"{_quantity(len(plate_info.sites), 'site')} · "

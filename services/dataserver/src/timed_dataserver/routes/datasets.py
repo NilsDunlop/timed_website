@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ..context import ServerContext, get_context
 from ..errors import forbidden, not_found, translate_path_errors, unprocessable
-from ..linked import PACKED_PLATE_DESCRIPTOR, displayed_dataset, linked, packed_path, packed_profile
+from ..linked import (
+    PACKED_PLATE_INFO,
+    displayed_dataset,
+    packed_path,
+    packed_profile,
+    require_packed_plate,
+)
 from ..models import (
     DatasetLinkRequest,
     DatasetListResponse,
@@ -20,11 +26,10 @@ from ..models import (
     PlateMetadataResponse,
     WellFieldsResponse,
 )
-from ..omezarr import OmeZarrError, dataset_summary, inspect_store, well_fields
-from ..packed_facade import PackedFacadeNotFoundError, packed_plate_summary, packed_well_fields
+from ..omezarr import inspect_store
 from ..packed_metadata import PackedMetadataError, PackedMetadataNotFoundError
 from ..paths import PathForbiddenError
-from ..plate_metadata import PlateMetadataError
+from ..readers import open_reader
 
 router = APIRouter()
 
@@ -60,7 +65,7 @@ async def link_dataset(
             packed.registry_key,
             request.name
             or profile.plate_display_name(packed.experiment, packed.plate),
-            PACKED_PLATE_DESCRIPTOR.info,
+            PACKED_PLATE_INFO,
         )
         return await displayed_dataset(ctx, record)
     with translate_path_errors():
@@ -92,18 +97,7 @@ async def summarize_dataset(
     ctx: Annotated[ServerContext, Depends(get_context)],
     dataset_id: str,
 ) -> DatasetSummary:
-    _record, path, descriptor, packed = await linked(ctx, dataset_id)
-    if packed is not None:
-        try:
-            return packed_plate_summary(packed, await packed_profile(ctx, packed))
-        except PackedFacadeNotFoundError as exc:
-            raise not_found(str(exc)) from exc
-    try:
-        return dataset_summary(path, descriptor)
-    except PathForbiddenError as exc:
-        raise forbidden(exc) from exc
-    except OmeZarrError as exc:
-        raise unprocessable(exc) from exc
+    return await (await open_reader(ctx, dataset_id)).summary()
 
 
 @router.get(
@@ -115,20 +109,7 @@ async def summarize_well(
     dataset_id: str,
     well_path: str,
 ) -> WellFieldsResponse:
-    _record, path, descriptor, packed = await linked(ctx, dataset_id)
-    if packed is not None:
-        try:
-            return packed_well_fields(packed, well_path)
-        except PackedFacadeNotFoundError as exc:
-            raise not_found(str(exc)) from exc
-    if descriptor.info.kind != "plate":
-        raise HTTPException(status_code=422, detail="Dataset is not a plate")
-    try:
-        return well_fields(path, descriptor, well_path)
-    except PathForbiddenError as exc:
-        raise forbidden(exc) from exc
-    except OmeZarrError as exc:
-        raise not_found(str(exc)) from exc
+    return await (await open_reader(ctx, dataset_id)).well_fields(well_path)
 
 
 @router.get(
@@ -139,31 +120,7 @@ async def dataset_metadata(
     ctx: Annotated[ServerContext, Depends(get_context)],
     dataset_id: str,
 ) -> PlateMetadataResponse:
-    _record, path, descriptor, packed = await linked(ctx, dataset_id)
-    if packed is not None:
-        profile = await packed_profile(ctx, packed)
-        if profile.metadata_path is None:
-            return PlateMetadataResponse(available=False)
-        try:
-            assert packed.experiment is not None
-            assert packed.plate is not None
-            return await anyio.to_thread.run_sync(
-                ctx.packed_metadata.for_plate,
-                packed.index_path,
-                profile,
-                packed.experiment,
-                packed.plate,
-            )
-        except PackedMetadataError as exc:
-            raise unprocessable(exc) from exc
-    if descriptor.info.kind != "plate":
-        return PlateMetadataResponse(available=False)
-    if ctx.metadata_catalog is None:
-        return PlateMetadataResponse(available=False)
-    try:
-        return ctx.metadata_catalog.for_dataset(path.name)
-    except PlateMetadataError as exc:
-        raise unprocessable(exc) from exc
+    return await (await open_reader(ctx, dataset_id)).metadata()
 
 
 @router.get(
@@ -179,19 +136,19 @@ async def dataset_matches(
     ],
     by: Annotated[MatchMode, Query()],
 ) -> DatasetMatchesResponse:
-    _record, _path, _descriptor, packed = await linked(ctx, dataset_id)
-    if packed is None:
-        raise not_found("Dataset matches are available only for packed plates")
-    profile = await packed_profile(ctx, packed)
+    dataset = await require_packed_plate(
+        ctx,
+        dataset_id,
+        "Dataset matches are available only for packed plates",
+    )
+    profile = await packed_profile(ctx, dataset.packed)
     try:
-        assert packed.experiment is not None
-        assert packed.plate is not None
         return await anyio.to_thread.run_sync(
             ctx.packed_metadata.matches,
-            packed.catalogue,
+            dataset.packed.catalogue,
             profile,
-            packed.experiment,
-            packed.plate,
+            dataset.experiment,
+            dataset.plate,
             well.upper(),
             by,
         )

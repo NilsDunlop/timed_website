@@ -38,7 +38,7 @@ class StoreDescriptor:
     """The small amount of metadata needed to classify a store."""
 
     info: OmeZarrInfo
-    layout: Literal["native", "timed-collection", "packed"]
+    layout: Literal["native", "timed-collection"]
     metadata_prefix: str = ""
 
 
