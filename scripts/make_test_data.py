@@ -22,6 +22,11 @@ from ome_zarr.format import FormatV04, FormatV05
 from ome_zarr.writer import write_image
 from zarr.codecs import BloscCodec
 
+if __package__:
+    from .mask_stores import write_fixture_mask_stores, write_reader_decoys
+else:  # Run directly as scripts/make_test_data.py.
+    from mask_stores import write_fixture_mask_stores, write_reader_decoys
+
 TIMEPOINTS = 6
 HEIGHT = 512
 WIDTH = 512
@@ -512,6 +517,14 @@ def _write_packed_fixture(output: Path) -> Path:
     _write_parquet(index, root / PACKED_INDEX_NAME)
     _write_packed_metadata(root)
     _write_packed_decoys(root, index)
+    write_fixture_mask_stores(
+        root,
+        plates=PACKED_PLATES,
+        wells=[well.address for well in PACKED_WELLS],
+        sites=PACKED_SITES,
+        shape=(PACKED_HEIGHT, PACKED_WIDTH),
+    )
+    write_reader_decoys(root)
     return root
 
 

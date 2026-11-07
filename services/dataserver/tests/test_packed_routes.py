@@ -93,6 +93,8 @@ def test_parent_index_and_experiment_listings_are_exact(
                 _entry("index_fragments", root / "index_fragments", "dir"),
                 _entry("masks", root / "masks", "dir"),
                 _entry("metadata", root / "metadata", "dir"),
+                _entry("profiles", root / "profiles", "dir"),
+                _entry("run_ledger.jsonl", root / "run_ledger.jsonl", "file"),
             ],
         }
 
@@ -809,6 +811,11 @@ def test_fragment_and_mask_indexes_are_not_packed_routes(
     decoys = (
         packed_root / "index_fragments" / "SQ00014610.index.parquet",
         packed_root / "masks" / "fixture" / "Plate14610.index.parquet",
+        packed_root
+        / "masks"
+        / "idr0080_cpsam_B90"
+        / "idr0080-A549"
+        / "Plate14610.index.parquet",
     )
     with TestClient(create_app(_settings(packed_root, tmp_path / "state"), TOKEN)) as client:
         for decoy in decoys:
