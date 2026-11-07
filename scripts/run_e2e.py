@@ -397,6 +397,8 @@ def main() -> int:
     qc_export = TEST_DATA / "qc-export"
     if not real_local and not qc_export.is_dir():
         raise RuntimeError("Run `make test-data` to create the QC export fixture")
+    if not real_local and not (TEST_DATA / "timed-masks").is_dir():
+        raise RuntimeError("Run `make test-data` to create the TIMED mask fixture")
     required_ports = [arguments.connector_port]
     if not arguments.built_ui:
         required_ports.append(arguments.web_port)

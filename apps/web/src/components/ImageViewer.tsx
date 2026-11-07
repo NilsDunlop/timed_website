@@ -335,8 +335,21 @@ export default function ImageViewer() {
     return { model: preset.model, kinds: preset.kinds, width: DEFAULT_OUTLINE_WIDTH };
   });
   const [outlineOpacity, setOutlineOpacity] = useState(DEFAULT_OUTLINE_OPACITY);
-  // Listings and counts load beside the image; outlines follow the displayed frame.
-  const masks = useMaskOverlays(maskSources, maskSettings, displayedTime);
+  // Whether each loaded source has a time axis: TIMED masks follow its frames.
+  const maskTimeAxes = useMemo(
+    () =>
+      new Map(
+        viewerSources.flatMap((viewerSource) => {
+          const fullResolution = viewerSource.loader[0];
+          return fullResolution
+            ? [[viewerSource.readyKey, Array.from(fullResolution.labels).includes("t")] as const]
+            : [];
+        }),
+      ),
+    [viewerSources],
+  );
+  // Listings load beside the image; counts and outlines follow the displayed frame.
+  const masks = useMaskOverlays(maskSources, maskSettings, displayedTime, maskTimeAxes);
 
   useEffect(() => {
     let active = true;

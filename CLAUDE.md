@@ -159,13 +159,16 @@ Every viewer panel derives its own scale bar from source metadata. TIMED uses
 0.29898804047838085 micrometres per pixel. A source without a valid pixel size
 gets no scale bar; never infer one.
 
-When every source's plate has masks, a **Segmentation** panel joins the viewer
+When every source's field has masks, a **Segmentation** panel joins the viewer
 controls, which the QC field view shares: the models every source covers
-(default first), a "May still change" badge, each source's object counts, kind
-toggles that start off, width and opacity. Listings and counts load beside the
-image; outlines are `VivCanvas` overlay layers that follow the displayed
-timepoint and never affect "Image ready". `outlines=` and `model=` keep them
-in the link. TIMED shows no panel.
+(default first, full tag, recipe on its own line), a "May still change" badge
+for unfrozen models, each source's object counts (breaking only between
+kinds), kind toggles that start off, width and opacity. Listings load beside
+the image. Outlines are `VivCanvas` overlay layers that follow the displayed
+timepoint and never affect "Image ready"; on a source with a time axis
+(TIMED) its counts follow the displayed timepoint too, and nothing is fetched
+for a frame before it is on screen. `outlines=` and `model=` keep them in the
+link. A TIMED field without masks shows no panel.
 
 `make test-e2e` creates isolated legacy and collection-aware test-cluster and
 local profiles. It drives Connect -> Data -> View for TIMED and the packed

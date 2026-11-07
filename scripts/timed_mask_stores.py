@@ -28,7 +28,7 @@ MASKED_FIELDS = (
     ("test_plate_2", "B01", 1),
 )
 INNER_CHUNK = (128, 128)
-RADIUS = 24
+RADIUS = 32
 _ROW_SPACING = 96
 
 

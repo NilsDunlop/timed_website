@@ -40,22 +40,25 @@ export function maskKindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
+/** One phrase per kind, such as "731 nuclei", in the model's kind order. */
+export function maskCountParts(kinds: readonly string[], counts: MaskCounts): string[] {
+  const ordered = [
+    ...kinds.filter((kind) => kind in counts),
+    ...Object.keys(counts).filter((kind) => !kinds.includes(kind)),
+  ];
+  return ordered.map((kind) => {
+    const count = counts[kind] ?? 0;
+    const [singular, plural] = KIND_NOUNS[kind] ?? [kind, kind];
+    return `${count.toLocaleString("en-US")} ${count === 1 ? singular : plural}`;
+  });
+}
+
 /** "731 nuclei · 616 cells · 616 cytoplasm", in the model's kind order. */
 export function formatMaskCounts(
   kinds: readonly string[],
   counts: MaskCounts,
 ): string {
-  const ordered = [
-    ...kinds.filter((kind) => kind in counts),
-    ...Object.keys(counts).filter((kind) => !kinds.includes(kind)),
-  ];
-  return ordered
-    .map((kind) => {
-      const count = counts[kind] ?? 0;
-      const [singular, plural] = KIND_NOUNS[kind] ?? [kind, kind];
-      return `${count.toLocaleString("en-US")} ${count === 1 ? singular : plural}`;
-    })
-    .join(" · ");
+  return maskCountParts(kinds, counts).join(" · ");
 }
 
 /**
@@ -96,13 +99,17 @@ export function chooseMaskModel(
 
 export type MaskField = { well: string; site: number };
 
-/** Same-origin outline image of one kind; Cell Health has no timepoint. */
+/**
+ * Same-origin outline image of one kind. A time-resolved (TIMED) source names
+ * the displayed timepoint; Cell Health has none.
+ */
 export function maskOutlineUrl(
   datasetId: string,
   model: string,
   field: MaskField,
   kind: string,
   width: number,
+  t: number | null = null,
 ): string {
   const path = [
     "backend",
@@ -121,5 +128,6 @@ export function maskOutlineUrl(
     color: maskKindColor(kind),
     width: String(width),
   });
+  if (t != null) query.set("t", String(t));
   return `/${path}?${query.toString()}`;
 }

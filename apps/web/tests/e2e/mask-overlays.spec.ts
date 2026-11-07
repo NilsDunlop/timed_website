@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   chooseMaskModel,
   formatMaskCounts,
+  maskCountParts,
   maskKindColor,
   maskKindLabel,
   maskOutlineUrl,
@@ -58,6 +59,16 @@ test("the count line follows the model's kind order", () => {
   );
 });
 
+test("each kind's count is its own phrase, so a narrow line breaks only between kinds", () => {
+  expect(maskCountParts(B90.kinds, { cells: 616, nuclei: 731, cytoplasm: 616 })).toEqual([
+    "731 nuclei",
+    "616 cells",
+    "616 cytoplasm",
+  ]);
+  expect(maskCountParts(["cells"], { cells: 1 })).toEqual(["1 cell"]);
+  expect(maskCountParts(["cells"], {})).toEqual([]);
+});
+
 test("only models every source's plate covers are offered, the default first", () => {
   const plate14610 = [STOCK, B90];
   const plate14611 = [B90, model(STOCK.model_tag, { available: false })];
@@ -88,6 +99,19 @@ test("outline URLs are same-origin and encode every path part", () => {
   );
   expect(maskOutlineUrl("a/b", "m 1", { well: "P24", site: 9 }, "cells", 4)).toBe(
     "/backend/api/datasets/a%2Fb/masks/m%201/P24/9/cells.png?color=FFFFFF&width=4",
+  );
+});
+
+test("a time-resolved source's outline URL names its timepoint", () => {
+  const field = { well: "A01", site: 1 };
+  expect(maskOutlineUrl("d1", "masks_raw", field, "cells", 2, 0)).toBe(
+    "/backend/api/datasets/d1/masks/masks_raw/A01/1/cells.png?color=FFFFFF&width=2&t=0",
+  );
+  expect(maskOutlineUrl("d1", "masks_raw", field, "cells", 2, 47)).toBe(
+    "/backend/api/datasets/d1/masks/masks_raw/A01/1/cells.png?color=FFFFFF&width=2&t=47",
+  );
+  expect(maskOutlineUrl("d1", "masks_raw", field, "cells", 2, null)).toBe(
+    maskOutlineUrl("d1", "masks_raw", field, "cells", 2),
   );
 });
 
