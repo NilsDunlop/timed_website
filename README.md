@@ -140,7 +140,6 @@ dataset contracts and onboarding steps.
   reason-first Sites/Wells workflow, carries exact flagged sites into well
   review, and records append-only site or well annotations. The viewer applies
   the export's fixed QC windows and shows only registered review metrics.
-  Segmentation outlines (Part C) come later.
 - Version 0.5.1 adds strict, geometry-independent TIMED field validation for
   the Berzelius P2.1 layout, its per-plate metadata and optional site-repair
   note. The same layout is validated read-only through the external-drive
@@ -152,6 +151,10 @@ dataset contracts and onboarding steps.
   folders, a Windows reviewer rule, connection-file removal after SIGTERM, and
   remote installs constrained to `uv.lock`. The viewer no longer shows the
   site-position repair note.
+- Version 0.6.0 adds segmentation outlines for Cell Health (Part C): the viewer
+  and the QC field view offer each plate's mask models, their object counts and
+  nucleus, cell and cytoplasm outlines, read-only from CellPrompter's stores.
+  TIMED is unchanged.
 
 Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
 the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its
