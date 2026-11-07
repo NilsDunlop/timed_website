@@ -18,6 +18,7 @@ differences below are deliberate and frozen until a separate API decision:
 | QcPayloadError, QcAnnotationUnavailableError | 503 | /api/qc |
 | QcAnnotationValidationError | 422 | POST /api/qc/annotations |
 | MaskNotFoundError | 404 | /api/datasets masks routes |
+| MaskRequestError | 422 | /api/datasets masks routes (timepoint) |
 | MaskStoreError | 409 | /api/datasets masks routes |
 
 Errors under /api/qc/ use the QC JSON response contract: gzip, a weak ETag and

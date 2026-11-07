@@ -427,6 +427,7 @@ def test_local_timed_profile_keeps_windows_drive_paths_and_has_only_timed() -> N
     assert not collection.qc_available
     if os.name == "nt":
         assert collection.path == str(Path("D:/TIMED/zarr").resolve())
+        assert collection.masks_root == str(Path("D:/TIMED/corrected").resolve())
         validated = validate_profile(store, "local-timed")
         assert LocalBackend._data_roots(validated) == [Path("D:/TIMED/zarr").resolve()]
         assert LocalBackend._metadata_root(validated) == Path("D:/TIMED/metadata").resolve()
@@ -447,6 +448,20 @@ def test_example_fixture_profiles_enable_qc_with_isolated_annotations() -> None:
     assert local_collection.qc_annotations == str(
         (repository_root / ".timed" / "qc-annotations").resolve()
     )
+
+
+def test_example_fixture_profiles_mirror_timed_masks_beside_the_plates() -> None:
+    repository_root = Path(__file__).parents[3]
+    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+
+    cluster_timed = store.get("test-cluster-datasets").collections[0]
+    assert cluster_timed.masks_root == "/absolute/path/to/repo/test-data/timed-masks"
+    local_timed = store.get("local-datasets").collections[0]
+    assert local_timed.masks_root == str((repository_root / "test-data" / "timed-masks").resolve())
+    for profile_id in ("arrhenius", "berzelius", "test-cluster", "local"):
+        assert all(
+            collection.masks_root is None for collection in store.get(profile_id).collections
+        )
 
 
 def test_first_plate_skips_entries_without_ome_zarr_metadata() -> None:
@@ -478,6 +493,7 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "qc_available" in collection_schema["properties"]
     assert "qc_export" not in collection_schema["properties"]
     assert "qc_annotations" not in collection_schema["properties"]
+    assert "masks_root" not in collection_schema["properties"]
 
 
 def test_committed_openapi_matches_export(capsys: pytest.CaptureFixture[str]) -> None:
@@ -730,6 +746,74 @@ def test_data_server_connection_repr_keeps_the_token_out() -> None:
         assert "node042" in text
         assert "8123" in text
     assert connection.token == "token-that-must-stay-private"
+
+
+def test_slurm_script_maps_each_timed_collection_to_its_masks() -> None:
+    profile = slurm_profile(
+        data_roots=["/data/with space"],
+        collections=[
+            {
+                "id": "timed",
+                "title": "TIMED",
+                "path": "/data/with space/zarr",
+                "masks_root": "/masks with space/corrected",
+            },
+            {"id": "other", "title": "Other", "path": "/data/with space/other"},
+        ],
+    )
+    script = render_job_script(
+        profile,
+        executable="/state/server/0.7.0/venv/bin/timed-dataserver",
+        shell_state_dir="/state",
+    )
+    assert "--timed-masks '/data/with space/zarr=/masks with space/corrected'" in script
+    assert script.count("--timed-masks") == 1
+
+
+@pytest.mark.asyncio
+async def test_local_backend_forwards_the_masks_root_without_prechecking_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    masks_root = tmp_path / "future-masks"
+    profile = Profile.model_validate(
+        {
+            "id": "local",
+            "name": "This computer",
+            "kind": "local",
+            "data_roots": [str(data_root)],
+            "collections": [
+                {
+                    "id": "timed",
+                    "title": "TIMED",
+                    "path": str(data_root),
+                    "masks_root": str(masks_root),
+                }
+            ],
+        }
+    )
+    arguments: list[str] = []
+
+    class CompletedProcess:
+        stdout = None
+        returncode = 0
+
+    async def create_subprocess_exec(*values: str, **options: object) -> Any:
+        arguments.extend(values)
+        return CompletedProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+    backend = LocalBackend(state_dir=tmp_path / "state", runtime_parent=tmp_path / "runtime")
+    context = await backend.start(profile, lambda line: None)
+    try:
+        position = arguments.index("--timed-masks")
+        assert arguments[position + 1] == f"{data_root.resolve()}={masks_root.resolve()}"
+        assert "--qc-export" not in arguments
+        assert not masks_root.exists()
+    finally:
+        await backend.close(context)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

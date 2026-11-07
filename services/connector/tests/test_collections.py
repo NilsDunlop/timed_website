@@ -454,3 +454,85 @@ async def test_profiles_endpoint_exposes_typed_collections_without_secrets(
     assert "/private/qc" not in serialized
     assert "password" not in serialized
     assert "token" not in serialized
+
+
+def test_masks_root_is_an_absolute_posix_path_for_slurm() -> None:
+    base = {"id": "timed", "title": "TIMED", "path": "/data/root/timed"}
+    with pytest.raises(ValidationError, match="masks_root must be an absolute POSIX path"):
+        slurm_profile(collections=[{**base, "masks_root": "relative/masks"}])
+    with pytest.raises(ValidationError, match="Mask mapping paths must not contain '='"):
+        slurm_profile(collections=[{**base, "masks_root": "/masks=ambiguous"}])
+    profile = slurm_profile(collections=[{**base, "masks_root": "/masks/corrected"}])
+    collection = profile.collections[0]
+    assert collection.masks_root == "/masks/corrected"
+    assert "masks_root" not in collection.model_dump()
+    assert collection.qc_available is False
+
+
+def test_local_masks_root_is_normalized_without_existence_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def profile(masks_root: str) -> Profile:
+        return Profile.model_validate(
+            {
+                "id": "local",
+                "name": "Local",
+                "kind": "local",
+                "data_roots": [str(tmp_path)],
+                "collections": [
+                    {
+                        "id": "timed",
+                        "title": "TIMED",
+                        "path": str(tmp_path),
+                        "masks_root": masks_root,
+                    }
+                ],
+            }
+        )
+
+    assert profile("future-masks").collections[0].masks_root == str(
+        (tmp_path / "future-masks").resolve()
+    )
+    assert not (tmp_path / "future-masks").exists()
+    with pytest.raises(ValidationError, match="must not contain '='"):
+        profile("masks=ambiguous")
+
+
+@pytest.mark.asyncio
+async def test_profile_listing_never_exposes_the_masks_root(tmp_path: Path) -> None:
+    profile = slurm_profile(
+        collections=[
+            {
+                "id": "timed",
+                "title": "TIMED",
+                "path": "/data/root/timed",
+                "default": True,
+                "masks_root": "/private/masks/corrected",
+            }
+        ]
+    )
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    backend = cast(SessionBackend, object())
+    app = create_app(store, ConnectorSession(store, backend), port=8700)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8700",
+    ) as client:
+        response = await client.get("/connector/profiles")
+
+    assert response.status_code == 200
+    assert response.json()[0]["collections"] == [
+        {
+            "id": "timed",
+            "title": "TIMED",
+            "description": None,
+            "path": "/data/root/timed",
+            "default": True,
+            "qc_available": False,
+        }
+    ]
+    assert "masks" not in response.text.lower()

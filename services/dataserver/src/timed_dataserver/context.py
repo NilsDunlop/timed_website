@@ -14,13 +14,18 @@ from .packed import PackedCatalogueCache
 from .packed_io import PackedReader
 from .packed_metadata import PackedMetadataCache
 from .packed_profile_cache import PackedProfileResolver
-from .paths import RootGuard
+from .paths import PrivateFolders, RootGuard
 from .plate_metadata import PlateMetadataCatalog
 from .qc_annotations import QcAnnotationStore
 from .qc_config import QcPathConfig, QcPrivateRoots, resolve_qc_path_configs
 from .qc_export import QcExportStore
 from .registry import DatasetRegistry
 from .settings import ServerSettings
+from .timed_mask_config import (
+    TimedMaskMapping,
+    mask_private_folders,
+    resolve_timed_mask_mappings,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +45,8 @@ class ServerContext:
     packed_profiles: PackedProfileResolver
     metadata_catalog: PlateMetadataCatalog | None
     masks: MaskReader
+    timed_masks: tuple[TimedMaskMapping, ...]
+    mask_private_roots: PrivateFolders
 
     @classmethod
     def build(cls, settings: ServerSettings) -> ServerContext:
@@ -50,6 +57,7 @@ class ServerContext:
             raise ValueError("Mask cache size must be greater than zero")
         guard = RootGuard(settings.data_roots)
         qc_paths = resolve_qc_path_configs(settings.qc_paths, guard)
+        timed_masks = resolve_timed_mask_mappings(settings.timed_masks, guard)
         return cls(
             settings=settings,
             guard=guard,
@@ -68,6 +76,8 @@ class ServerContext:
                 else None
             ),
             masks=MaskReader(cache_bytes=settings.mask_cache_mb * 1024 * 1024),
+            timed_masks=timed_masks,
+            mask_private_roots=mask_private_folders(timed_masks, guard),
         )
 
     async def close(self) -> None:

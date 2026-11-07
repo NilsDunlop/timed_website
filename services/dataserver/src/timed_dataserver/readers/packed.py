@@ -8,6 +8,7 @@ plane per field, at timepoint 0.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 import anyio
 
@@ -15,8 +16,15 @@ from ..context import ServerContext
 from ..errors import not_found, unprocessable
 from ..linked import LinkedPackedPlate, packed_profile
 from ..mask_catalogue import MaskPlateFiles
-from ..mask_reader import MaskModelEntry, MaskNotFoundError, MaskReader, MaskTarget, outline_etag
-from ..mask_store import MaskTable
+from ..mask_reader import (
+    MaskModelEntry,
+    MaskNotFoundError,
+    MaskReader,
+    MaskRequestError,
+    MaskTarget,
+    outline_etag,
+)
+from ..mask_store import MaskStoreError, MaskTable
 from ..models import PlateMetadataResponse, PlateSummary, WellFieldsResponse
 from ..packed_facade import (
     PackedChunkRequest,
@@ -36,7 +44,7 @@ _WELL = re.compile(r"[A-Z]+[0-9]+")
 
 def _single_plane(t: int | None) -> None:
     if t not in (None, 0):
-        raise MaskNotFoundError(f"No masks at timepoint {t}")
+        raise MaskRequestError(f"These masks have a single timepoint: omit t or give 0, not {t}")
 
 
 class PackedMaskPlane:
@@ -80,14 +88,31 @@ class PackedMaskSource:
             raise MaskNotFoundError(f"Packed field does not exist: {canonical} site {site}")
         return MaskField(canonical, site)
 
-    def models(self) -> list[MaskModelEntry]:
+    def models(self, field: MaskField | None = None) -> list[MaskModelEntry]:
         dataset = self._dataset
-        return self._masks.models(
+        entries = self._masks.models(
             dataset.packed.index_path,
             self._declaration,
             dataset.experiment,
             dataset.plate,
         )
+        if field is None:
+            return entries
+        covering = [replace(entry, available=self._covers(entry, field)) for entry in entries]
+        return covering if any(entry.available for entry in covering) else []
+
+    def _covers(self, entry: MaskModelEntry, field: MaskField) -> bool:
+        """Whether a model's plate store commits this field; an unreadable store keeps
+        its plate-level answer, so its field routes still report why."""
+        if not entry.available:
+            return False
+        try:
+            _files, table = self._plate(entry.model.tag)
+        except MaskNotFoundError:
+            return False
+        except MaskStoreError:
+            return True
+        return table.record(field.well, field.site) is not None
 
     def _plate(self, model_tag: str) -> tuple[MaskPlateFiles, MaskTable]:
         dataset = self._dataset

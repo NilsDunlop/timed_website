@@ -1,10 +1,12 @@
-"""Mask models, decoded labels, object counts and outline images for packed plates.
+"""Mask models, decoded labels, object counts and outline images.
 
-The routes call these blocking methods in worker threads. Each store's offset
-table is rebuilt whenever its revision or file identity changes, so a store
-that grows is picked up. Decoded labels and encoded outlines are kept in two
-byte-bounded LRUs keyed by the member's place in its tar, which append-only
-stores never rewrite, so a growing store keeps the masks already decoded.
+The routes call these blocking methods in worker threads. Each packed store's
+offset table is rebuilt whenever its revision or file identity changes, so a
+store that grows is picked up. Decoded labels and encoded outlines are kept in
+two byte-bounded LRUs shared by every mask source: packed masks are keyed by
+the member's place in its tar, which append-only stores never rewrite, so a
+growing store keeps the masks already decoded; TIMED planes by their files'
+identities and timepoint.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +42,7 @@ from .mask_store import (
     read_state,
 )
 from .packed_profiles import PackedMasks
+from .timed_masks import TimedMaskArrays
 
 DEFAULT_MASK_CACHE_BYTES = 512 * 1024 * 1024
 DEFAULT_OUTLINE_CACHE_BYTES = 256 * 1024 * 1024
@@ -49,6 +52,10 @@ _STORE_TABLE_ENTRIES = 64
 
 class MaskNotFoundError(Exception):
     """Raised when a model, field, record or kind has no mask to serve."""
+
+
+class MaskRequestError(Exception):
+    """Raised when a request names no timepoint, or one its masks do not have."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +145,7 @@ class MaskReader:
             outline_cache_bytes, len
         )
         self.catalogue = MaskCatalogue()
+        self.timed_arrays = TimedMaskArrays()
         self._slots = threading.BoundedSemaphore(max_workers)
         self._tables_lock = threading.Lock()
         self._tables: dict[tuple[Path, Path], MaskTable] = {}
@@ -148,6 +156,7 @@ class MaskReader:
         with self._tables_lock:
             self._tables.clear()
             self._table_locks.clear()
+        self.timed_arrays.clear()
         self.cache.clear()
         self.outlines.clear()
 
@@ -247,18 +256,42 @@ class MaskReader:
             shape=shape,
         )
 
-    def labels(self, target: MaskTarget, shape: tuple[int, int]) -> DecodedMask:
-        """Decoded labels for one member, through the single-flight LRU."""
-        key = self._key(target, shape)
+    def decoded(self, key: Hashable, read: Callable[[], np.ndarray]) -> DecodedMask:
+        """Labels through the shared single-flight LRU; ``read`` runs in a decode slot."""
 
         def load() -> DecodedMask:
             with self._slots:
-                payload = read_member(target.files, target.table, target.record, target.member)
-                labels = decode_labels(target.files, target.member.kind, payload, shape)
+                labels = read()
             return DecodedMask(labels=labels, count=int(labels.max(initial=0)))
 
         decoded, _status = self.cache.get_or_load(key, load)
         return decoded
+
+    def rendered(
+        self,
+        key: Hashable,
+        labels: Callable[[], DecodedMask],
+        color: str,
+        width: int,
+    ) -> bytes:
+        """An outline PNG through the shared outline LRU, keyed by mask, colour and width."""
+
+        def load() -> bytes:
+            decoded = labels()
+            with self._slots:
+                return outline_png(outline_mask(decoded.labels, width), _rgb(color))
+
+        content, _status = self.outlines.get_or_load((key, color, width), load)
+        return content
+
+    def labels(self, target: MaskTarget, shape: tuple[int, int]) -> DecodedMask:
+        """Decoded labels for one member, through the single-flight LRU."""
+
+        def read() -> np.ndarray:
+            payload = read_member(target.files, target.table, target.record, target.member)
+            return decode_labels(target.files, target.member.kind, payload, shape)
+
+        return self.decoded(self._key(target, shape), read)
 
     def counts(
         self,
@@ -283,11 +316,9 @@ class MaskReader:
         width: int,
     ) -> bytes:
         """One member's outline PNG in an upper-case ``RRGGBB`` colour."""
-
-        def load() -> bytes:
-            decoded = self.labels(target, shape)
-            with self._slots:
-                return outline_png(outline_mask(decoded.labels, width), _rgb(color))
-
-        content, _status = self.outlines.get_or_load((self._key(target, shape), color, width), load)
-        return content
+        return self.rendered(
+            self._key(target, shape),
+            lambda: self.labels(target, shape),
+            color,
+            width,
+        )

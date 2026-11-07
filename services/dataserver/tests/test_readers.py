@@ -10,14 +10,15 @@ import pytest
 from fastapi import HTTPException
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.linked import LinkedPackedPlate, LinkedStore, linked, require_packed_plate
-from timed_dataserver.mask_reader import MaskNotFoundError
+from timed_dataserver.mask_reader import MaskNotFoundError, MaskRequestError
 from timed_dataserver.readers import open_reader
 from timed_dataserver.readers.base import MaskField
 from timed_dataserver.readers.native import NativeStoreReader
 from timed_dataserver.readers.packed import PackedMaskSource, PackedPlateReader
-from timed_dataserver.readers.timed import TimedCollectionReader
+from timed_dataserver.readers.timed import TimedCollectionReader, TimedMaskSource
+from timed_dataserver.timed_mask_config import TimedMaskMapping
 
-from scripts import make_test_data, mask_stores
+from scripts import make_test_data, mask_stores, timed_mask_stores
 from scripts.make_test_data import generate_test_data
 
 if TYPE_CHECKING:
@@ -39,8 +40,17 @@ def data_root(tmp_path_factory: pytest.TempPathFactory, write_audit: WriteAudit)
     return root
 
 
-def _app(root: Path, tmp_path: Path) -> FastAPI:
-    settings = ServerSettings(data_roots=(root,), state_dir=tmp_path / "state", environment="local")
+def _app(root: Path, tmp_path: Path, *, timed_masks: bool = False) -> FastAPI:
+    settings = ServerSettings(
+        data_roots=(root,),
+        state_dir=tmp_path / "state",
+        environment="local",
+        timed_masks=(
+            (TimedMaskMapping(root, root / timed_mask_stores.TIMED_MASKS_DIRECTORY),)
+            if timed_masks
+            else ()
+        ),
+    )
     return create_app(settings, TOKEN)
 
 
@@ -133,7 +143,50 @@ async def test_packed_mask_sources_have_one_plane_at_timepoint_zero(
         lambda: source.counts(B90, field, 1),
         lambda: source.open_plane(B90, field, "nuclei", 1),
     ):
-        with pytest.raises(MaskNotFoundError, match="^No masks at timepoint 1$"):
+        with pytest.raises(
+            MaskRequestError,
+            match="^These masks have a single timepoint: omit t or give 0, not 1$",
+        ):
             call()
     with pytest.raises(MaskNotFoundError, match="^Packed field does not exist: Z99 site 1$"):
         source.field("z99", 1)
+
+
+@pytest.mark.asyncio
+async def test_timed_plates_offer_a_mask_source_only_with_a_mask_folder(
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    for timed_masks, expected in ((False, type(None)), (True, TimedMaskSource)):
+        app = _app(data_root, tmp_path / str(timed_masks), timed_masks=timed_masks)
+        dataset_id = await _link(app, data_root / "test_plate.zarr")
+        reader = await open_reader(app.state.context, dataset_id)
+        assert isinstance(reader, TimedCollectionReader)
+        assert type(reader.mask_source()) is expected
+    native_id = await _link(app, data_root / "test_image_v05.zarr")
+    assert (await open_reader(app.state.context, native_id)).mask_source() is None
+
+
+@pytest.mark.asyncio
+async def test_timed_mask_sources_need_a_timepoint_inside_the_field(
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    app = _app(data_root, tmp_path, timed_masks=True)
+    dataset_id = await _link(app, data_root / "test_plate.zarr")
+    source = (await open_reader(app.state.context, dataset_id)).mask_source()
+    assert source is not None
+    field = source.field("a01", 1)
+    assert field == MaskField("A01", 1)
+    assert [entry.model.tag for entry in source.models(field)] == ["masks_raw"]
+    assert source.models(source.field("A01", 2)) == []
+    for t in range(make_test_data.TIMEPOINTS):
+        assert source.counts("masks_raw", field, t) == {
+            "cells": timed_mask_stores.cell_count(0, t)
+        }
+    first, second = (source.open_plane("masks_raw", field, "cells", t) for t in (0, 1))
+    assert first.etag("FFFFFF", 2) != second.etag("FFFFFF", 2)
+    with pytest.raises(MaskRequestError, match="give t"):
+        source.counts("masks_raw", field)
+    with pytest.raises(MaskRequestError, match="outside this field's 6 timepoints"):
+        source.open_plane("masks_raw", field, "cells", 6)

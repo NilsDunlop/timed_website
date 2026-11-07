@@ -7,8 +7,8 @@ branches it replaces.
 ``mask_source()`` returns None for a dataset without segmentation masks. A
 mask source is read-only and blocking: call its methods, and its planes',
 from worker threads; ``field()`` alone never blocks. Mask sources raise
-MaskNotFoundError and MaskStoreError, which the mask routes answer with 404
-and 409.
+MaskNotFoundError, MaskRequestError and MaskStoreError, which the mask routes
+answer with 404, 422 and 409.
 """
 
 from __future__ import annotations
@@ -68,8 +68,12 @@ class MaskSource(Protocol):
         """The canonical field; raise MaskNotFoundError when it does not exist."""
         ...
 
-    def models(self) -> list[MaskModelEntry]:
-        """The models offered for this dataset, the default first."""
+    def models(self, field: MaskField | None = None) -> list[MaskModelEntry]:
+        """The models offered for this dataset, the default first.
+
+        With a field, each entry says whether the model covers that field, and a
+        field that no model covers lists none.
+        """
         ...
 
     def counts(self, model_tag: str, field: MaskField, t: int | None = None) -> dict[str, int]:
@@ -83,7 +87,7 @@ class MaskSource(Protocol):
         kind: str,
         t: int | None = None,
     ) -> MaskPlane:
-        """Resolve one mask; ``t`` is None, or 0, for sources without time."""
+        """Resolve one mask; a source without time takes ``t`` None or 0."""
         ...
 
 

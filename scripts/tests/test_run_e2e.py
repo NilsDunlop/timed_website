@@ -55,6 +55,7 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
             "description": "Live-cell time-lapse · test fixture · 3 channels",
             "default": True,
             "path": str(timed_root),
+            "masks_root": str(timed_root / "timed-masks"),
         },
         {
             "id": "idr0080",
@@ -65,6 +66,9 @@ def test_browser_runner_writes_legacy_and_collection_profiles(tmp_path: Path) ->
             "qc_annotations": str(local_qc_annotations),
         },
     ]
+    assert profiles["test-cluster-datasets"]["collections"][0]["masks_root"] == (
+        "/cluster/timed/timed-masks"
+    )
     assert profiles["test-cluster-datasets"]["collections"][1] == {
         "id": "idr0080",
         "title": "Cell Health",
@@ -105,6 +109,19 @@ def test_browser_runner_writes_real_timed_copy_profile(tmp_path: Path) -> None:
             }
         ]
     }
+
+
+def test_real_timed_copy_profile_maps_its_masks_when_the_copy_has_them(tmp_path: Path) -> None:
+    profiles_path = tmp_path / "profiles.yaml"
+    copy_root = tmp_path / "TIMED"
+    (copy_root / "corrected").mkdir(parents=True)
+
+    _real_timed_profile(profiles_path, copy_root)
+
+    document = yaml.safe_load(profiles_path.read_text(encoding="utf-8"))
+    collection = document["profiles"][0]["collections"][0]
+    assert collection["path"] == str(copy_root / "zarr")
+    assert collection["masks_root"] == str(copy_root / "corrected")
 
 
 def test_local_only_runner_writes_only_the_local_profiles(tmp_path: Path) -> None:

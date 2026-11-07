@@ -18,6 +18,8 @@ from ..paths import PathForbiddenError, PathNotFoundError, os_error_reason
 
 router = APIRouter()
 
+MASK_FOLDERS_NOT_BROWSABLE = "Configured mask folders are not browsable"
+
 
 def _quantity(count: int, singular: str) -> str:
     return f"{count} {singular if count == 1 else singular + 's'}"
@@ -50,6 +52,8 @@ async def list_files(
         )
     if ctx.qc_private_roots.contains_raw(path):
         raise forbidden(PathForbiddenError("Configured QC folders are not browsable"))
+    if ctx.mask_private_roots.contains_raw(path):
+        raise forbidden(PathForbiddenError(MASK_FOLDERS_NOT_BROWSABLE))
     packed = await packed_path(ctx, path)
     if packed is not None:
         if packed.plate is not None:
@@ -96,6 +100,8 @@ async def list_files(
         root = ctx.guard.root_for(target)
     if ctx.qc_private_roots.contains(target):
         raise forbidden(PathForbiddenError("Configured QC folders are not browsable"))
+    if ctx.mask_private_roots.contains(target):
+        raise forbidden(PathForbiddenError(MASK_FOLDERS_NOT_BROWSABLE))
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Only directories can be listed")
 
@@ -121,7 +127,9 @@ async def list_files(
             safe_child = ctx.guard.resolve(str(child))
         except (PathForbiddenError, PathNotFoundError):
             continue
-        if ctx.qc_private_roots.contains(safe_child):
+        if ctx.qc_private_roots.contains(safe_child) or ctx.mask_private_roots.contains(
+            safe_child
+        ):
             continue
         is_directory = safe_child.is_dir()
         packed_index = not is_directory and await anyio.to_thread.run_sync(

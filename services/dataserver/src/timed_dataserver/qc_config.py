@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 
-from .paths import RootGuard
+from .paths import PrivateFolders, RootGuard
 
 
 class QcConfigurationError(ValueError):
@@ -39,11 +39,8 @@ class QcPathConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class QcPrivateRoots:
+class QcPrivateRoots(PrivateFolders):
     """The configured QC export and annotations folders, which are never browsable."""
-
-    roots: frozenset[Path]
-    data_roots: tuple[Path, ...]
 
     @classmethod
     def from_configs(
@@ -59,26 +56,6 @@ class QcPrivateRoots:
             ),
             data_roots=guard.roots,
         )
-
-    def contains(self, path: Path) -> bool:
-        """Whether a resolved path is a configured QC folder or lies inside one."""
-        return any(path == root or path.is_relative_to(root) for root in self.roots)
-
-    def contains_raw(self, raw: str) -> bool:
-        """Whether a requested path, before guard resolution, names a QC folder."""
-        try:
-            supplied = Path(raw).expanduser()
-            candidates = (
-                (supplied,)
-                if supplied.is_absolute()
-                else tuple(root / supplied for root in self.data_roots)
-            )
-            return any(
-                self.contains(candidate.resolve(strict=False))
-                for candidate in candidates
-            )
-        except (OSError, ValueError):
-            return False
 
 
 def _parse_mapping(values: Sequence[str], option: str) -> dict[Path, Path]:

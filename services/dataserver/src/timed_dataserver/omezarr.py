@@ -300,6 +300,12 @@ def _is_timed_array(path: Path) -> bool:
     return True
 
 
+def timed_field_geometry(path: Path) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """A validated TIMED field array's (t, c, y, x) shape and time indices."""
+    metadata = _timed_field_metadata(path)
+    return tuple(metadata["shape"]), tuple(metadata["attributes"]["timed"]["t_indices"])
+
+
 def _collection_fields(path: Path) -> list[tuple[str, str, int, Path]]:
     fields: list[tuple[str, str, int, Path]] = []
     try:

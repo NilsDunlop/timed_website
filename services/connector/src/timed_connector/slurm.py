@@ -96,6 +96,8 @@ def render_job_script(
     if profile.metadata_root is not None:
         command.extend(("--metadata-root", profile.metadata_root))
     for collection in profile.collections:
+        if collection.masks_root is not None:
+            command.extend(("--timed-masks", f"{collection.path}={collection.masks_root}"))
         if collection.qc_export is None or collection.qc_annotations is None:
             continue
         command.extend(("--qc-export", f"{collection.path}={collection.qc_export}"))

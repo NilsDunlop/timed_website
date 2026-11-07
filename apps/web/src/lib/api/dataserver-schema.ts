@@ -1175,7 +1175,12 @@ export interface operations {
     };
     list_mask_models_api_datasets__dataset_id__masks_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description With site: report this field */
+                well?: string | null;
+                /** @description With well: report this field */
+                site?: number | null;
+            };
             header?: never;
             path: {
                 dataset_id: string;
@@ -1206,7 +1211,10 @@ export interface operations {
     };
     mask_field_counts_api_datasets__dataset_id__masks__model___well___site__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The image timepoint index; TIMED masks need it, packed masks take none or 0 */
+                t?: number | null;
+            };
             header?: never;
             path: {
                 dataset_id: string;
@@ -1243,6 +1251,8 @@ export interface operations {
             query?: {
                 color?: string;
                 width?: number;
+                /** @description The image timepoint index; TIMED masks need it, packed masks take none or 0 */
+                t?: number | null;
             };
             header?: {
                 Range?: string | null;

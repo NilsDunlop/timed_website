@@ -93,6 +93,13 @@ default model. Each model folder needs a `tar+wal/v1` manifest, and the viewer
 offers a model on a plate once its tar and log exist; see the
 [mask-store contract](data/IDR0080.md#mask-store-contract-part-c).
 
+A TIMED collection may set `masks_root` to a read-only folder that mirrors its
+plates: `<masks_root>/<plate>.zarr/<well>_s<site>.zarr/masks_raw`, laid out as
+in [CONVERSION.md](data/CONVERSION.md#segmentation-masks-timed-addition-2026-11).
+The array must match its field's timepoints, `t_indices` and plane size. The
+folder is absolute on Slurm profiles, must not contain a data root or its
+collection, and is never browsable, linkable or served.
+
 ## Supported data layouts
 
 ### Native OME-Zarr

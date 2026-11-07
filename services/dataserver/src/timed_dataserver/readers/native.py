@@ -19,10 +19,12 @@ from ..plate_metadata import PlateMetadataError
 from .base import FileResource, MaskSource, MemoryResource, ZarrResource
 
 
-def _refuse_qc_folders(ctx: ServerContext, path: Path) -> None:
-    """Never serve a configured QC folder: blind=1 protects only /api/qc."""
+def _refuse_private_folders(ctx: ServerContext, path: Path) -> None:
+    """Never serve a configured QC or mask folder: blind=1 protects only /api/qc."""
     if ctx.qc_private_roots.contains(path):
         raise PathForbiddenError("Configured QC folders are not served")
+    if ctx.mask_private_roots.contains(path):
+        raise PathForbiddenError("Configured mask folders are not served")
 
 
 class NativeStoreReader:
@@ -70,7 +72,7 @@ class NativeStoreReader:
             with translate_path_errors():
                 requested = self.ctx.guard.child(dataset_path, resource_path, must_exist=False)
                 # Checked before existence, so a private folder's contents stay unknown.
-                _refuse_qc_folders(self.ctx, requested)
+                _refuse_private_folders(self.ctx, requested)
                 virtual = self._virtual_resource(resource_path)
                 if virtual is not None and virtual.content is not None:
                     return MemoryResource(virtual.content, virtual.content_type)
@@ -80,7 +82,7 @@ class NativeStoreReader:
                     else resource_path
                 )
                 file_path = self.ctx.guard.child(dataset_path, mapped_path)
-                _refuse_qc_folders(self.ctx, file_path)
+                _refuse_private_folders(self.ctx, file_path)
         except OmeZarrError as exc:
             raise unprocessable(exc) from exc
         if not file_path.is_file():

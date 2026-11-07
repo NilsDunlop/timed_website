@@ -154,7 +154,12 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
         "test_plate_4.zarr",
         "test_image_v04.zarr",
         "test_image_v05.zarr",
+        "timed-masks",
     }
+    # The mask folder mirrors plates but holds no image fields.
+    masks = by_name["timed-masks"]
+    assert (masks["well_count"], masks["signatures"]) == (0, [])
+    assert masks["unparsed_store_names"] == ["test_plate.zarr", "test_plate_2.zarr"]
     collection = by_name["test_plate.zarr"]
     assert collection["well_count"] == 3
     assert collection["field_store_count"] == 6

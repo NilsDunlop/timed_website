@@ -2286,6 +2286,42 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "description": "With site: report this field",
+            "in": "query",
+            "name": "well",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With site: report this field",
+              "title": "Well"
+            }
+          },
+          {
+            "description": "With well: report this field",
+            "in": "query",
+            "name": "site",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With well: report this field",
+              "title": "Site"
+            }
           }
         ],
         "responses": {
@@ -2356,6 +2392,25 @@
             "schema": {
               "title": "Site",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The image timepoint index; TIMED masks need it, packed masks take none or 0",
+            "in": "query",
+            "name": "t",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The image timepoint index; TIMED masks need it, packed masks take none or 0",
+              "title": "T"
             }
           }
         ],
@@ -2459,6 +2514,25 @@
               "minimum": 1,
               "title": "Width",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The image timepoint index; TIMED masks need it, packed masks take none or 0",
+            "in": "query",
+            "name": "t",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The image timepoint index; TIMED masks need it, packed masks take none or 0",
+              "title": "T"
             }
           },
           {

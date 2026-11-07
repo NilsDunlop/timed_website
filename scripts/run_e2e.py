@@ -179,7 +179,11 @@ def _profile(
                 "name": "Test cluster with datasets",
                 "data_roots": [cluster_data_root, cluster_idr0080_root],
                 "collections": [
-                    {**timed_collection, "path": cluster_data_root},
+                    {
+                        **timed_collection,
+                        "path": cluster_data_root,
+                        "masks_root": cluster_data_root.rstrip("/") + "/timed-masks",
+                    },
                     {
                         **idr0080_collection,
                         "path": cluster_idr0080_index,
@@ -194,7 +198,11 @@ def _profile(
                 "name": "This computer with datasets",
                 "data_roots": [local_data_root, local_idr0080_root],
                 "collections": [
-                    {**timed_collection, "path": local_data_root},
+                    {
+                        **timed_collection,
+                        "path": local_data_root,
+                        "masks_root": str(Path(local_data_root) / "timed-masks"),
+                    },
                     {
                         **idr0080_collection,
                         "path": local_idr0080_index,
@@ -229,6 +237,16 @@ def _local_profile(path: Path, local_data_root: Path) -> None:
 def _real_timed_profile(path: Path, copy_root: Path) -> None:
     data_root = copy_root / "zarr"
     metadata_root = copy_root / "metadata"
+    masks_root = copy_root / "corrected"
+    timed_collection: dict[str, object] = {
+        "id": "timed",
+        "title": "TIMED",
+        "description": "Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels",
+        "path": str(data_root),
+        "default": True,
+    }
+    if masks_root.is_dir():
+        timed_collection["masks_root"] = str(masks_root)
     value = {
         "profiles": [
             {
@@ -237,18 +255,7 @@ def _real_timed_profile(path: Path, copy_root: Path) -> None:
                 "kind": "local",
                 "data_roots": [str(data_root)],
                 "metadata_root": str(metadata_root),
-                "collections": [
-                    {
-                        "id": "timed",
-                        "title": "TIMED",
-                        "description": (
-                            "Live-cell time-lapse · PB100140_P2.1 · "
-                            "48 h, hourly · 3 channels"
-                        ),
-                        "path": str(data_root),
-                        "default": True,
-                    }
-                ],
+                "collections": [timed_collection],
             }
         ]
     }

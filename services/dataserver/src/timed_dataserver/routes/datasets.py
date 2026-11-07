@@ -34,6 +34,7 @@ from ..readers import open_reader
 router = APIRouter()
 
 QC_FOLDERS_NOT_LINKABLE = "Configured QC folders cannot be linked"
+MASK_FOLDERS_NOT_LINKABLE = "Configured mask folders cannot be linked"
 
 
 @router.get("/api/datasets", response_model=DatasetListResponse)
@@ -50,9 +51,11 @@ async def link_dataset(
     ctx: Annotated[ServerContext, Depends(get_context)],
     request: DatasetLinkRequest,
 ) -> DatasetRecord:
-    # Configured QC folders stay private: blind=1 protects only /api/qc.
+    # Configured QC and mask folders stay private: blind=1 protects only /api/qc.
     if ctx.qc_private_roots.contains_raw(request.path):
         raise forbidden(PathForbiddenError(QC_FOLDERS_NOT_LINKABLE))
+    if ctx.mask_private_roots.contains_raw(request.path):
+        raise forbidden(PathForbiddenError(MASK_FOLDERS_NOT_LINKABLE))
     packed = await packed_path(ctx, request.path)
     if packed is not None:
         if packed.plate is None:
@@ -72,6 +75,8 @@ async def link_dataset(
         path = ctx.guard.resolve(request.path)
     if ctx.qc_private_roots.contains(path):
         raise forbidden(PathForbiddenError(QC_FOLDERS_NOT_LINKABLE))
+    if ctx.mask_private_roots.contains(path):
+        raise forbidden(PathForbiddenError(MASK_FOLDERS_NOT_LINKABLE))
     descriptor = inspect_store(path)
     if descriptor is None:
         raise HTTPException(status_code=422, detail="Path is not a recognized OME-Zarr store")

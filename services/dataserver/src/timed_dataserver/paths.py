@@ -8,6 +8,7 @@ reason without the file name that ``str(exc)`` appends.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 
@@ -144,3 +145,31 @@ class RootGuard:
             if _is_within(resolved, root):
                 return root
         raise PathForbiddenError("Path is outside the configured data roots")
+
+
+@dataclass(frozen=True, slots=True)
+class PrivateFolders:
+    """Configured folders that are never browsable, linkable or served."""
+
+    roots: frozenset[Path]
+    data_roots: tuple[Path, ...]
+
+    def contains(self, path: Path) -> bool:
+        """Whether a resolved path is one of the folders or lies inside one."""
+        return any(path == root or path.is_relative_to(root) for root in self.roots)
+
+    def contains_raw(self, raw: str) -> bool:
+        """Whether a requested path, before guard resolution, names one of the folders."""
+        try:
+            supplied = Path(raw).expanduser()
+            candidates = (
+                (supplied,)
+                if supplied.is_absolute()
+                else tuple(root / supplied for root in self.data_roots)
+            )
+            return any(
+                self.contains(candidate.resolve(strict=False))
+                for candidate in candidates
+            )
+        except (OSError, ValueError):
+            return False

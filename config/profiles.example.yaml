@@ -67,6 +67,7 @@ profiles:
         description: Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels
         path: "D:/TIMED/zarr"
         default: true
+        masks_root: "D:/TIMED/corrected"
 
   - id: test-cluster
     name: Test cluster (local SSH/Slurm harness)
@@ -105,6 +106,7 @@ profiles:
         description: Live-cell time-lapse · test fixture · 3 channels
         path: /absolute/path/to/repo/test-data
         default: true
+        masks_root: /absolute/path/to/repo/test-data/timed-masks
       - id: idr0080
         title: Cell Health
         description: idr0080-like CRISPR Cell Painting fixture
@@ -129,6 +131,7 @@ profiles:
         description: Live-cell time-lapse · test fixture · 3 channels
         path: ./test-data
         default: true
+        masks_root: ./test-data/timed-masks
       - id: idr0080
         title: Cell Health
         description: idr0080-like CRISPR Cell Painting fixture
