@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -19,7 +19,8 @@ class DataServerConnectionError(RuntimeError):
 class DataServerConnection:
     host: str
     port: int
-    token: str
+    # Kept out of the repr so that logging a connection never prints the token.
+    token: str = field(repr=False)
     api_version: str
 
 

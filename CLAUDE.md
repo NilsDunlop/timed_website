@@ -61,9 +61,11 @@ plus an optional metadata root, the packed cache budget and repeated
 `--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings.
 
 The server writes the selected port and random bearer token to the connection
-file only after Uvicorn is accepting connections, and removes the file on clean
-shutdown. Every route requires that token. Linked datasets are stored atomically
-in `<state-dir>/datasets.json`; unlinking never deletes image data.
+file only after Uvicorn is accepting connections, and removes the file during
+shutdown, including after SIGTERM. Every route requires that token. Linked
+datasets are stored atomically in `<state-dir>/datasets.json`; unlinking never
+deletes image data. Error details name files relative to their dataset or root,
+never by absolute path.
 
 A packed dataset is detected from the schema of an `*.index.parquet` file and
 its adjacent tar shards, not from its filename alone. The server presents

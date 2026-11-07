@@ -284,7 +284,9 @@ rule-proposal endpoint or proposal file.
 The annotations folder is separate from every data root and export. The server
 does not create it. It appends one JSON object per line to the fixed
 `annotations_<reviewer>.jsonl` file derived from the server's operating-system
-user, using one write and `fsync` under a process-wide per-file lock. Reads fold
+user (on POSIX the account of its user ID; on Windows `USERNAME`, then Python's
+`getpass` variables, then `reviewer`), using one write and `fsync` under a
+process-wide per-file lock. Reads fold
 all regular JSONL files into the latest unretracted record per reviewer,
 target scope, target identity, and channel; malformed lines are skipped and
 reported only by count.

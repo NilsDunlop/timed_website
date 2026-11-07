@@ -78,8 +78,9 @@ folder that receives reviewers' annotations:
   available, never the folders.
 - Both folders are trusted configuration, not data roots, and neither may
   contain a data root. The annotations folder must also lie outside every data
-  root and must not overlap the export. Neither folder is browsable, even when
-  the export sits inside a data root.
+  root and must not overlap the export. Neither folder is browsable, linkable
+  or served through `/zarr`, even when the export sits inside a data root or a
+  linked store.
 - Annotations are saved only while their folder exists and is writable;
   otherwise review stays read-only. [`data/QC_EXPORT.md`](data/QC_EXPORT.md)
   describes the export itself.

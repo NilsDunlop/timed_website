@@ -31,6 +31,7 @@ from .packed_profiles import (
     PackedCodec,
     PackedDatasetProfile,
 )
+from .paths import os_error_reason
 from .revisions import FileRevision
 from .tar_io import (
     TAR_BLOCK_SIZE,
@@ -404,7 +405,9 @@ class PackedReader:
                     path_stat = os.stat(canonical, follow_symlinks=False)
                     descriptor_stat = os.fstat(existing.fd)
                 except OSError as exc:
-                    raise PackedReadError(f"Could not stat packed tar {canonical}: {exc}") from exc
+                    raise PackedReadError(
+                        f"Could not stat packed tar {canonical.name}: {os_error_reason(exc)}"
+                    ) from exc
                 if same_file_revision(path_stat, descriptor_stat):
                     return existing
             descriptor = self._open_descriptor(canonical)
@@ -425,27 +428,33 @@ class PackedReader:
                 try:
                     descriptor_stat, path_stat = regular_stats(fd, path)
                 except NotRegularFileError:
-                    raise PackedReadError(f"Packed tar is not a regular file: {path}") from None
+                    raise PackedReadError(
+                        f"Packed tar is not a regular file: {path.name}"
+                    ) from None
                 if same_file_revision(path_stat, descriptor_stat):
                     descriptor = _Descriptor(path, fd, threading.Lock())
                     fd = None
                     return descriptor
             except OSError as exc:
-                raise PackedReadError(f"Could not open packed tar {path}: {exc}") from exc
+                raise PackedReadError(
+                    f"Could not open packed tar {path.name}: {os_error_reason(exc)}"
+                ) from exc
             finally:
                 if fd is not None:
                     with suppress(OSError):
                         os.close(fd)
-        raise PackedReadError(f"Packed tar changed repeatedly while opening: {path}")
+        raise PackedReadError(f"Packed tar changed repeatedly while opening: {path.name}")
 
     def _member_source(self, channel: int, member: PackedMember) -> _MemberSource:
         descriptor = self._descriptor(member.tar)
         try:
             file_stat = os.fstat(descriptor.fd)
         except OSError as exc:
-            raise PackedReadError(f"Could not stat packed tar {descriptor.path}: {exc}") from exc
+            raise PackedReadError(
+                f"Could not stat packed tar {descriptor.path.name}: {os_error_reason(exc)}"
+            ) from exc
         if not stat.S_ISREG(file_stat.st_mode):
-            raise PackedReadError(f"Packed tar is not a regular file: {descriptor.path}")
+            raise PackedReadError(f"Packed tar is not a regular file: {descriptor.path.name}")
         if member.offset < _TAR_BLOCK_SIZE:
             raise PackedReadError(
                 f"Packed member offset must be at least {_TAR_BLOCK_SIZE}: {member.offset}"
@@ -487,11 +496,13 @@ class PackedReader:
             )
         except OSError as exc:
             raise PackedReadError(
-                f"Could not read packed tar {descriptor.path} at {offset}: {exc}"
+                f"Could not read packed tar {descriptor.path.name} at {offset}: "
+                f"{os_error_reason(exc)}"
             ) from exc
         except ShortReadError as exc:
             raise PackedReadError(
-                f"Short packed read from {descriptor.path}: expected {size}, got {exc.received}"
+                f"Short packed read from {descriptor.path.name}: "
+                f"expected {size}, got {exc.received}"
             ) from None
 
     def _load_field(
@@ -706,12 +717,12 @@ class PackedReader:
     def _raise_if_refused_locked(self, path: Path) -> None:
         reason = self._refused_tars.get(path)
         if reason is not None:
-            raise PackedReadError(f"Packed tar is refused until restart: {path}: {reason}")
+            raise PackedReadError(f"Packed tar is refused until restart: {path.name}: {reason}")
 
     def _refuse_locked(self, path: Path, reason: str) -> None:
         self._refused_tars[path] = reason
         self._logger.error("Refusing packed tar %s until restart: %s", path, reason)
-        raise PackedReadError(f"Packed tar is refused until restart: {path}: {reason}")
+        raise PackedReadError(f"Packed tar is refused until restart: {path.name}: {reason}")
 
 
 def _members_are_contiguous(sources: tuple[_MemberSource, ...]) -> bool:

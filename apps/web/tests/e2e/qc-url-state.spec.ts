@@ -7,6 +7,7 @@ import {
   type QcUrlAvailability,
   type QcUrlState,
 } from "../../src/lib/qcUrlState";
+import { overviewChannels } from "../../src/lib/qc/qcOverview";
 
 const availability: QcUrlAvailability = {
   sliderIds: ["focus__DNA__ratio", "signal__ER__raw"],
@@ -121,4 +122,23 @@ test("normalizes negative zero and rejects non-finite slider bounds", () => {
   expect(parseQcUrlState(qcUrlSearch(state), availability).sliders).toEqual({
     focus__DNA__ratio: { lower: 0, upper: 2, flagActive: true },
   });
+});
+
+test("restores every channel scope the plate overview offers, including site", () => {
+  const triageRows = [
+    { plate: 14610, channel: "DNA" },
+    { plate: 14610, channel: "ER" },
+    { plate: 14610, channel: "site" },
+    { plate: 14611, channel: "DNA" },
+    { plate: 14611, channel: "" },
+  ];
+  const channels = overviewChannels(triageRows);
+  expect(channels).toEqual(["DNA", "ER", "site"]);
+
+  for (const channel of channels) {
+    const state: QcUrlState = { ...emptyQcUrlState(), plate: 14610, channel };
+    expect(parseQcUrlState(qcUrlSearch(state), { ...availability, channels })).toEqual(
+      state,
+    );
+  }
 });

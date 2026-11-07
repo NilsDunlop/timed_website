@@ -212,6 +212,11 @@ remain later work.
 - Tunnel failure: verify that the login node can reach the compute-node host.
 - Data permission failure: verify read access from a compute node, not just login.
 - uv/Python setup failure: check login-node internet access and available modules.
+- Remote environment versus `uv.lock`: each install directory
+  `~/.timed/server/<version>/` holds the constraints the environment was
+  installed with, exported from `uv.lock`. Compare them with
+  `diff <(uv pip freeze --python venv/bin/python | grep -v '^timed-dataserver') timed_dataserver-<version>-constraints.txt`
+  run in that directory; no output means the two match.
 
 ### Viewer loading diagnostics
 

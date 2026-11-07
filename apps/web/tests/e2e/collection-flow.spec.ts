@@ -183,6 +183,31 @@ test("chooses a dataset on Connect and restores a plate and well", async ({
 });
 
 
+test("marks the current page in the primary navigation, with or without a trailing slash", async ({
+  page,
+}) => {
+  await connect(page, "local-datasets", { dataset: "idr0080" });
+  // The built UI serves every page but Connect under a trailing-slash path.
+  for (const [path, name] of [
+    ["/", "Connect"],
+    ["/data?collection=idr0080", "Data"],
+    ["/data/?collection=idr0080", "Data"],
+    ["/view", "View"],
+    ["/view/", "View"],
+    ["/qc?collection=idr0080", "QC"],
+    ["/qc/?collection=idr0080", "QC"],
+  ] as const) {
+    await page.goto(path);
+    const navigation = page.getByRole("navigation", { name: "Primary navigation" });
+    await expect(navigation.getByRole("link", { name, exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(navigation.locator('[aria-current="page"]')).toHaveCount(1);
+  }
+  await disconnect(page);
+});
+
 test("views Cell Health fields, display modes and comparisons locally", async ({ page }) => {
   await connect(page, "local-datasets");
   await exerciseIdr0080Flow(page);

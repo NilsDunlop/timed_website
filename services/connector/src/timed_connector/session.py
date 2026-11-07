@@ -423,7 +423,7 @@ class ConnectorSession:
         try:
             task = asyncio.ensure_future(operation())
         except Exception as exc:
-            message = f"Could not {description}: {exc}"
+            message = f"Failed while {description}: {exc}"
             self._log(message)
             return message
         done, _pending = await asyncio.wait({task}, timeout=self.cleanup_timeout)
@@ -444,7 +444,7 @@ class ConnectorSession:
             self._log(message)
             return message
         except Exception as exc:
-            message = f"Could not {description}: {exc}"
+            message = f"Failed while {description}: {exc}"
             self._log(message)
             return message
         return None

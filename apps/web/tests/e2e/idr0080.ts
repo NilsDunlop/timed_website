@@ -202,6 +202,12 @@ export async function exerciseIdr0080Flow(page: Page) {
     else await expect(checkbox).not.toBeChecked();
     await expect(channelControl).toContainText(`Contrast minimum: ${start}`);
     await expect(channelControl).toContainText(`Contrast maximum: ${end}`);
+    await expect(
+      channelControl.getByRole("slider", { name: `${name} contrast minimum`, exact: true }),
+    ).toHaveValue(start);
+    await expect(
+      channelControl.getByRole("slider", { name: `${name} contrast maximum`, exact: true }),
+    ).toHaveValue(end);
   }
 
   await expect(page.locator(".canvas-frame").first()).toHaveAttribute(

@@ -870,3 +870,33 @@ The mask-store contract for Part C now lives in `docs/data/IDR0080.md`. It
 condenses the idr0080 brief's section 5.1 and Appendix D with Part C's
 amendments: no `qc.parquet`, counts from the masks' labels, and outline toggles
 in the viewer controls the QC field view shares.
+
+## 2026-11-06: fix the review findings (0.5.3)
+
+Release 0.5.3 fixes what the refactor review found. Each fix came with a test
+that failed first.
+
+- **Contrast sliders.** Integer data with a whole-valued domain and window
+  steps by 1, and other data accepts any value, so a declared window is an
+  exact slider position. A step of span / 1000 had moved TIMED's 100 to 131.07.
+  QC mode keeps "any".
+- **No absolute paths in error details.** They name a file by its name or
+  inside its dataset, metadata root or index folder, and give an OS error's
+  reason without its file name. Startup and configuration errors still name the
+  configured path the operator must fix; server logs keep full paths.
+- **QC folders stay private.** They are neither browsable, nor linkable, nor
+  served through `/zarr`, even inside a linked store, because `blind=1`
+  protects only `/api/qc`.
+- **Windows reviewer.** The writer file follows `USERNAME`, then the getpass
+  variables, then `reviewer`: a shell's `USER` cannot rename it, and a missing
+  variable no longer fails every QC request.
+- **Connection file.** Lifespan shutdown removes it, and Uvicorn runs that
+  before it re-raises SIGTERM; the process still ends by the signal.
+- **Remote install.** `uv pip install -c` uses the data server's runtime
+  dependencies exported from `uv.lock` and uploaded beside the wheel. A
+  development install key covers the wheel and those constraints, so a lock
+  change reinstalls; a release keeps its version as the key.
+- **No site-position note.** At the operator's request the viewer no longer
+  shows the repair note for repaired TIMED fields, superseding the 0.5.1 note.
+  The server still validates `site_position_fix` and reports it in the field
+  summary, and field names and pixels are still never remapped.

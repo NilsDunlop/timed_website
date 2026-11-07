@@ -20,12 +20,12 @@ import { writeQcViewerLink } from "../lib/qc/qcViewerLink";
 import {
   axisSize,
   channelStates,
+  contrastStep,
   selectionFor,
   type ChannelState,
 } from "../lib/viewerChannels";
 import { parseViewerSearch, viewerQueryHref, viewerReturnHref } from "../lib/viewerLink";
 import {
-  sitePositionFixNote,
   viewerSourceIdentity,
   type ViewerSourceIdentity,
 } from "../lib/viewerSourceIdentity";
@@ -230,16 +230,6 @@ async function loadQcViewerContext(
     collectionPath: path,
     siteStepper,
   };
-}
-
-function SitePositionFixNote({ field }: { field: FieldSummary | null }) {
-  const note = sitePositionFixNote(field?.site_position_fix);
-  if (!note) return null;
-  return (
-    <p className="site-position-fix-note" role="note" data-testid="site-position-fix-note">
-      {note}
-    </p>
-  );
 }
 
 function ViewerSourceFacts({
@@ -1596,10 +1586,7 @@ export default function ImageViewer() {
         {channelControlIndexes.map((index) => {
           const channel = channels[index];
           if (!channel) return null;
-          const step = Math.max(
-            1,
-            (channel.domain[1] - channel.domain[0]) / 1000,
-          );
+          const step = qcMode ? "any" : contrastStep(source?.dtype, channel);
           return (
             <fieldset key={channel.name + String(index)} className="channel-control">
               <legend>
@@ -1633,7 +1620,7 @@ export default function ImageViewer() {
                   disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
-                  step={qcMode ? "any" : step}
+                  step={step}
                   value={channel.contrast[0]}
                   onChange={(event) => {
                     const value = Number(event.target.value);
@@ -1651,7 +1638,7 @@ export default function ImageViewer() {
                   disabled={Boolean(qcContext)}
                   min={channel.domain[0]}
                   max={channel.domain[1]}
-                  step={qcMode ? "any" : step}
+                  step={step}
                   value={channel.contrast[1]}
                   onChange={(event) => {
                     const value = Number(event.target.value);
@@ -1804,7 +1791,6 @@ export default function ImageViewer() {
                           <ViewerSourceFacts identity={identity} compact />
                         </div>
                       </header>
-                       <SitePositionFixNote field={viewerSource.field} />
                       <VivCanvas
                         loader={viewerSource.loader}
                         image={viewerSource.image}
@@ -1823,7 +1809,6 @@ export default function ImageViewer() {
               </div>
             ) : (
               <>
-                <SitePositionFixNote field={primaryViewerSource?.field ?? null} />
                 <VivCanvas
                   loader={loader}
                   image={image}

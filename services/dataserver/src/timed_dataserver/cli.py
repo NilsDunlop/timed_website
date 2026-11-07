@@ -97,7 +97,19 @@ async def serve(
 ) -> None:
     """Run Uvicorn and maintain its atomic connection file."""
     bearer_token = token or secrets.token_urlsafe(32)
-    app = create_app(settings, bearer_token)
+    connection_path = connection_file.expanduser()
+    wrote_connection_file = False
+
+    def remove_connection_file() -> None:
+        nonlocal wrote_connection_file
+        if wrote_connection_file:
+            wrote_connection_file = False
+            connection_path.unlink(missing_ok=True)
+
+    # Uvicorn re-raises a captured SIGTERM once it has shut down, with the default
+    # handler restored, so the process ends before the finally below runs.
+    # Lifespan shutdown comes first and removes the file in time.
+    app = create_app(settings, bearer_token, on_shutdown=remove_connection_file)
     listener = _bound_socket(host, port)
     actual_port = int(listener.getsockname()[1])
     config = uvicorn.Config(
@@ -109,7 +121,6 @@ async def serve(
     )
     server = uvicorn.Server(config)
     server_task = asyncio.create_task(server.serve(sockets=[listener]))
-    wrote_connection_file = False
     try:
         while not server.started:
             if server_task.done():
@@ -117,7 +128,7 @@ async def serve(
                 raise RuntimeError("Data server stopped before startup completed")
             await asyncio.sleep(0.01)
         atomic_json_write(
-            connection_file.expanduser(),
+            connection_path,
             {
                 "api_version": API_VERSION,
                 "server_version": __version__,
@@ -138,8 +149,7 @@ async def serve(
         if not server_task.done():
             await server_task
         listener.close()
-        if wrote_connection_file:
-            connection_file.expanduser().unlink(missing_ok=True)
+        remove_connection_file()
 
 
 def export_openapi() -> None:

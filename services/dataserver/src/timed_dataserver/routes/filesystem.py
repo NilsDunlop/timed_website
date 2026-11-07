@@ -14,7 +14,7 @@ from ..linked import PACKED_PLATE_DESCRIPTOR, packed_path, packed_profile
 from ..models import FilesystemEntry, FilesystemListResponse
 from ..omezarr import inspect_store
 from ..packed import PackedCatalogue, PackedIndexError, get_catalogue_in_thread, is_packed_index
-from ..paths import PathForbiddenError, PathNotFoundError
+from ..paths import PathForbiddenError, PathNotFoundError, os_error_reason
 
 router = APIRouter()
 
@@ -113,7 +113,9 @@ async def list_files(
     try:
         children = sorted(target.iterdir(), key=lambda child: child.name.casefold())
     except OSError as exc:
-        raise HTTPException(status_code=403, detail=f"Could not list directory: {exc}") from exc
+        raise HTTPException(
+            status_code=403, detail=f"Could not list directory: {os_error_reason(exc)}"
+        ) from exc
     for child in children:
         try:
             safe_child = ctx.guard.resolve(str(child))

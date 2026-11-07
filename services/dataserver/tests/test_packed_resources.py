@@ -541,7 +541,7 @@ def _rewrite_member_as_uint8(root: Path) -> None:
 @pytest.mark.parametrize(
     ("case", "message_fragment"),
     [
-        ("header", "header"),
+        ("header", "bad checksum"),
         ("bounds", "bound"),
         ("dtype", "dtype"),
     ],
@@ -571,6 +571,8 @@ def test_corrupt_packed_members_return_clean_errors(
     detail = response.json().get("detail")
     assert isinstance(detail, str)
     assert message_fragment in detail.casefold()
+    # The tar is named, never its absolute path (which contains this folder).
+    assert tmp_path.name not in detail
 
 
 def test_chunk_http_cache_and_range_semantics(

@@ -84,8 +84,16 @@ class QcRuntime:
     annotations: QcAnnotationStore
 
 
-def create_app(settings: ServerSettings, token: str) -> FastAPI:
-    """Create one isolated data-server application."""
+def create_app(
+    settings: ServerSettings,
+    token: str,
+    *,
+    on_shutdown: Callable[[], None] | None = None,
+) -> FastAPI:
+    """Create one isolated data-server application.
+
+    ``on_shutdown`` runs during lifespan shutdown, after the context closes.
+    """
     ctx = ServerContext.build(settings)
     require_token = bearer_auth(token)
 
@@ -94,7 +102,11 @@ def create_app(settings: ServerSettings, token: str) -> FastAPI:
         try:
             yield
         finally:
-            await ctx.close()
+            try:
+                await ctx.close()
+            finally:
+                if on_shutdown is not None:
+                    on_shutdown()
 
     app = FastAPI(
         title="TIMED data server",

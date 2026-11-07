@@ -15,6 +15,7 @@ import numpy as np
 import tifffile
 
 from .packed import PackedCatalogue, PackedMember
+from .paths import os_error_reason
 from .tar_io import (
     TAR_BLOCK_SIZE,
     NotRegularFileError,
@@ -309,11 +310,12 @@ def _read_exact(fd: int, offset: int, size: int, path: Path) -> bytes:
         return read_exact_at(fd, offset, size)
     except OSError as exc:
         raise PackedProfileError(
-            f"Could not read generic packed member from {path}: {exc}"
+            f"Could not read generic packed member from {path.name}: {os_error_reason(exc)}"
         ) from exc
     except ShortReadError as exc:
         raise PackedProfileError(
-            f"Short generic packed read from {path}: expected {size}, got {exc.received}"
+            f"Short generic packed read from {path.name}: "
+            f"expected {size}, got {exc.received}"
         ) from None
 
 
@@ -337,10 +339,12 @@ def _probe_bytes(member: PackedMember) -> tuple[bytes, bytes]:
             descriptor_stat, path_stat = regular_stats(fd, member.tar)
         except NotRegularFileError:
             raise PackedProfileError(
-                f"Generic packed shard is not a regular file: {member.tar}"
+                f"Generic packed shard is not a regular file: {member.tar.name}"
             ) from None
         if not same_file_revision(path_stat, descriptor_stat):
-            raise PackedProfileError(f"Generic packed shard changed while probing: {member.tar}")
+            raise PackedProfileError(
+                f"Generic packed shard changed while probing: {member.tar.name}"
+            )
         if member.offset + member.size > descriptor_stat.st_size:
             raise PackedProfileError(
                 f"Generic packed member exceeds tar bounds: {member.offset} + {member.size} "
@@ -353,7 +357,7 @@ def _probe_bytes(member: PackedMember) -> tuple[bytes, bytes]:
         raise
     except OSError as exc:
         raise PackedProfileError(
-            f"Could not open generic packed shard {member.tar}: {exc}"
+            f"Could not open generic packed shard {member.tar.name}: {os_error_reason(exc)}"
         ) from exc
     finally:
         if fd is not None:
@@ -442,10 +446,10 @@ def packed_probe_signature(catalogue: PackedCatalogue) -> PackedProbeSignature:
         member_stat = os.stat(member.tar, follow_symlinks=False)
     except OSError as exc:
         raise PackedProfileError(
-            f"Could not stat generic packed shard {member.tar}: {exc}"
+            f"Could not stat generic packed shard {member.tar.name}: {os_error_reason(exc)}"
         ) from exc
     if not stat.S_ISREG(member_stat.st_mode):
-        raise PackedProfileError(f"Generic packed shard is not a regular file: {member.tar}")
+        raise PackedProfileError(f"Generic packed shard is not a regular file: {member.tar.name}")
     return PackedProbeSignature(
         tar=member.tar,
         device=member_stat.st_dev,

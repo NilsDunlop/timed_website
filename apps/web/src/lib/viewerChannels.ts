@@ -30,6 +30,26 @@ function parseColor(value: string | null | undefined, index: number) {
   return fallbackColors[index % fallbackColors.length];
 }
 
+const INTEGER_DTYPES = new Set(["Uint8", "Uint16", "Uint32", "Int8", "Int16", "Int32"]);
+
+/**
+ * The `step` of a channel's contrast sliders. Integer data with a whole-valued
+ * domain and window steps by 1, so every declared or measured value is a slider
+ * position and the label, the slider and the rendered contrast agree. A step
+ * derived from the domain would not: span / 1000 moves a declared start of 100
+ * on the 0-65,535 domain to 131.07. Any other data accepts any value.
+ */
+export function contrastStep(
+  dtype: string | undefined,
+  channel: {
+    readonly domain: readonly [number, number];
+    readonly contrast: readonly [number, number];
+  },
+): 1 | "any" {
+  const wholeValues = [...channel.domain, ...channel.contrast].every(Number.isInteger);
+  return dtype !== undefined && INTEGER_DTYPES.has(dtype) && wholeValues ? 1 : "any";
+}
+
 export function axisSize(source: Source, axis: string): number {
   const index = Array.from(source.labels).indexOf(axis);
   return index >= 0 ? source.shape[index] ?? 1 : 1;

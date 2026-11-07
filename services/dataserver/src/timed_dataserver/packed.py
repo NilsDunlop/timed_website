@@ -21,7 +21,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from .paths import PathForbiddenError, PathNotFoundError, RootGuard
+from .paths import PathForbiddenError, PathNotFoundError, RootGuard, error_reason
 from .revisions import StatSignature, UnstableRevisionError, load_stable
 
 PACKED_INDEX_SUFFIX = ".index.parquet"
@@ -300,7 +300,7 @@ def _load_catalogue(index_path: Path, signature: IndexSignature) -> PackedCatalo
         parquet = pq.ParquetFile(index_path)
         schema = parquet.schema_arrow
         if not _valid_schema(schema):
-            raise PackedIndexError(f"Packed index schema changed while loading: {index_path}")
+            raise PackedIndexError(f"Packed index schema changed while loading: {index_path.name}")
         columns = list(REQUIRED_INDEX_COLUMNS)
         if "shard" in schema.names:
             columns.append("shard")
@@ -311,12 +311,16 @@ def _load_catalogue(index_path: Path, signature: IndexSignature) -> PackedCatalo
     except PackedIndexError:
         raise
     except (IndexError, KeyError, OSError, ValueError, pa.ArrowException) as exc:
-        raise PackedIndexError(f"Could not read packed index {index_path}: {exc}") from exc
+        raise PackedIndexError(
+            f"Could not read packed index {index_path.name}: {error_reason(exc, index_path)}"
+        ) from exc
 
     null_columns = [name for name in REQUIRED_INDEX_COLUMNS if table[name].null_count]
     if null_columns:
         joined = ", ".join(null_columns)
-        raise PackedIndexError(f"Packed index has null required values in {joined}: {index_path}")
+        raise PackedIndexError(
+            f"Packed index has null required values in {joined}: {index_path.name}"
+        )
 
     values = {name: _column_values(table, name) for name in columns}
     shard_values = values.get("shard")
@@ -325,7 +329,7 @@ def _load_catalogue(index_path: Path, signature: IndexSignature) -> PackedCatalo
         shard_values if isinstance(shard_values, list) else None,
     )
     if layout is None:
-        raise PackedIndexError(f"Packed index has no adjacent tar shards: {index_path}")
+        raise PackedIndexError(f"Packed index has no adjacent tar shards: {index_path.name}")
     fallback_tar, shard_paths = layout
 
     mutable_fields: dict[FieldKey, dict[int, PackedMember]] = {}
@@ -399,9 +403,9 @@ class PackedCatalogueCache:
         try:
             resolved = index_path.expanduser().resolve(strict=True)
         except OSError as exc:
-            raise PackedIndexError(f"Packed index does not exist: {index_path}") from exc
+            raise PackedIndexError(f"Packed index does not exist: {index_path.name}") from exc
         if not is_packed_index(resolved):
-            raise PackedIndexError(f"Not a packed image index: {resolved}")
+            raise PackedIndexError(f"Not a packed image index: {resolved.name}")
         with self._lock:
             entry = self._entries.setdefault(resolved, _CatalogueEntry(threading.Lock()))
 
@@ -410,7 +414,7 @@ class PackedCatalogueCache:
                 return _signature(resolved)
             except OSError as exc:
                 raise PackedIndexError(
-                    f"Packed index disappeared while loading: {resolved}"
+                    f"Packed index disappeared while loading: {resolved.name}"
                 ) from exc
 
         def cached(signature: IndexSignature) -> PackedCatalogue | None:
@@ -425,7 +429,7 @@ class PackedCatalogueCache:
                 )
             except UnstableRevisionError:
                 raise PackedIndexError(
-                    f"Packed index changed repeatedly while loading: {resolved}"
+                    f"Packed index changed repeatedly while loading: {resolved.name}"
                 ) from None
             entry.signature = signature
             entry.catalogue = catalogue
@@ -492,9 +496,11 @@ def resolve_packed_virtual_path(
     index_raw, tail = split
     index_path = guard.resolve(index_raw)
     if len(tail) > 2 or any(part in {"", ".", ".."} for part in tail):
-        raise PathNotFoundError(f"Unknown packed dataset path: {raw}")
+        raise PathNotFoundError(
+            f"Unknown packed dataset path: {PurePosixPath(index_path.name, *tail)}"
+        )
     if not is_packed_index(index_path):
-        raise PathNotFoundError(f"Not a packed image index: {index_path}")
+        raise PathNotFoundError(f"Not a packed image index: {index_path.name}")
     catalogue = cache.get(index_path)
     if not tail:
         return PackedVirtualPath(index_path=index_path, catalogue=catalogue)

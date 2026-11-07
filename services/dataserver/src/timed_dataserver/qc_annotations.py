@@ -110,6 +110,13 @@ def sanitize_reviewer(value: str) -> str:
 
 
 def _process_reviewer() -> str:
+    """The server process's account name, which names its writer file.
+
+    POSIX reads the account of the real user ID. Windows uses USERNAME, which
+    every logon session sets, so a shell's USER or LOGNAME cannot change the
+    file name. Otherwise Python's getpass rule applies, and "reviewer" when no
+    account name is available at all.
+    """
     if os.name == "posix":
         try:
             import pwd
@@ -117,9 +124,14 @@ def _process_reviewer() -> str:
             return pwd.getpwuid(os.getuid()).pw_name
         except (ImportError, KeyError, OSError):
             pass
+    elif os.name == "nt":
+        username = os.environ.get("USERNAME", "").strip()
+        if username:
+            return username
     try:
         return getpass.getuser()
-    except (KeyError, OSError):
+    except (ImportError, KeyError, OSError):
+        # Python 3.12 falls back to importing pwd, which Windows lacks.
         return "reviewer"
 
 

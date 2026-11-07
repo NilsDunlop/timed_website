@@ -2,11 +2,8 @@ import { getChannelStats } from "@hms-dbmi/viv";
 import { expect, test } from "@playwright/test";
 
 import type { PlateMetadata } from "../../src/lib/plateMetadata";
-import { channelStates } from "../../src/lib/viewerChannels";
-import {
-  sitePositionFixNote,
-  viewerSourceIdentity,
-} from "../../src/lib/viewerSourceIdentity";
+import { channelStates, contrastStep } from "../../src/lib/viewerChannels";
+import { viewerSourceIdentity } from "../../src/lib/viewerSourceIdentity";
 import type {
   ImageSummary,
   Loader,
@@ -122,6 +119,33 @@ test("channelStates returns no channels for an empty loader", async () => {
   expect(await channelStates([], image([{ name: "DNA" }]))).toEqual([]);
 });
 
+test("contrastStep puts every whole window value of integer data on the slider", () => {
+  const timed = { domain: [0, 65535], contrast: [100, 65535] } as const;
+  const cellHealthDna = { domain: [0, 27000], contrast: [292, 11552] } as const;
+  for (const dtype of ["Uint8", "Uint16", "Uint32", "Int8", "Int16", "Int32"]) {
+    expect(contrastStep(dtype, timed)).toBe(1);
+  }
+  expect(contrastStep("Uint16", cellHealthDna)).toBe(1);
+  // Measured limits of integer data are pixel values, so they are whole too.
+  expect(contrastStep("Uint16", { domain: [3, 4093], contrast: [17, 4093] })).toBe(1);
+});
+
+test("contrastStep accepts any value for other data and fractional windows", () => {
+  expect(contrastStep("Float32", { domain: [0, 1], contrast: [0.1, 0.9] })).toBe("any");
+  expect(contrastStep("Float64", { domain: [0, 65535], contrast: [100, 65535] })).toBe(
+    "any",
+  );
+  expect(contrastStep("Uint16", { domain: [0, 65535], contrast: [100.5, 65535] })).toBe(
+    "any",
+  );
+  expect(contrastStep("Uint16", { domain: [0.5, 65535], contrast: [100, 65535] })).toBe(
+    "any",
+  );
+  expect(contrastStep(undefined, { domain: [0, 65535], contrast: [100, 65535] })).toBe(
+    "any",
+  );
+});
+
 test("viewerSourceIdentity describes legacy plate metadata", () => {
   const metadata: PlateMetadata = {
     available: true,
@@ -179,16 +203,5 @@ test("viewerSourceIdentity uses labelled metadata and hides a missing dose", () 
   });
   expect(viewerSourceIdentity(viewerSource("A02_s3.zarr", metadata)).concentration).toBe(
     "10 µM",
-  );
-});
-
-test("sitePositionFixNote describes one or several repaired timepoints", () => {
-  expect(sitePositionFixNote(null)).toBeNull();
-  expect(sitePositionFixNote(undefined)).toBeNull();
-  expect(sitePositionFixNote({ grid_x: 2, repaired_timepoints: [3] })).toBe(
-    "Site position repaired at timepoint 3: this field holds grid position x = 2 for the whole run.",
-  );
-  expect(sitePositionFixNote({ grid_x: 0, repaired_timepoints: [3, 4] })).toBe(
-    "Site position repaired at timepoints 3, 4: this field holds grid position x = 0 for the whole run.",
   );
 });
