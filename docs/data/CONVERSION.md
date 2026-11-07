@@ -89,3 +89,35 @@ size.
 - Always affects a whole site-timepoint across all three channels.
 - `stage_z` is within the normal range for these events.
 - Raised with the lab.
+
+## Segmentation masks (TIMED addition, 2026-11)
+
+Not part of the conversion. A presentation export (2026-11-06, "not a pipeline
+output") holds masks for four P2.1 fields: C05, C15, F13 and G07, site 1. It
+mirrors the image layout in a tree beside it,
+`corrected/PB100140_P2.1.zarr/<well>_s<site>.zarr/`, one Zarr v3 group per
+field; the export's own `README.md` records how it was made. TIMED reads only
+`masks_raw`. The group also holds `raw` (a copy of the field),
+`corrected_505`, `masks_corrected` (cells on TiLu-corrected 505 nm, not used)
+and `nuclei` (classical 625 nm nuclei, same layout as `masks_raw`).
+
+| Property | `masks_raw` |
+|---|---|
+| Shape, axes | (48, 2500, 2500), t, y, x (`axes` attribute) |
+| Data type | uint16, fill value 0 |
+| Chunks | (1, 1250, 1250), four per plane |
+| Shard | whole array, one file `masks_raw/0.0.0` (`v2` chunk keys, `.` separator); index at the end, CRC32C |
+| Compression | Blosc zstd, level 5, byte shuffle |
+| Time | `t_indices` 0 to 47, equal to the field's |
+
+- **Kind:** whole-cell labels from Cellpose-SAM (`cpsam`, cellpose 4.2.1.1,
+  diameter 90, run `R5_cells_cpsam_dS`, digest `2a760ccd1f0e`) on raw 505 and
+  625 nm.
+- **Labels:** 0 is background; each frame's cells are numbered 1 to N without
+  gaps, so the largest label is the count (37 to 112 per frame, equal to the
+  export's `counts.csv`). Labels are not tracked: every frame was segmented on
+  its own, so an id names a different cell in the next frame.
+- **Alignment:** plane size, orientation and timepoints match the field as
+  stored, with no transpose or flip. Mask frame i belongs to image frame i: the
+  export's `raw` equals the field, and each frame's nuclei fit that frame's
+  cells better than its neighbours'.
