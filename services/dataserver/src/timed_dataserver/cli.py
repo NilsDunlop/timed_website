@@ -50,6 +50,12 @@ def _parser() -> argparse.ArgumentParser:
         help="decoded packed-field cache size in MiB (default: 1024)",
     )
     serve_parser.add_argument(
+        "--mask-cache-mb",
+        type=int,
+        default=512,
+        help="decoded segmentation-mask cache size in MiB (default: 512)",
+    )
+    serve_parser.add_argument(
         "--qc-export",
         action="append",
         default=[],
@@ -183,9 +189,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         metadata_root=args.metadata_root,
         packed_cache_mb=args.packed_cache_mb,
         qc_paths=qc_paths,
+        mask_cache_mb=args.mask_cache_mb,
     )
     if settings.packed_cache_mb <= 0:
         raise SystemExit("--packed-cache-mb must be greater than zero")
+    if settings.mask_cache_mb <= 0:
+        raise SystemExit("--mask-cache-mb must be greater than zero")
     try:
         asyncio.run(
             serve(

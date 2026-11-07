@@ -57,7 +57,7 @@ file.
 Run `uv run timed-dataserver export-openapi` to print the complete API schema.
 The `serve` command accepts one or more data roots, a host and port (including
 dynamic port `0`), an environment, a connection-file path and a state directory,
-plus an optional metadata root, the packed cache budget and repeated
+plus an optional metadata root, the packed and mask cache budgets and repeated
 `--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings.
 
 The server writes the selected port and random bearer token to the connection

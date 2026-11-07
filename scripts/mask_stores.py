@@ -388,6 +388,52 @@ def write_plate_store(
     return store
 
 
+def write_raw_store(
+    model_dir: Path,
+    experiment: str,
+    plate: int,
+    well: str,
+    site: int,
+    payloads: Mapping[str, bytes],
+    *,
+    member_names: Mapping[str, str] | None = None,
+) -> PlateStore:
+    """One committed field whose members carry the given payloads unchanged.
+
+    ``member_names`` replaces a kind's USTAR member name, to test header checks.
+    """
+    builder = _StoreBuilder(experiment, plate)
+    members = []
+    for kind, payload in payloads.items():
+        name = (member_names or {}).get(
+            kind, f"{experiment}/Plate{plate}/{well}_s{site}_{kind}.tiff"
+        )
+        offset = len(builder.tar) + TAR_BLOCK
+        builder.tar += _tar_member(name, payload)
+        members.append({"kind": kind, "offset": offset, "size": len(payload)})
+    record = {
+        "well": well,
+        "site": site,
+        "tar_end": len(builder.tar),
+        "masks": members,
+        "qc": {},
+        "git_sha": GIT_SHA,
+    }
+    store = PlateStore(
+        model=model_dir.name,
+        experiment=experiment,
+        plate=plate,
+        directory=model_dir / experiment,
+        records=(record,),
+        counts={},
+    )
+    store.directory.mkdir(parents=True, exist_ok=True)
+    store.tar.write_bytes(bytes(builder.tar) + _end_of_archive(len(builder.tar)))
+    store.log.write_bytes(_log_line(record))
+    _write_lease(store)
+    return store
+
+
 def write_fixture_mask_stores(
     root: Path,
     *,

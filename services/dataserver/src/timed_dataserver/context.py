@@ -9,6 +9,7 @@ from pathlib import Path
 import anyio
 from fastapi import Request
 
+from .mask_reader import MaskReader
 from .packed import PackedCatalogueCache
 from .packed_io import PackedReader
 from .packed_metadata import PackedMetadataCache
@@ -38,12 +39,15 @@ class ServerContext:
     packed_metadata: PackedMetadataCache
     packed_profiles: PackedProfileResolver
     metadata_catalog: PlateMetadataCatalog | None
+    masks: MaskReader
 
     @classmethod
     def build(cls, settings: ServerSettings) -> ServerContext:
         """Validate the settings and construct the shared state in a fixed order."""
         if settings.packed_cache_mb <= 0:
             raise ValueError("Packed cache size must be greater than zero")
+        if settings.mask_cache_mb <= 0:
+            raise ValueError("Mask cache size must be greater than zero")
         guard = RootGuard(settings.data_roots)
         qc_paths = resolve_qc_path_configs(settings.qc_paths, guard)
         return cls(
@@ -63,11 +67,13 @@ class ServerContext:
                 if settings.metadata_root is not None
                 else None
             ),
+            masks=MaskReader(cache_bytes=settings.mask_cache_mb * 1024 * 1024),
         )
 
     async def close(self) -> None:
         """Release what the application holds open; called when its lifespan ends."""
         await anyio.to_thread.run_sync(self.packed_reader.close)
+        self.masks.close()
 
 
 async def get_context(request: Request) -> ServerContext:
