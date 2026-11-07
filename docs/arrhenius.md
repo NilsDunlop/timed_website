@@ -205,6 +205,31 @@ manual use. Separate timing figures were not supplied with the final A2
 acceptance. Blinded mode and segmentation outlines were not part of A2 and
 remain later work.
 
+## Cell Health segmentation outlines
+
+Status: passed manually on Arrhenius on 2026-11-07, with a fresh job running
+the development build `0.6.0.dev0`; the release commit sets version `0.6.0`.
+
+- On SQ00014610, well A01, site 1, the panel offered two models,
+  `idr0080_cpsam_B90` (the default, marked "May still change") and
+  `cpsam_stock_R2_top999`. The count line read 731 nuclei · 616 cells · 616
+  cytoplasm, and the nucleus and cell outlines sat on the nuclei and cell
+  borders in Color and Grayscale. The widths worked, and the default 2 px read
+  best.
+- SQ00014611, well A01, site 1, offered only `idr0080_cpsam_B90`.
+- A comparison of SQ00014613 (ES2) and SQ00014616 (HCC44), well A01, site 1,
+  drew nucleus outlines in both panels and read 288 nuclei · 255 cells · 255
+  cytoplasm and 196 nuclei · 183 cells · 183 cytoplasm.
+- In the QC review queue the panel appeared, and **Next** kept the outlines on.
+- On the first open of 14610 A01 site 1, the listing took 541 ms and the
+  default model's counts 161 ms (`masks:listing-ready`, `masks:counts-ready`).
+  The `outline:ready` line was copied without its elapsed time, so outline
+  loading was not timed.
+- Disconnect cancelled the job, and `squeue` listed no remaining job.
+
+The count line's layout in the narrow controls column, and one region where
+the segmentation itself could be better, were noted for later work.
+
 ## Troubleshooting
 
 - Job pending indefinitely: verify the account and partition.
@@ -229,8 +254,10 @@ lines begin with `[TIMED viewer` and cover:
 - Zarr fetch start, response status, byte count, and elapsed time;
 - decoded-pixel cache hits, misses, shared pending loads, handoffs, and evictions;
 - prefetch scheduling, completion, cancellation, or failure;
-- Viv viewport-complete callbacks, including callbacks ignored as stale; and
-- a `frame:still-waiting` snapshot after ten seconds.
+- Viv viewport-complete callbacks, including callbacks ignored as stale;
+- a `frame:still-waiting` snapshot after ten seconds; and
+- mask listings, counts and outline images (`masks:listing-ready`,
+  `masks:counts-ready`, `outline:ready`) with their elapsed times.
 
 The messages omit authorization headers and tokens. Copy the messages from the
 last `time:requested` or `time:commit` through `frame:still-waiting`, along

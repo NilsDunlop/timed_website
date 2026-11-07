@@ -89,6 +89,16 @@ class PackedCodec:
 
 
 @dataclass(frozen=True, slots=True)
+class PackedMasks:
+    """Segmentation mask models declared for a packed index."""
+
+    path: str
+    """The masks folder, as a relative POSIX path from the index's directory."""
+    default_model: str
+    """The model offered first wherever it covers the plate."""
+
+
+@dataclass(frozen=True, slots=True)
 class PackedDatasetProfile:
     """Immutable description of a packed index and its facade defaults."""
 
@@ -106,6 +116,7 @@ class PackedDatasetProfile:
     plate_prefix: str = "SQ000"
     member_prefix: str = "idr0080/raw/"
     auto_contrast: bool = False
+    masks: PackedMasks | None = None
 
     def cell_line_for(self, experiment: str) -> str | None:
         return next(
@@ -221,6 +232,8 @@ _IDR0080_CHANNELS = (
     ),
 )
 
+_IDR0080_MASKS = PackedMasks(path="masks", default_model="idr0080_cpsam_B90")
+
 
 IDR0080_PROFILE = PackedDatasetProfile(
     index_filename="idr0080-raw.index.parquet",
@@ -242,6 +255,7 @@ IDR0080_PROFILE = PackedDatasetProfile(
     display_name="Cell Health",
     pixel_size_um=0.29898804047838085,
     grayscale_available=True,
+    masks=_IDR0080_MASKS,
 )
 
 
@@ -273,6 +287,7 @@ IDR0080_FIXTURE_PROFILE = PackedDatasetProfile(
     display_name="Cell Health",
     pixel_size_um=0.29898804047838085,
     grayscale_available=True,
+    masks=_IDR0080_MASKS,
 )
 
 

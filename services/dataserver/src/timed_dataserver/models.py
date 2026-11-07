@@ -426,3 +426,30 @@ class DatasetMatchSummary(ApiModel):
 
 class DatasetMatchesResponse(ApiModel):
     matches: list[DatasetMatchSummary]
+
+
+class MaskModelSummary(ApiModel):
+    """One segmentation model and whether it covers the plate."""
+
+    model_tag: str
+    recipe: str | None
+    kinds: list[str]
+    frozen: bool
+    created_at: str | None
+    available: bool
+    default: bool
+
+
+class MaskModelsResponse(ApiModel):
+    """A linked dataset's segmentation models; empty when it has none."""
+
+    models: list[MaskModelSummary]
+
+
+class MaskFieldResponse(ApiModel):
+    """One model's object counts for one field: each kind's largest label."""
+
+    model_tag: str
+    well: str
+    site: int
+    counts: dict[str, int]

@@ -19,3 +19,4 @@ class ServerSettings:
     metadata_root: Path | None = None
     packed_cache_mb: int = 1024
     qc_paths: tuple[QcPathConfig, ...] = ()
+    mask_cache_mb: int = 512

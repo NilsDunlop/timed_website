@@ -900,3 +900,52 @@ that failed first.
   shows the repair note for repaired TIMED fields, superseding the 0.5.1 note.
   The server still validates `site_position_fix` and reports it in the field
   summary, and field names and pixels are still never remapped.
+
+## 2026-11-07: segmentation outlines for Cell Health (0.6.0)
+
+Release 0.6.0 draws CellPrompter's segmentation masks over Cell Health fields as
+a sanity check, following the mask-store contract in `docs/data/IDR0080.md`.
+
+- **Masks come from the code profile.** Both idr0080 profiles name the `masks`
+  folder beside the index and `idr0080_cpsam_B90` as the default model. A model
+  folder counts only with a `tar+wal/v1`, `uint16` manifest, and it covers a
+  plate once that plate's tar and log exist, so the stock model is offered only
+  on 14610.
+- **The listing answers every linked dataset.** The viewer cannot tell a packed
+  source from a TIMED one, and every 404 is a browser console error, so
+  `GET /api/datasets/{id}/masks` answers 200 with no models for a dataset
+  without masks. This amends the contract, which had answered 404. The field
+  routes still serve packed plates only, and an unknown dataset still answers
+  404.
+- **Counts have their own route.**
+  `GET /api/datasets/{id}/masks/{model}/{well}/{site}` returns each kind's
+  largest label for one field and one model. It decodes only that model's
+  masks, into the same cache the outlines use, so a corrupt second model never
+  blocks the default one and switching outlines on decodes nothing again.
+- **Readers follow the log.** The last record wins, a half-written last line and
+  uncommitted tar bytes are ignored, and anything else unreadable answers 409
+  with its reason. The table is rebuilt when the revision (log size, log mtime,
+  tar size) changes. Each member's USTAR header is checked before its data. No
+  lease, `profiles/` file, run ledger or QC table is ever opened, and no lock is
+  taken.
+- **Outline images.** A 1-bit palette PNG at plane size whose two palette
+  entries both hold the outline colour, so texture filtering fades an outline
+  instead of darkening it. Rows are compressed at zlib level 1: about 10 ms and
+  100 kB for a synthetic full field of 731 labels, against over 40 ms and 80 kB
+  at level 6. The ETag covers the store revision, member, kind, colour, width
+  and server version, and a matching validator answers 304 without rendering.
+- **Caches.** Decoded masks share a 512 MiB LRU (`serve --mask-cache-mb`) and
+  encoded outlines a 256 MiB one, on top of the 1 GiB packed field cache:
+  1.75 GiB in all, well inside Arrhenius's 8 GB job. Both are keyed by a mask's
+  place in its tar, which an append-only store never rewrites.
+- **Viewer.** A Segmentation panel in the viewer controls, which the QC field
+  view shares, appears only when every source's plate offers a model. Kinds are
+  off by default; width, opacity and the model are shared by all comparison
+  panels, each of which draws its own field's outlines through `VivCanvas`'s
+  `overlayLayers`. Listings and counts load beside the image; outlines follow
+  the displayed timepoint and never affect "Image ready". `outlines=` and
+  `model=` record the switched-on outlines, so a reload, a QC site change or a
+  review-queue move keeps them. TIMED is unchanged.
+
+The operator check on Arrhenius (plate 14610, well A01, site 1) is recorded in
+`docs/arrhenius.md`.

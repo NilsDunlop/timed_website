@@ -69,6 +69,7 @@ from .qc_payloads import (
 from .routes import datasets as dataset_routes
 from .routes import filesystem as filesystem_routes
 from .routes import handshake as handshake_routes
+from .routes import masks as mask_routes
 from .routes import zarr as zarr_routes
 from .settings import ServerSettings
 
@@ -309,7 +310,8 @@ def create_app(
         except QcPayloadError as exc:
             raise service_unavailable(str(exc)) from exc
 
-    # Registration order is the OpenAPI order: handshake, QC, filesystem, datasets, Zarr.
+    # Registration order is the OpenAPI order: handshake, QC, filesystem, datasets,
+    # masks, Zarr.
     # The QC routes stay here until they get their own route modules.
     app.include_router(handshake_routes.router)
 
@@ -616,6 +618,7 @@ def create_app(
 
     app.include_router(filesystem_routes.router)
     app.include_router(dataset_routes.router)
+    app.include_router(mask_routes.router)
     app.include_router(zarr_routes.router)
 
     return app

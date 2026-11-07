@@ -57,7 +57,7 @@ file.
 Run `uv run timed-dataserver export-openapi` to print the complete API schema.
 The `serve` command accepts one or more data roots, a host and port (including
 dynamic port `0`), an environment, a connection-file path and a state directory,
-plus an optional metadata root, the packed cache budget and repeated
+plus an optional metadata root, the packed and mask cache budgets and repeated
 `--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings.
 
 The server writes the selected port and random bearer token to the connection
@@ -75,6 +75,12 @@ original TIFF planes on demand; the index, tar shards, and TIFF payloads remain
 untouched. The first cold request loads all channels for one field into a
 single-flight, byte-bounded cache (1 GiB by default); `serve
 --packed-cache-mb` changes that budget.
+
+Mask routes under `/api/datasets/{id}/masks` read CellPrompter's `tar+wal/v1`
+stores for packed plates whose code profile declares a masks folder; the
+listing answers every linked dataset, with no models when it has none. Decoded
+masks share a 512 MiB LRU (`serve --mask-cache-mb`) and outline PNGs a 256 MiB
+one. Mask readers never open leases, `profiles/`, the run ledger or QC tables.
 
 ## Connector and test cluster
 
@@ -145,6 +151,14 @@ Every viewer panel derives its own scale bar from source metadata. TIMED uses
 0.3 micrometres per pixel and Cell Health uses
 0.29898804047838085 micrometres per pixel. A source without a valid pixel size
 gets no scale bar; never infer one.
+
+When every source's plate has masks, a **Segmentation** panel joins the viewer
+controls, which the QC field view shares: the models every source covers
+(default first), a "May still change" badge, each source's object counts, kind
+toggles that start off, width and opacity. Listings and counts load beside the
+image; outlines are `VivCanvas` overlay layers that follow the displayed
+timepoint and never affect "Image ready". `outlines=` and `model=` keep them
+in the link. TIMED shows no panel.
 
 `make test-e2e` creates isolated legacy and collection-aware test-cluster and
 local profiles. It drives Connect -> Data -> View for TIMED and the packed
@@ -239,7 +253,8 @@ each plate's metadata CSV and acquisition file. It also creates
 single-resolution native `test_image_v04.zarr` (Zarr v2) and
 `test_image_v05.zarr` (Zarr v3), the packed idr0080-like fixture under
 `packed/idr0080-like/` (an index beside three plate shards of five-channel,
-64 by 64 fields, with well metadata and decoy fragment and mask indexes), and
+64 by 64 fields, with well metadata, `tar+wal/v1` mask stores for two models
+from `scripts/mask_stores.py`, and decoy fragment and mask indexes), and
 the QC exports `qc-export/` and `qc-export-next/`. The output is deterministic
 and gitignored.
 
@@ -273,8 +288,8 @@ uses the export's fixed plate-by-channel windows and shows only primary review
 metrics, with stain channels before whole-field checks. Session well queues
 retain their exact flagged sites. The data server validates the whole export
 before serving it and annotations are its only QC write.
-Segmentation masks remain Part C and must not be folded into QC review or Phase
-1 image behavior.
+Segmentation outlines (Part C) are a sanity check on the masks: they are not
+part of QC review and never change image loading or "Image ready".
 
 ## Known gotchas
 

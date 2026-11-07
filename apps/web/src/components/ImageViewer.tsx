@@ -1,3 +1,4 @@
+import type { Layer } from "@deck.gl/core";
 import {
   DETAIL_VIEW_ID,
   getDefaultInitialViewState,
@@ -24,7 +25,13 @@ import {
   selectionFor,
   type ChannelState,
 } from "../lib/viewerChannels";
-import { parseViewerSearch, viewerQueryHref, viewerReturnHref } from "../lib/viewerLink";
+import {
+  parseOutlinePreset,
+  parseViewerSearch,
+  viewerQueryHref,
+  viewerReturnHref,
+  writeOutlinePreset,
+} from "../lib/viewerLink";
 import {
   viewerSourceIdentity,
   type ViewerSourceIdentity,
@@ -64,6 +71,8 @@ import {
   type ViewerDisplayPreference,
 } from "../lib/viewerDisplay";
 import { viewerDebug } from "../lib/viewerDebug";
+import { DEFAULT_OUTLINE_OPACITY, DEFAULT_OUTLINE_WIDTH } from "../lib/maskOverlays";
+import { viewerOverlayLayers } from "../lib/viewerOverlays";
 import {
   countAnnotatedQueueEntries,
   parseQcAnnotation,
@@ -96,6 +105,12 @@ import VivCanvas, {
   type Dimensions,
   type VivViewStateChangeEvent,
 } from "./viewer/VivCanvas";
+import SegmentationPanel from "./viewer/SegmentationPanel";
+import {
+  useMaskOverlays,
+  type MaskSettings,
+  type MaskSource,
+} from "./viewer/useMaskOverlays";
 
 type ConnectorProfile = ConnectorComponents["schemas"]["Profile"];
 type QcFieldResponse = components["schemas"]["QcFieldResponse"];
@@ -304,6 +319,24 @@ export default function ImageViewer() {
   const frameReadiness = useRef(new FrameReadinessTracker());
   const settledFrame = useRef("");
   const timeDirection = useRef<1 | -1>(1);
+  const maskSources = useMemo<MaskSource[]>(() => {
+    try {
+      return parseViewerSearch(window.location.search).sources.map((viewerSource) => ({
+        key: viewerSource.datasetId + "\u0000" + viewerSource.path,
+        datasetId: viewerSource.datasetId,
+        path: viewerSource.path,
+      }));
+    } catch {
+      return [];
+    }
+  }, []);
+  const [maskSettings, setMaskSettings] = useState<MaskSettings>(() => {
+    const preset = parseOutlinePreset(new URLSearchParams(window.location.search));
+    return { model: preset.model, kinds: preset.kinds, width: DEFAULT_OUTLINE_WIDTH };
+  });
+  const [outlineOpacity, setOutlineOpacity] = useState(DEFAULT_OUTLINE_OPACITY);
+  // Listings and counts load beside the image; outlines follow the displayed frame.
+  const masks = useMaskOverlays(maskSources, maskSettings, displayedTime);
 
   useEffect(() => {
     let active = true;
@@ -1303,6 +1336,42 @@ export default function ImageViewer() {
       ),
     [markSourceReady, viewerSources],
   );
+  const overlayLayersBySource = useMemo(() => {
+    const layers = new Map<string, Layer[]>();
+    for (const viewerSource of viewerSources) {
+      const overlays = masks.overlays.get(viewerSource.readyKey);
+      const fullResolution = viewerSource.loader[0];
+      if (overlays?.length && fullResolution) {
+        layers.set(
+          viewerSource.readyKey,
+          viewerOverlayLayers(fullResolution, overlays, outlineOpacity),
+        );
+      }
+    }
+    return layers;
+  }, [masks.overlays, outlineOpacity, viewerSources]);
+  const outlineModel = masks.model?.model_tag ?? null;
+  const masksOffered = masks.models.length > 0;
+  useEffect(() => {
+    // The switched-on outlines live in the link, so a reload, a QC site change or
+    // a review-queue move keeps them. A view without masks never touches it.
+    if (!masksOffered) return;
+    const current = new URLSearchParams(window.location.search);
+    const next = writeOutlinePreset(new URLSearchParams(current), {
+      kinds: [...maskSettings.kinds],
+      model: outlineModel,
+    });
+    if (next.toString() === current.toString()) return;
+    try {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        window.location.pathname + "?" + next.toString(),
+      );
+    } catch {
+      // A refused history write leaves the link as it was.
+    }
+  }, [maskSettings.kinds, masksOffered, outlineModel]);
 
   const firstLevel = image?.levels[0];
   const jumpIndex = Math.max(
@@ -1651,6 +1720,31 @@ export default function ImageViewer() {
             </fieldset>
           );
         })}
+        <SegmentationPanel
+          masks={masks}
+          sources={maskSources.map((maskSource, index) => ({
+            key: maskSource.key,
+            label: maskSources.length > 1 ? ("ABCD"[index] ?? null) : null,
+          }))}
+          kinds={maskSettings.kinds}
+          width={maskSettings.width}
+          opacity={outlineOpacity}
+          onModelChange={(model) =>
+            setMaskSettings((current) => ({ ...current, model }))
+          }
+          onKindChange={(kind, visible) =>
+            setMaskSettings((current) => ({
+              ...current,
+              kinds: visible
+                ? [...current.kinds.filter((item) => item !== kind), kind]
+                : current.kinds.filter((item) => item !== kind),
+            }))
+          }
+          onWidthChange={(width) =>
+            setMaskSettings((current) => ({ ...current, width }))
+          }
+          onOpacityChange={setOutlineOpacity}
+        />
         {!qcQueue && (
           <a href={backHref}>{qcMode ? "← Back to QC" : "← Back to data"}</a>
         )}
@@ -1802,6 +1896,9 @@ export default function ImageViewer() {
                         onResize={
                           index === 0 ? setPrimaryDimensions : undefined
                         }
+                        overlayLayers={overlayLayersBySource.get(
+                          viewerSource.readyKey,
+                        )}
                       />
                     </article>
                   );
@@ -1818,6 +1915,11 @@ export default function ImageViewer() {
                   onViewStateChange={handleViewStateChange}
                   onReady={sourceReadyCallbacks[0]}
                   onResize={setPrimaryDimensions}
+                  overlayLayers={
+                    primaryViewerSource
+                      ? overlayLayersBySource.get(primaryViewerSource.readyKey)
+                      : undefined
+                  }
                 />
               </>
             ))}

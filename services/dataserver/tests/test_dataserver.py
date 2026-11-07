@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ import zarr
 from fastapi.testclient import TestClient
 from served_stores import write_berzelius_plate, write_json, write_native_plate
 from timed_dataserver import __version__
+from timed_dataserver import cli as cli_module
 from timed_dataserver.app import ServerSettings, create_app
 from timed_dataserver.cli import main, serve
 from timed_dataserver.omezarr import OmeZarrError, _channels, _timed_field_metadata
@@ -1093,3 +1095,36 @@ def test_packed_cache_budget_must_be_positive(data_root: Path, tmp_path: Path) -
                 "0",
             ]
         )
+
+
+def test_mask_cache_budget_reaches_the_reader_and_must_be_positive(
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    serve = [
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "0",
+        "--data-root",
+        str(data_root),
+        "--connection-file",
+        str(tmp_path / "connection.json"),
+        "--environment",
+        "local",
+    ]
+    assert cli_module._parser().parse_args(serve).mask_cache_mb == 512
+    settings = ServerSettings(
+        data_roots=(data_root,),
+        state_dir=tmp_path / "state",
+        environment="local",
+    )
+    assert create_app(settings, TOKEN).state.context.masks.cache.max_bytes == 512 * 1024 * 1024
+    app = create_app(replace(settings, mask_cache_mb=64), TOKEN)
+    assert app.state.context.masks.cache.max_bytes == 64 * 1024 * 1024
+
+    with pytest.raises(ValueError, match="Mask cache size must be greater than zero"):
+        create_app(replace(settings, mask_cache_mb=0), TOKEN)
+    with pytest.raises(SystemExit, match="--mask-cache-mb must be greater than zero"):
+        main([*serve, "--mask-cache-mb", "0"])

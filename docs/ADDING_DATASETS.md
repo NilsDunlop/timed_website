@@ -87,8 +87,10 @@ folder that receives reviewers' annotations:
 
 ### Segmentation masks
 
-Reserved for Part C. Mask stores are declared in the code profile, relative to
-the packed index, rather than as collection keys; see the
+Mask stores are declared in the pinned code profile, not as collection keys:
+`PackedMasks` names the masks folder relative to the packed index and the
+default model. Each model folder needs a `tar+wal/v1` manifest, and the viewer
+offers a model on a plate once its tar and log exist; see the
 [mask-store contract](data/IDR0080.md#mask-store-contract-part-c).
 
 ## Supported data layouts

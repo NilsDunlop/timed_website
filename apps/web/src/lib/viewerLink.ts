@@ -1,4 +1,5 @@
-// The `/view` link: the viewer's reader, the Data page's writer and the back link.
+// The `/view` link: the viewer's reader, the Data page's writer, the back link and
+// the segmentation outline preset.
 //
 // Hrefs depend on parameter insertion order, so a writer calls `set()` and
 // `append()` in the order its callers have always used. A writer fills either a
@@ -118,4 +119,37 @@ export function viewerReturnHref(search: string): string {
       ? (query.get("returnDataset") ?? query.get("dataset"))
       : null,
   );
+}
+
+/** Segmentation outlines a `/view` link starts with, such as `outlines=nuclei,cells`. */
+export type OutlinePreset = {
+  kinds: string[];
+  model: string | null;
+};
+
+export function parseOutlinePreset(query: URLSearchParams): OutlinePreset {
+  const kinds = (query.get("outlines") ?? "")
+    .split(",")
+    .map((kind) => kind.trim().toLowerCase())
+    .filter(Boolean);
+  return { kinds: [...new Set(kinds)], model: query.get("model")?.trim() || null };
+}
+
+/**
+ * Record the switched-on outlines in the current query, so a reload, a QC site
+ * change or a review-queue move keeps them. No outlines removes both parameters.
+ */
+export function writeOutlinePreset(
+  query: URLSearchParams,
+  preset: OutlinePreset,
+): URLSearchParams {
+  if (preset.kinds.length === 0) {
+    query.delete("outlines");
+    query.delete("model");
+    return query;
+  }
+  query.set("outlines", preset.kinds.join(","));
+  if (preset.model) query.set("model", preset.model);
+  else query.delete("model");
+  return query;
 }

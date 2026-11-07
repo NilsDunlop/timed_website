@@ -8,13 +8,13 @@ function browserEntry(page: Page, name: string): Locator {
   });
 }
 
-async function openExperiment(page: Page, experiment: string) {
+export async function openExperiment(page: Page, experiment: string) {
   const entry = browserEntry(page, experiment);
   await expect(entry).toBeVisible();
   await entry.getByRole("button", { name: "Open folder" }).click();
 }
 
-async function openPlate(page: Page, plate: string) {
+export async function openPlate(page: Page, plate: string) {
   const entry = browserEntry(page, plate);
   await expect(entry).toBeVisible();
   await entry.getByRole("button", { name: "Open", exact: true }).click();
@@ -275,7 +275,9 @@ export async function exerciseIdr0080Flow(page: Page) {
   await mitoGrayscale.check();
   await expect(mitoGrayscale).toBeChecked();
   await expect(erGrayscale).not.toBeChecked();
-  await expect(controls.getByRole("slider")).toHaveCount(2);
+  // Channel sliders only: the Segmentation panel adds its own to the controls.
+  const channelSliders = controls.locator(".channel-control").getByRole("slider");
+  await expect(channelSliders).toHaveCount(2);
   await expect(
     controls.getByRole("slider", {
       name: "DNA contrast maximum",
@@ -298,7 +300,7 @@ export async function exerciseIdr0080Flow(page: Page) {
   await expect(mitoGrayscale).not.toBeChecked();
   await colorMode.check();
   await expect(grayscaleChannels).toHaveCount(0);
-  await expect(controls.getByRole("slider")).toHaveCount(10);
+  await expect(channelSliders).toHaveCount(10);
   await expect(erContrastMaximum).toHaveValue(editedErContrastMaximum);
   for (const [name, visible] of channels) {
     const composite = controls.getByRole("checkbox", { name, exact: true });
@@ -460,7 +462,9 @@ export async function exerciseIdr0080Flow(page: Page) {
   await expect(
     comparisonGrayscale.getByRole("radio", { name: "ER", exact: true }),
   ).toBeChecked();
-  await expect(comparisonControls.getByRole("slider")).toHaveCount(2);
+  await expect(
+    comparisonControls.locator(".channel-control").getByRole("slider"),
+  ).toHaveCount(2);
   await comparisonGrayscale
     .getByRole("radio", { name: "DNA", exact: true })
     .check();
