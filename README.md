@@ -155,11 +155,13 @@ dataset contracts and onboarding steps.
   and the QC field view offer each plate's mask models, their object counts and
   nucleus, cell and cytoplasm outlines, read-only from CellPrompter's stores.
   TIMED is unchanged.
-- Version 0.7.0 adds TIMED segmentation outlines over time: a collection's
-  optional `masks_root` mirrors its plates, and the viewer offers each masked
-  field's cell and nucleus outlines and counts for the displayed frame. The
-  local external-drive profile reads the four masked PB100140_P2.1 fields
-  read-only.
+- Version 0.7.0 adds TIMED segmentation outlines over time: the viewer offers
+  each masked field's cell and nucleus outlines and counts for the displayed
+  frame. A collection may name a production segmentation folder
+  (`segmentation_root`) and a presentation export that mirrors its plates
+  (`masks_root`). Arrhenius and the local external-drive profile read the
+  production runs for every PB100140_P2.1 field, and the local profile also
+  the export's four fields, all read-only.
 
 Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
 the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its

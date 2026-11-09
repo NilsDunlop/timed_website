@@ -950,11 +950,12 @@ a sanity check, following the mask-store contract in `docs/data/IDR0080.md`.
 The operator check on Arrhenius (plate 14610, well A01, site 1) is recorded in
 `docs/arrhenius.md`.
 
-## 2026-11-08: TIMED segmentation outlines over time (0.7.0)
+## 2026-11-09: TIMED segmentation outlines over time (0.7.0)
 
 Release 0.7.0 draws segmentation masks over TIMED fields, frame by frame, as a
-sanity check. The first masks are a presentation export for four PB100140_P2.1
-fields (C05, C15, F13 and G07, site 1), recorded in `docs/data/CONVERSION.md`.
+sanity check. They come from a presentation export for four PB100140_P2.1
+fields (C05, C15, F13 and G07, site 1) and from the production segmentation of
+all 392 PB100140_P2.1 fields, both recorded in `docs/data/CONVERSION.md`.
 
 - **A mask folder per collection.** A collection's optional `masks_root`
   mirrors its plates and fields, `<plate>.zarr/<well>_s<site>.zarr/`. The
@@ -964,6 +965,23 @@ fields (C05, C15, F13 and G07, site 1), recorded in `docs/data/CONVERSION.md`.
   neither a data root nor its collection and overlaps no other mask folder.
   Mask folders are read-only and, like the QC folders, never browsable,
   linkable or served, and no path follows a symlink out of them.
+- **Production runs per collection.** A collection's optional
+  `segmentation_root` holds the production layout,
+  `<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`
+  with the plate's name without `.zarr`, and is passed as
+  `serve --timed-segmentation`. It follows the same rules as `masks_root`; a
+  collection has at most one folder of each kind. The Arrhenius TIMED
+  collection and the local copy read it, so TIMED masks also work on Arrhenius.
+- **The production model comes first.** `R4_cpsam_dS_corrected` (recipe
+  "Cellpose-SAM cells (TiLu-corrected 505 + raw 625 nm)") offers kinds
+  `nuclei` and `cells` from the cell run and its linked classical-nuclei run.
+  It is listed before `masks_raw`, so it is the default; the export's fields
+  still offer `masks_raw` for comparison. It has no "May still change" badge:
+  the run is finished and verified, and the badge means files may still be
+  written.
+- **Pinned axes, stricter identity.** The runs store no axes. Their (t, y, x)
+  order is pinned by the layout rather than rewriting any `zarr.json`, and
+  each array must store the plate, well, site and run id its path names.
 - **Arrays pinned in code.** Model `masks_raw` offers kinds `nuclei` (array
   `nuclei`, classical objects on raw 625 nm) and `cells` (array `masks_raw`,
   Cellpose-SAM on raw 505 and 625 nm). It is frozen, so it shows no "May still
@@ -996,8 +1014,12 @@ fields (C05, C15, F13 and G07, site 1), recorded in `docs/data/CONVERSION.md`.
 - **Labels are not tracked.** Every frame was segmented on its own, so an id
   names a different object in the next frame. A cell-level review over time
   needs tracking first.
+- **Not offered.** The export's TiLu-corrected cells (`masks_corrected`) are
+  not offered; the production cells equal them except at C15 time index 31,
+  where one export cell is part of a neighbour.
 
-The operator's local check passed on 2026-11-07 and 2026-11-08: on all four
-fields the cell and nucleus outlines are aligned and follow the displayed
-frame, and the counts update with it. The opt-in real-data test confirms every
-frame's counts against the export's tables.
+The operator's local checks passed on 2026-11-07, 2026-11-08 and 2026-11-09:
+on every field checked, the cell and nucleus outlines are aligned and follow
+the displayed frame, and the counts update with it. The opt-in real-data test
+confirms every frame's counts against the export's tables. The Arrhenius check
+of 2026-11-09 is recorded in `docs/arrhenius.md`.

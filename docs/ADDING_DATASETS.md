@@ -97,10 +97,15 @@ A TIMED collection may set `masks_root` to a read-only folder that mirrors its
 plates: `<masks_root>/<plate>.zarr/<well>_s<site>.zarr/` holds the cell array
 `masks_raw` and the nucleus array `nuclei`, laid out as in
 [CONVERSION.md](data/CONVERSION.md#segmentation-masks-timed-addition-2026-11).
-Each array must match its field's timepoints, `t_indices` and plane size; a
-field offers whichever of the two it has. The
-folder is absolute on Slurm profiles, must not contain a data root or its
-collection, and is never browsable, linkable or served.
+It may also set `segmentation_root` to a read-only folder of production runs,
+`<segmentation_root>/<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`
+with the plate's name without `.zarr`; the runs are pinned in code (see
+[Production segmentation](data/CONVERSION.md#production-segmentation)). Each
+array must match its field's timepoints, `t_indices` and plane size, and a run
+array must also store the plate, well, site and run id its path names; a field
+offers whichever kinds it has. Each folder is absolute on Slurm profiles, must
+not contain a data root or its collection, must not overlap another mask
+folder, and is never browsable, linkable or served.
 
 ## Supported data layouts
 

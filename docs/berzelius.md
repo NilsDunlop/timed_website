@@ -82,7 +82,9 @@ available on the operator workstation:
 - per-plate metadata: `D:/TIMED/metadata`;
 - segmentation masks for C05, C15, F13 and G07 site 1: `D:/TIMED/corrected`,
   the profile's read-only `masks_root` (layout in
-  [CONVERSION.md](data/CONVERSION.md)).
+  [CONVERSION.md](data/CONVERSION.md));
+- the production segmentation for every field: `D:/TIMED/seg`, the profile's
+  read-only `segmentation_root`, a copy of the Arrhenius runs.
 
 Choose **Local TIMED (external drive)** and **TIMED** to use it. The
 `local-timed` profile is collection-aware and starts the normal loopback data
@@ -107,9 +109,13 @@ The server check opens the plate through the HTTP facade, loads all 196 metadata
 rows, decodes one real 2500 by 2500 plane from C03 site 1, verifies its repair
 metadata and confirms the source metadata files were unchanged. The browser
 check follows Connect to Data to View, renders that plane and confirms that the
-viewer shows no repair note. The masks check compares every frame's nucleus and
-cell counts on the four masked fields with the export's `counts.csv` tables and two
-outlines with zarr's own decoding, and confirms the mask tree is unchanged.
+viewer shows no repair note and, when the copy has `seg/`, that C03 site 1
+offers the production model alone. The masks check compares every frame's
+nucleus and cell counts on the four masked fields with the export's
+`counts.csv` tables: the export's own masks, and the production run's against
+the tables' nuclei and TiLu-corrected cells, which differ only at C15 time
+index 31. It also compares outlines with zarr's own decoding and confirms both
+mask trees are unchanged.
 
 ## Manual validation
 

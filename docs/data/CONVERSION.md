@@ -125,3 +125,28 @@ not used).
   stored, with no transpose or flip. Mask frame i belongs to image frame i: the
   export's `raw` equals the field, and each frame's nuclei fit that frame's
   cells better than its neighbours'.
+
+### Production segmentation
+
+The production run covers all 392 PB100140_P2.1 fields. It lies on Arrhenius
+under `TIMED/seg/track_v0/production/seg-track-v0`, copied to `D:/TIMED/seg`, as
+`<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`,
+one bare array per run and field. TIMED reads two runs:
+
+- `R4_cpsam_dS_corrected`: Cellpose-SAM cells (diameter 90) on TiLu-corrected
+  505 nm (`tilu_v1_provisional:5feabc75e262`) and raw 625 nm. Its `run.json`
+  names the nucleus run.
+- `R4_cpsam_dS_corrected_nuclei`: classical nuclei (`R2_classical625`) on raw
+  625 nm.
+
+The arrays are stored like the export's: shape, chunks, codecs, `v2` keys and
+`t_indices` 0 to 47 are the same. They have no `axes` attribute, but store
+their `run_id`, `plate`, `well` and `site`, plus per-plane input QC `records`
+(about 450 KB of metadata). Every field's `production_verification.json`
+passed with 48 planes and none refused, from one segmentation commit
+(`44276ae`). Labels number each frame 1 to N without gaps.
+
+On the four exported fields, the nuclei equal the export's `nuclei`. The cells
+equal the export's `masks_corrected` in every frame except C15 time index 31,
+where the run has 39 cells against the export's 40: one export cell is part of
+a neighbour.
