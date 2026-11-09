@@ -49,8 +49,19 @@ test("opens the read-only Berzelius-layout TIMED copy", async ({
   // C03 site 1 carries repair metadata, but the viewer shows no repair note.
   await expect(page.getByTestId("site-position-fix-note")).toHaveCount(0);
   await expect(page.getByText(/Site position repaired/)).toHaveCount(0);
-  // The copy's masks cover four other fields, so this one offers no outlines.
-  await expect(page.getByTestId("segmentation-panel")).toHaveCount(0);
+  // The export's masks cover four other fields; the production run covers
+  // every field, so with the copy's seg/ folder this one offers it alone.
+  const panel = page.getByTestId("segmentation-panel");
+  if (process.env.TIMED_REAL_TIMED_SEGMENTATION === "1") {
+    const model = panel.getByRole("combobox", { name: "Model", exact: true });
+    await expect(model.locator("option")).toHaveText(["R4_cpsam_dS_corrected"]);
+    await expect(panel.getByTestId("segmentation-counts")).toHaveText(
+      "45 nuclei · 55 cells",
+      { timeout: 60_000 },
+    );
+  } else {
+    await expect(panel).toHaveCount(0);
+  }
 
   const canvas = page.locator(".canvas-frame canvas").first();
   await expect(canvas).toBeVisible();

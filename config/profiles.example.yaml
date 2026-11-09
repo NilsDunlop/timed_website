@@ -15,6 +15,7 @@ profiles:
         description: Live-cell time-lapse · 8 plates · 48 h, hourly · 3 channels
         path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
         default: true
+        segmentation_root: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/seg/track_v0/production/seg-track-v0
       - id: idr0080
         title: Cell Health
         description: idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - 9 plates - 5 channels
@@ -68,6 +69,7 @@ profiles:
         path: "D:/TIMED/zarr"
         default: true
         masks_root: "D:/TIMED/corrected"
+        segmentation_root: "D:/TIMED/seg"
 
   - id: test-cluster
     name: Test cluster (local SSH/Slurm harness)
@@ -107,6 +109,7 @@ profiles:
         path: /absolute/path/to/repo/test-data
         default: true
         masks_root: /absolute/path/to/repo/test-data/timed-masks
+        segmentation_root: /absolute/path/to/repo/test-data/timed-seg
       - id: idr0080
         title: Cell Health
         description: idr0080-like CRISPR Cell Painting fixture
@@ -132,6 +135,7 @@ profiles:
         path: ./test-data
         default: true
         masks_root: ./test-data/timed-masks
+        segmentation_root: ./test-data/timed-seg
       - id: idr0080
         title: Cell Health
         description: idr0080-like CRISPR Cell Painting fixture

@@ -14,6 +14,7 @@ import pytest
 from timed_dataserver.mask_store import MaskStoreError
 from timed_dataserver.timed_masks import (
     METADATA_NAME,
+    RunIdentity,
     TimedMaskArrays,
     confined,
     has_array,
@@ -218,3 +219,95 @@ def test_mask_paths_never_follow_a_symlink_out_of_the_mask_folder(tmp_path: Path
     os.symlink(_array_dir(outside) / "0.0.0", shard)
     with pytest.raises(MaskStoreError, match="the shard is missing"):
         _load(inside)
+
+
+def test_an_export_array_must_declare_its_axes(tmp_path: Path) -> None:
+    masks_root = _write(tmp_path)
+    _edit(_array_dir(masks_root) / METADATA_NAME, lambda m: m["attributes"].pop("axes"))
+    with pytest.raises(MaskStoreError, match="the axes are not t, y, x"):
+        _load(masks_root)
+
+
+RUN = RunIdentity(plate="plate", well="A01", site=1, run_id="R4_cpsam_dS_corrected")
+RUN_LABEL = "plate/sites/A01_s1/stage1/R4_cpsam_dS_corrected/labels/plate/A01_s1.zarr"
+
+
+def _write_run(root: Path) -> tuple[Path, Path]:
+    seg_root = root / "seg"
+    array_dir = timed_mask_stores.write_run_array(
+        timed_mask_stores.run_array_dir(seg_root, "plate", "A01", 1, RUN.run_id),
+        _labels(),
+        T_INDICES,
+        plate=RUN.plate,
+        well=RUN.well,
+        site=RUN.site,
+        run_id=RUN.run_id,
+        inner_chunk=CHUNK,
+    )
+    return seg_root, array_dir
+
+
+def _load_run(seg_root: Path, array_dir: Path, run: RunIdentity = RUN):
+    metadata = confined(array_dir / METADATA_NAME, seg_root.resolve())
+    assert metadata is not None
+    return load_array(RUN_LABEL, metadata, seg_root.resolve(), IMAGE_SHAPE, T_INDICES, run)
+
+
+def test_a_run_array_needs_no_axes_and_reads_back_exactly(tmp_path: Path) -> None:
+    seg_root, array_dir = _write_run(tmp_path)
+    metadata = json.loads((array_dir / METADATA_NAME).read_text(encoding="utf-8"))
+    assert "axes" not in metadata["attributes"]
+    array = _load_run(seg_root, array_dir)
+    for t in range(TIMEPOINTS):
+        assert np.array_equal(read_plane(array, t), _labels()[t])
+    # Declared axes are accepted only when they are the pinned order.
+    _edit(array_dir / METADATA_NAME, lambda m: m["attributes"].update(axes=["t", "y", "x"]))
+    assert _load_run(seg_root, array_dir).shape == (TIMEPOINTS, HEIGHT, WIDTH)
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (lambda a: a.update(plate="P2"), "the stored plate 'P2' differs from its path's 'plate'"),
+        (lambda a: a.update(well="A02"), "the stored well 'A02' differs from its path's 'A01'"),
+        (lambda a: a.update(site=2), "the stored site 2 differs from its path's 1"),
+        (lambda a: a.update(site="1"), "the stored site '1' differs from its path's 1"),
+        (lambda a: a.update(site=True), "the stored site True differs from its path's 1"),
+        (
+            lambda a: a.update(run_id="R4_cpsam_dS_corrected_nuclei"),
+            "the stored run_id 'R4_cpsam_dS_corrected_nuclei' differs from its path's",
+        ),
+        (lambda a: a.update(well=["A01"]), "the stored well list differs from its path's 'A01'"),
+        (lambda a: a.pop("run_id"), "the run_id attribute is missing"),
+        (lambda a: a.pop("plate"), "the plate attribute is missing"),
+        (lambda a: a.update(axes=["t", "x", "y"]), "the axes are not t, y, x"),
+        (lambda a: a.update(t_indices=[1, 2, 3, 4]), "time indices differ"),
+    ],
+)
+def test_a_run_array_must_store_what_its_path_names(
+    tmp_path: Path,
+    change: Callable[[dict[str, Any]], None],
+    reason: str,
+) -> None:
+    seg_root, array_dir = _write_run(tmp_path)
+    _edit(array_dir / METADATA_NAME, lambda m: change(m["attributes"]))
+    with pytest.raises(MaskStoreError) as invalid:
+        _load_run(seg_root, array_dir)
+    assert str(invalid.value).startswith(f"TIMED masks {RUN_LABEL} are invalid: ")
+    assert reason in str(invalid.value)
+    assert str(tmp_path) not in str(invalid.value)
+
+
+def test_the_array_cache_keys_on_the_run_it_expects(tmp_path: Path) -> None:
+    seg_root, array_dir = _write_run(tmp_path)
+    arrays = TimedMaskArrays()
+    resolved = seg_root.resolve()
+    first = arrays.get(RUN_LABEL, array_dir, resolved, IMAGE_SHAPE, T_INDICES, RUN)
+    assert first is not None
+    assert arrays.get(RUN_LABEL, array_dir, resolved, IMAGE_SHAPE, T_INDICES, RUN) is first
+    other = RunIdentity(plate="plate", well="A01", site=1, run_id="R5")
+    with pytest.raises(MaskStoreError, match="the stored run_id"):
+        arrays.get(RUN_LABEL, array_dir, resolved, IMAGE_SHAPE, T_INDICES, other)
+    # The same files validated as an export array still need declared axes.
+    with pytest.raises(MaskStoreError, match="the axes are not t, y, x"):
+        arrays.get(RUN_LABEL, array_dir, resolved, IMAGE_SHAPE, T_INDICES)

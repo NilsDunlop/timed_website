@@ -469,6 +469,61 @@ def test_masks_root_is_an_absolute_posix_path_for_slurm() -> None:
     assert collection.qc_available is False
 
 
+def test_segmentation_root_is_an_absolute_posix_path_for_slurm() -> None:
+    base = {"id": "timed", "title": "TIMED", "path": "/data/root/timed"}
+    with pytest.raises(
+        ValidationError, match="segmentation_root must be an absolute POSIX path"
+    ):
+        slurm_profile(collections=[{**base, "segmentation_root": "relative/seg"}])
+    with pytest.raises(ValidationError, match="Mask mapping paths must not contain '='"):
+        slurm_profile(collections=[{**base, "segmentation_root": "/seg=ambiguous"}])
+    profile = slurm_profile(
+        collections=[
+            {**base, "masks_root": "/masks/corrected", "segmentation_root": "/seg/track"}
+        ]
+    )
+    collection = profile.collections[0]
+    assert (collection.masks_root, collection.segmentation_root) == (
+        "/masks/corrected",
+        "/seg/track",
+    )
+    dumped = collection.model_dump()
+    assert "segmentation_root" not in dumped
+    assert "masks_root" not in dumped
+
+
+def test_local_segmentation_root_is_normalized_without_existence_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def profile(segmentation_root: str) -> Profile:
+        return Profile.model_validate(
+            {
+                "id": "local",
+                "name": "Local",
+                "kind": "local",
+                "data_roots": [str(tmp_path)],
+                "collections": [
+                    {
+                        "id": "timed",
+                        "title": "TIMED",
+                        "path": str(tmp_path),
+                        "segmentation_root": segmentation_root,
+                    }
+                ],
+            }
+        )
+
+    assert profile("future-seg").collections[0].segmentation_root == str(
+        (tmp_path / "future-seg").resolve()
+    )
+    assert not (tmp_path / "future-seg").exists()
+    with pytest.raises(ValidationError, match="must not contain '='"):
+        profile("seg=ambiguous")
+
+
 def test_local_masks_root_is_normalized_without_existence_checks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -511,6 +566,7 @@ async def test_profile_listing_never_exposes_the_masks_root(tmp_path: Path) -> N
                 "path": "/data/root/timed",
                 "default": True,
                 "masks_root": "/private/masks/corrected",
+                "segmentation_root": "/private/seg/track",
             }
         ]
     )
@@ -536,3 +592,5 @@ async def test_profile_listing_never_exposes_the_masks_root(tmp_path: Path) -> N
         }
     ]
     assert "masks" not in response.text.lower()
+    assert "segmentation" not in response.text.lower()
+    assert "/private/seg" not in response.text

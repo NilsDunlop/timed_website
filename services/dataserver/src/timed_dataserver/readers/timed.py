@@ -1,12 +1,13 @@
 """Reader for TIMED bare-array collections: the virtual OME-Zarr field facade and masks.
 
-A collection with a configured mask folder (``serve --timed-masks``) offers the
-models pinned below on every field whose mirrored folder holds them. TIMED
-masks cover single fields, so only a field listing reports them: a plate
-listing lists none, as it did before TIMED had masks, and so does a field
-without masks. They have one plane per image timepoint, so every count and
-outline names its timepoint, and cache keys and ETags include it together
-with the mask files' identities.
+A collection with configured mask folders (``serve --timed-masks`` for an
+export mirror, ``serve --timed-segmentation`` for production runs) offers the
+models pinned below on every field whose folder holds them, in this order, so
+the first covering model is the default. TIMED masks cover single fields, so
+only a field listing reports them: a plate listing lists none, as it did
+before TIMED had masks, and so does a field without masks. They have one plane
+per image timepoint, so every count and outline names its timepoint, and cache
+keys and ETags include it together with the mask files' identities.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,7 +34,8 @@ from ..omezarr import (
     collection_resource,
     timed_field_geometry,
 )
-from ..timed_mask_config import mirrored_plate
+from ..timed_mask_config import MaskLayout
+from ..timed_mask_layout import TimedMaskFolder, plate_folders
 from ..timed_masks import TimedMaskArray, has_array, read_plane
 from .base import MaskField
 from .native import NativeStoreReader
@@ -42,9 +45,10 @@ _WELL = re.compile(r"[A-Z]+[0-9]+")
 
 @dataclass(frozen=True, slots=True)
 class TimedMaskModel:
-    """A mask model pinned in code: each kind and the field array that holds it."""
+    """A mask model pinned in code: its layout, and each kind's array or run."""
 
     tag: str
+    layout: MaskLayout
     arrays: tuple[tuple[str, str], ...]
     recipe: str
 
@@ -55,7 +59,14 @@ class TimedMaskModel:
 
 TIMED_MASK_MODELS = (
     TimedMaskModel(
+        tag="R4_cpsam_dS_corrected",
+        layout="production",
+        arrays=(("nuclei", "R4_cpsam_dS_corrected_nuclei"), ("cells", "R4_cpsam_dS_corrected")),
+        recipe="Cellpose-SAM cells (TiLu-corrected 505 + raw 625 nm)",
+    ),
+    TimedMaskModel(
         tag="masks_raw",
+        layout="export",
         arrays=(("nuclei", "nuclei"), ("cells", "masks_raw")),
         recipe="Cellpose-SAM cells (raw 505 + 625 nm) · classical nuclei (raw 625 nm)",
     ),
@@ -99,19 +110,21 @@ class TimedMaskPlane:
 
 
 class TimedMaskSource:
-    """The pinned mask models of one TIMED plate, read from its mirrored folder."""
+    """The pinned mask models of one TIMED plate, each read from its layout's folder."""
 
     def __init__(
         self,
         masks: MaskReader,
         plate: Path,
-        masks_plate: Path,
-        masks_root: Path,
+        folders: Mapping[MaskLayout, TimedMaskFolder],
     ) -> None:
         self._masks = masks
         self._plate = plate
-        self._masks_plate = masks_plate
-        self._masks_root = masks_root
+        self._offered = tuple(
+            (model, folders[model.layout])
+            for model in TIMED_MASK_MODELS
+            if model.layout in folders
+        )
 
     def field(self, well: str, site: int) -> MaskField:
         canonical = well.upper()
@@ -119,33 +132,33 @@ class TimedMaskSource:
             raise MaskNotFoundError(f"TIMED field does not exist: {canonical} site {site}")
         return MaskField(canonical, site)
 
-    @staticmethod
-    def _folder(field: MaskField) -> str:
-        return f"{field.well}_s{field.site}.zarr"
-
-    def _array_dir(self, field: MaskField, array: str) -> Path:
-        return self._masks_plate / self._folder(field) / array
-
     def _image_field(self, field: MaskField) -> Path | None:
         try:
             plate = self._plate.resolve(strict=True)
-            resolved = (self._plate / self._folder(field)).resolve(strict=True)
+            resolved = (self._plate / f"{field.well}_s{field.site}.zarr").resolve(strict=True)
         except OSError:
             return None
         if resolved == plate or not resolved.is_relative_to(plate) or not resolved.is_dir():
             return None
         return resolved
 
-    def _covers(self, model: TimedMaskModel, field: MaskField) -> bool:
-        """A model covers a field whose image exists and that holds any of its arrays."""
-        return self._image_field(field) is not None and any(
-            has_array(self._array_dir(field, array), self._masks_root)
+    @staticmethod
+    def _holds(model: TimedMaskModel, folder: TimedMaskFolder, field: MaskField) -> bool:
+        """Whether the folder holds any of the model's arrays for this field."""
+        return any(
+            has_array(folder.array_dir(field.well, field.site, array), folder.root)
             for _kind, array in model.arrays
         )
 
     def models(self, field: MaskField | None = None) -> list[MaskModelEntry]:
-        if field is None:
+        """The models covering a field whose image exists; the first is the default."""
+        if field is None or self._image_field(field) is None:
             return []
+        covering = [
+            (model, folder)
+            for model, folder in self._offered
+            if self._holds(model, folder, field)
+        ]
         return [
             MaskModelEntry(
                 model=MaskModel(
@@ -154,20 +167,18 @@ class TimedMaskSource:
                     kinds=model.kinds,
                     frozen=True,
                     created_at=None,
-                    directory=self._masks_plate,
+                    directory=folder.plate,
                 ),
                 available=True,
                 default=position == 0,
             )
-            for position, model in enumerate(TIMED_MASK_MODELS)
-            if self._covers(model, field)
+            for position, (model, folder) in enumerate(covering)
         ]
 
-    @staticmethod
-    def _model(model_tag: str) -> TimedMaskModel:
-        for model in TIMED_MASK_MODELS:
+    def _model(self, model_tag: str) -> tuple[TimedMaskModel, TimedMaskFolder]:
+        for model, folder in self._offered:
             if model.tag == model_tag:
-                return model
+                return model, folder
         raise MaskNotFoundError(f"Unknown mask model: {model_tag}")
 
     @staticmethod
@@ -179,6 +190,7 @@ class TimedMaskSource:
     def _arrays(
         self,
         model: TimedMaskModel,
+        folder: TimedMaskFolder,
         field: MaskField,
         kinds: tuple[str, ...],
     ) -> dict[str, TimedMaskArray]:
@@ -196,11 +208,12 @@ class TimedMaskSource:
             if kind not in kinds:
                 continue
             array = self._masks.timed_arrays.get(
-                f"{self._masks_plate.name}/{self._folder(field)}/{array_name}",
-                self._array_dir(field, array_name),
-                self._masks_root,
+                folder.label(field.well, field.site, array_name),
+                folder.array_dir(field.well, field.site, array_name),
+                folder.root,
                 shape,
                 t_indices,
+                folder.run(field.well, field.site, array_name),
             )
             if array is not None:
                 found[kind] = array
@@ -216,9 +229,9 @@ class TimedMaskSource:
         return t
 
     def counts(self, model_tag: str, field: MaskField, t: int | None = None) -> dict[str, int]:
-        model = self._model(model_tag)
+        model, folder = self._model(model_tag)
         timepoint = self._require_timepoint(t)
-        arrays = self._arrays(model, field, model.kinds)
+        arrays = self._arrays(model, folder, field, model.kinds)
         if not arrays:
             raise MaskNotFoundError(f"No masks for {field.well} site {field.site}")
         return {
@@ -235,11 +248,11 @@ class TimedMaskSource:
         kind: str,
         t: int | None = None,
     ) -> TimedMaskPlane:
-        model = self._model(model_tag)
+        model, folder = self._model(model_tag)
         if kind not in model.kinds:
             raise MaskNotFoundError(f"No {kind} mask for {field.well} site {field.site}")
         timepoint = self._require_timepoint(t)
-        array = self._arrays(model, field, (kind,)).get(kind)
+        array = self._arrays(model, folder, field, (kind,)).get(kind)
         if array is None:
             raise MaskNotFoundError(f"No {kind} mask for {field.well} site {field.site}")
         return TimedMaskPlane(self._masks, array, kind, self._check_timepoint(array, timepoint))
@@ -252,8 +265,7 @@ class TimedCollectionReader(NativeStoreReader):
         return collection_resource(self.dataset.path, resource_path)
 
     def mask_source(self) -> TimedMaskSource | None:
-        located = mirrored_plate(self.ctx.timed_masks, self.dataset.path)
-        if located is None:
+        folders = plate_folders(self.ctx.timed_masks, self.dataset.path)
+        if not folders:
             return None
-        mapping, masks_plate = located
-        return TimedMaskSource(self.ctx.masks, self.dataset.path, masks_plate, mapping.masks_root)
+        return TimedMaskSource(self.ctx.masks, self.dataset.path, folders)

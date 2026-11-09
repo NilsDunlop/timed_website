@@ -13,8 +13,11 @@ from timed_dataserver.timed_mask_config import (
     mask_private_folders,
     mirrored_plate,
     parse_timed_mask_mappings,
+    production_plate,
     resolve_timed_mask_mappings,
 )
+from timed_dataserver.timed_mask_layout import TimedMaskFolder, plate_folders
+from timed_dataserver.timed_masks import RunIdentity
 
 
 def test_mappings_parse_one_absolute_collection_and_folder_each(tmp_path: Path) -> None:
@@ -127,9 +130,11 @@ def test_plates_mirror_into_the_innermost_collections_folder(tmp_path: Path) -> 
     assert mirrored_plate((inner,), tmp_path / "elsewhere" / "P1.zarr") is None
 
 
+@pytest.mark.parametrize("option", ["--timed-masks", "--timed-segmentation"])
 def test_the_cli_reports_a_malformed_mapping(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    option: str,
 ) -> None:
     with pytest.raises(SystemExit) as stopped:
         cli.main(
@@ -145,9 +150,122 @@ def test_the_cli_reports_a_malformed_mapping(
                 str(tmp_path / "connection.json"),
                 "--environment",
                 "local",
-                "--timed-masks",
+                option,
                 "relative=folder",
             ]
         )
     assert stopped.value.code == 2
-    assert "--timed-masks paths must be absolute" in capsys.readouterr().err
+    assert f"{option} paths must be absolute" in capsys.readouterr().err
+
+
+def test_production_mappings_carry_their_layout_and_option(tmp_path: Path) -> None:
+    collection, folder = tmp_path / "zarr", tmp_path / "seg"
+    assert parse_timed_mask_mappings([f"{collection}={folder}"], layout="production") == (
+        TimedMaskMapping(collection=collection, masks_root=folder, layout="production"),
+    )
+    value = f"{collection}={folder}"
+    with pytest.raises(MaskConfigurationError, match="--timed-segmentation repeats a collection"):
+        parse_timed_mask_mappings([value, value], layout="production")
+
+
+def test_a_collection_has_at_most_one_folder_per_layout(tmp_path: Path) -> None:
+    data, guard = _root(tmp_path)
+    export = TimedMaskMapping(data / "zarr", tmp_path / "corrected")
+    production = TimedMaskMapping(data / "zarr", tmp_path / "seg", layout="production")
+    resolved = resolve_timed_mask_mappings((export, production), guard)
+    assert [mapping.layout for mapping in resolved] == ["export", "production"]
+    private = mask_private_folders(resolved, guard)
+    assert private.contains((tmp_path / "seg").resolve() / "P1" / "sites")
+    second = TimedMaskMapping(data / "zarr", tmp_path / "seg-2", layout="production")
+    with pytest.raises(MaskConfigurationError, match="repeats a collection"):
+        resolve_timed_mask_mappings((production, second), guard)
+
+
+@pytest.mark.parametrize(
+    ("export", "production"),
+    [
+        ("masks", "masks/seg"),
+        ("masks/corrected", "masks"),
+        ("masks", "masks"),
+    ],
+)
+def test_production_and_export_folders_never_overlap(
+    tmp_path: Path, export: str, production: str
+) -> None:
+    data, guard = _root(tmp_path)
+    with pytest.raises(MaskConfigurationError, match="cannot overlap each other"):
+        resolve_timed_mask_mappings(
+            (
+                TimedMaskMapping(data / "zarr", tmp_path / export),
+                TimedMaskMapping(data / "zarr", tmp_path / production, layout="production"),
+            ),
+            guard,
+        )
+
+
+def test_production_folders_follow_the_same_startup_rules(tmp_path: Path) -> None:
+    data, guard = _root(tmp_path)
+    for folder, message in (
+        (data, "cannot contain a data root"),
+        (data / "zarr", "cannot contain their collection"),
+    ):
+        with pytest.raises(MaskConfigurationError, match=message):
+            resolve_timed_mask_mappings(
+                (TimedMaskMapping(data / "zarr", folder, layout="production"),),
+                guard,
+            )
+
+
+def test_production_plates_drop_only_the_zarr_suffix(tmp_path: Path) -> None:
+    export = TimedMaskMapping(tmp_path / "data", tmp_path / "corrected")
+    outer = TimedMaskMapping(tmp_path / "data", tmp_path / "outer-seg", layout="production")
+    inner = TimedMaskMapping(tmp_path / "data" / "zarr", tmp_path / "seg", layout="production")
+    plate = tmp_path / "data" / "zarr" / "PB100140_P2.1.zarr"
+    assert production_plate((export, outer, inner), plate) == (
+        inner,
+        tmp_path / "seg" / "PB100140_P2.1",
+        "PB100140_P2.1",
+    )
+    assert production_plate((outer,), plate) == (
+        outer,
+        tmp_path / "outer-seg" / "zarr" / "PB100140_P2.1",
+        "PB100140_P2.1",
+    )
+    # A plate folder without the suffix keeps its whole name, dots included.
+    assert production_plate((inner,), tmp_path / "data" / "zarr" / "P2.1") == (
+        inner,
+        tmp_path / "seg" / "P2.1",
+        "P2.1",
+    )
+    assert production_plate((export,), plate) is None
+    assert mirrored_plate((outer, inner), plate) is None
+    assert production_plate((inner,), tmp_path / "data" / "zarr" / ".zarr") is None
+    assert production_plate((inner,), tmp_path / "data" / "zarr") is None
+
+
+def test_plate_folders_place_each_layouts_arrays(tmp_path: Path) -> None:
+    collection = tmp_path / "data" / "zarr"
+    plate = collection / "PB100140_P2.1.zarr"
+    folders = plate_folders(
+        (
+            TimedMaskMapping(collection, tmp_path / "corrected"),
+            TimedMaskMapping(collection, tmp_path / "seg", layout="production"),
+        ),
+        plate,
+    )
+    export, production = folders["export"], folders["production"]
+    assert export == TimedMaskFolder(
+        "export", tmp_path / "corrected", tmp_path / "corrected" / plate.name, plate.name
+    )
+    assert export.array_dir("C05", 1, "masks_raw") == (
+        tmp_path / "corrected" / "PB100140_P2.1.zarr" / "C05_s1.zarr" / "masks_raw"
+    )
+    assert export.label("C05", 1, "nuclei") == "PB100140_P2.1.zarr/C05_s1.zarr/nuclei"
+    assert export.run("C05", 1, "nuclei") is None
+    run = "R4_cpsam_dS_corrected"
+    assert production.label("C05", 1, run) == (
+        f"PB100140_P2.1/sites/C05_s1/stage1/{run}/labels/PB100140_P2.1/C05_s1.zarr"
+    )
+    assert production.array_dir("C05", 1, run).is_relative_to(tmp_path / "seg")
+    assert production.run("C05", 1, run) == RunIdentity("PB100140_P2.1", "C05", 1, run)
+    assert plate_folders((), plate) == {}

@@ -6,6 +6,10 @@ index at the end. It must match its image field exactly: the same number of
 timepoints, the same ``t_indices`` and the same plane size, so array position
 i is image timepoint i. Anything else makes the masks invalid.
 
+An export array declares its axes. A production run's array stores no axes;
+its (t, y, x) order is pinned by its layout instead, and the array must store
+the plate, well, site and run that its path names.
+
 Every file is opened read-only, without following a final symlink, inside its
 configured mask folder. An array is identified by its metadata's and shard's
 device, inode, size and mtime, so a regenerated export is picked up on the
@@ -42,6 +46,16 @@ _ARRAY_ENTRIES = 256
 _LOG = logging.getLogger(__name__)
 
 type Identity = tuple[int, int, int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class RunIdentity:
+    """What a production run's array must store about itself, as its path names it."""
+
+    plate: str
+    well: str
+    site: int
+    run_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,11 +186,32 @@ def _require[T](value: T | None, label: str, reason: str) -> T:
     return value
 
 
+def _check_run(label: str, attributes: dict[str, Any], run: RunIdentity) -> None:
+    """A production array must store the plate, well, site and run its path names."""
+    if attributes.get("axes", ["t", "y", "x"]) != ["t", "y", "x"]:
+        raise _invalid(label, "the axes are not t, y, x")
+    for name, expected in (
+        ("plate", run.plate),
+        ("well", run.well),
+        ("site", run.site),
+        ("run_id", run.run_id),
+    ):
+        if name not in attributes:
+            raise _invalid(label, f"the {name} attribute is missing")
+        stored = attributes[name]
+        if type(stored) is not type(expected) or stored != expected:
+            shown = repr(stored) if isinstance(stored, str | int) else type(stored).__name__
+            raise _invalid(
+                label, f"the stored {name} {shown[:60]} differs from its path's {expected!r}"
+            )
+
+
 def _validate(
     label: str,
     metadata: dict[str, Any],
     image_shape: tuple[int, ...],
     image_t_indices: tuple[int, ...],
+    run: RunIdentity | None = None,
 ) -> tuple[tuple[int, int, int], tuple[int, int], str]:
     """Return the array's shape, inner chunk plane and shard key, or raise."""
     if metadata.get("zarr_format") != 3 or metadata.get("node_type") != "array":
@@ -193,7 +228,9 @@ def _validate(
         raise _invalid(label, "the fill value is not 0")
     attributes = metadata.get("attributes")
     attributes = attributes if isinstance(attributes, dict) else {}
-    if attributes.get("axes") != ["t", "y", "x"]:
+    if run is not None:
+        _check_run(label, attributes, run)
+    elif attributes.get("axes") != ["t", "y", "x"]:
         raise _invalid(label, "the axes are not t, y, x")
     t_indices = attributes.get("t_indices")
     if (
@@ -316,10 +353,11 @@ def load_array(
     masks_root: Path,
     image_shape: tuple[int, ...],
     image_t_indices: tuple[int, ...],
+    run: RunIdentity | None = None,
 ) -> TimedMaskArray:
     """Validate one field's mask array from its resolved metadata file."""
     metadata_identity, metadata = _read_metadata(label, metadata_path)
-    shape, chunk, key = _validate(label, metadata, image_shape, image_t_indices)
+    shape, chunk, key = _validate(label, metadata, image_shape, image_t_indices, run)
     shard = confined(metadata_path.parent.joinpath(*key.split("/")), masks_root)
     if shard is None:
         raise _invalid(label, "the shard is missing")
@@ -348,7 +386,9 @@ class TimedMaskArrays:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._entries: dict[tuple[Path, tuple[int, ...], tuple[int, ...]], TimedMaskArray] = {}
+        self._entries: dict[
+            tuple[Path, tuple[int, ...], tuple[int, ...], RunIdentity | None], TimedMaskArray
+        ] = {}
 
     def clear(self) -> None:
         with self._lock:
@@ -361,10 +401,11 @@ class TimedMaskArrays:
         masks_root: Path,
         image_shape: tuple[int, ...],
         image_t_indices: tuple[int, ...],
+        run: RunIdentity | None = None,
     ) -> TimedMaskArray | None:
         """One field's array; None when it has no metadata inside the mask folder."""
         metadata_path = confined(array_dir / METADATA_NAME, masks_root)
-        key = (array_dir, image_shape, image_t_indices)
+        key = (array_dir, image_shape, image_t_indices, run)
         if metadata_path is None:
             with self._lock:
                 self._entries.pop(key, None)
@@ -378,7 +419,7 @@ class TimedMaskArrays:
             and _current_identity(cached.shard) == cached.shard_identity
         ):
             return cached
-        array = load_array(label, metadata_path, masks_root, image_shape, image_t_indices)
+        array = load_array(label, metadata_path, masks_root, image_shape, image_t_indices, run)
         with self._lock:
             if key not in self._entries and len(self._entries) >= _ARRAY_ENTRIES:
                 self._entries.pop(next(iter(self._entries)))

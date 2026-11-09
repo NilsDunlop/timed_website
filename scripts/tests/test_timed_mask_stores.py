@@ -1,4 +1,4 @@
-"""The synthetic TIMED masks: the export's layout, known labels, and time-varying counts."""
+"""The synthetic TIMED masks: both layouts, known labels, and time-varying counts."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import zarr
 
 from scripts import make_test_data, timed_mask_stores
@@ -85,3 +86,93 @@ def test_regenerating_replaces_only_the_mask_folder(tmp_path: Path) -> None:
         root = _write(tmp_path)
     assert sorted(path.name for path in root.iterdir()) == ["test_plate.zarr", "test_plate_2.zarr"]
     assert sibling.is_dir()
+
+
+def _write_segmentation(tmp_path: Path) -> Path:
+    return timed_mask_stores.write_fixture_timed_segmentation(
+        tmp_path,
+        timepoints=SHAPE[0],
+        height=SHAPE[1],
+        width=SHAPE[2],
+    )
+
+
+def test_production_runs_follow_the_pipelines_layout(tmp_path: Path) -> None:
+    root = _write_segmentation(tmp_path)
+    assert root == tmp_path / timed_mask_stores.TIMED_SEGMENTATION_DIRECTORY
+    written = sorted(path.relative_to(root).as_posix() for path in root.rglob("zarr.json"))
+    assert written == sorted(
+        f"{plate}/sites/{well}_s{site}/stage1/{run}/labels/{plate}/{well}_s{site}.zarr/zarr.json"
+        for plate, well, site in timed_mask_stores.SEGMENTED_FIELDS
+        for run in (timed_mask_stores.CELL_RUN, timed_mask_stores.NUCLEUS_RUN)
+    )
+    array_dir = timed_mask_stores.run_array_dir(
+        root, "test_plate", "A02", 2, timed_mask_stores.CELL_RUN
+    )
+    assert sorted(path.name for path in array_dir.iterdir()) == ["0.0.0", "zarr.json"]
+    metadata = json.loads((array_dir / "zarr.json").read_text("utf-8"))
+    assert metadata["node_type"] == "array"
+    assert metadata["shape"] == list(SHAPE)
+    assert metadata["chunk_key_encoding"] == {"name": "v2", "configuration": {"separator": "."}}
+    assert metadata["codecs"][0]["configuration"]["chunk_shape"] == [
+        1,
+        *timed_mask_stores.INNER_CHUNK,
+    ]
+    # Like the real runs: the run's identity, no axes and no dimension names.
+    assert metadata["attributes"] == {
+        "run_id": timed_mask_stores.CELL_RUN,
+        "plate": "test_plate",
+        "well": "A02",
+        "site": 2,
+        "illumination": "synthetic",
+        "shape": list(SHAPE),
+        "t_indices": [0, 1, 2, 3, 4, 5],
+    }
+    assert "dimension_names" not in metadata
+
+
+def test_production_labels_differ_from_the_exports_on_every_frame(tmp_path: Path) -> None:
+    root = _write_segmentation(tmp_path)
+    for index, (plate, well, site) in enumerate(timed_mask_stores.SEGMENTED_FIELDS):
+        cells = np.asarray(
+            zarr.open_array(
+                timed_mask_stores.run_array_dir(
+                    root, plate, well, site, timed_mask_stores.CELL_RUN
+                ),
+                mode="r",
+            )[:]
+        )
+        nuclei = np.asarray(
+            zarr.open_array(
+                timed_mask_stores.run_array_dir(
+                    root, plate, well, site, timed_mask_stores.NUCLEUS_RUN
+                ),
+                mode="r",
+            )[:]
+        )
+        for t in range(SHAPE[0]):
+            count = timed_mask_stores.production_cell_count(index, t)
+            assert count != timed_mask_stores.cell_count(index, t)
+            assert np.unique(cells[t]).tolist() == list(range(count + 1))
+            assert np.array_equal(
+                cells[t], timed_mask_stores.production_frame_labels(index, t, *SHAPE[1:])
+            )
+            nucleus_total = timed_mask_stores.production_nucleus_count(index, t)
+            assert np.unique(nuclei[t]).tolist() == list(range(nucleus_total + 1))
+            assert np.array_equal(cells[t][nuclei[t] > 0], nuclei[t][nuclei[t] > 0])
+            assert not np.array_equal(
+                cells[t] > 0, timed_mask_stores.frame_labels(index, t, *SHAPE[1:]) > 0
+            )
+
+
+def test_regenerating_replaces_only_the_segmentation_folder(tmp_path: Path) -> None:
+    masks = _write(tmp_path)
+    for _run in range(2):
+        make_test_data._replace_timed_masks_directory(
+            tmp_path, timed_mask_stores.TIMED_SEGMENTATION_DIRECTORY
+        )
+        root = _write_segmentation(tmp_path)
+    assert sorted(path.name for path in root.iterdir()) == ["test_plate", "test_plate_2"]
+    assert masks.is_dir()
+    with pytest.raises(ValueError, match="unexpected mask folder"):
+        make_test_data._replace_timed_masks_directory(tmp_path, "test_plate.zarr")

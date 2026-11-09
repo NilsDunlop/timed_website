@@ -428,6 +428,7 @@ def test_local_timed_profile_keeps_windows_drive_paths_and_has_only_timed() -> N
     if os.name == "nt":
         assert collection.path == str(Path("D:/TIMED/zarr").resolve())
         assert collection.masks_root == str(Path("D:/TIMED/corrected").resolve())
+        assert collection.segmentation_root == str(Path("D:/TIMED/seg").resolve())
         validated = validate_profile(store, "local-timed")
         assert LocalBackend._data_roots(validated) == [Path("D:/TIMED/zarr").resolve()]
         assert LocalBackend._metadata_root(validated) == Path("D:/TIMED/metadata").resolve()
@@ -456,12 +457,39 @@ def test_example_fixture_profiles_mirror_timed_masks_beside_the_plates() -> None
 
     cluster_timed = store.get("test-cluster-datasets").collections[0]
     assert cluster_timed.masks_root == "/absolute/path/to/repo/test-data/timed-masks"
+    assert cluster_timed.segmentation_root == "/absolute/path/to/repo/test-data/timed-seg"
     local_timed = store.get("local-datasets").collections[0]
     assert local_timed.masks_root == str((repository_root / "test-data" / "timed-masks").resolve())
+    assert local_timed.segmentation_root == str(
+        (repository_root / "test-data" / "timed-seg").resolve()
+    )
     for profile_id in ("arrhenius", "berzelius", "test-cluster", "local"):
         assert all(
             collection.masks_root is None for collection in store.get(profile_id).collections
         )
+
+
+def test_the_arrhenius_timed_collection_reads_the_production_segmentation() -> None:
+    repository_root = Path(__file__).parents[3]
+    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+    timed, cell_health = store.get("arrhenius").collections
+    assert timed.segmentation_root == (
+        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/seg/track_v0/production/"
+        "seg-track-v0"
+    )
+    assert cell_health.segmentation_root is None
+    for profile_id in ("berzelius", "test-cluster", "local"):
+        assert all(
+            collection.segmentation_root is None
+            for collection in store.get(profile_id).collections
+        )
+    script = render_job_script(
+        store.get("arrhenius"),
+        executable="/state/server/0.7.0/venv/bin/timed-dataserver",
+        shell_state_dir="/state",
+    )
+    assert script.count("--timed-segmentation") == 1
+    assert "--timed-masks" not in script
 
 
 def test_first_plate_skips_entries_without_ome_zarr_metadata() -> None:
@@ -494,6 +522,7 @@ def test_export_openapi(capsys: pytest.CaptureFixture[str]) -> None:
     assert "qc_export" not in collection_schema["properties"]
     assert "qc_annotations" not in collection_schema["properties"]
     assert "masks_root" not in collection_schema["properties"]
+    assert "segmentation_root" not in collection_schema["properties"]
 
 
 def test_committed_openapi_matches_export(capsys: pytest.CaptureFixture[str]) -> None:
@@ -757,6 +786,7 @@ def test_slurm_script_maps_each_timed_collection_to_its_masks() -> None:
                 "title": "TIMED",
                 "path": "/data/with space/zarr",
                 "masks_root": "/masks with space/corrected",
+                "segmentation_root": "/seg with space/track",
             },
             {"id": "other", "title": "Other", "path": "/data/with space/other"},
         ],
@@ -768,6 +798,8 @@ def test_slurm_script_maps_each_timed_collection_to_its_masks() -> None:
     )
     assert "--timed-masks '/data/with space/zarr=/masks with space/corrected'" in script
     assert script.count("--timed-masks") == 1
+    assert "--timed-segmentation '/data/with space/zarr=/seg with space/track'" in script
+    assert script.count("--timed-segmentation") == 1
 
 
 @pytest.mark.asyncio
@@ -778,6 +810,7 @@ async def test_local_backend_forwards_the_masks_root_without_prechecking_it(
     data_root = tmp_path / "data"
     data_root.mkdir()
     masks_root = tmp_path / "future-masks"
+    segmentation_root = tmp_path / "future-seg"
     profile = Profile.model_validate(
         {
             "id": "local",
@@ -790,6 +823,7 @@ async def test_local_backend_forwards_the_masks_root_without_prechecking_it(
                     "title": "TIMED",
                     "path": str(data_root),
                     "masks_root": str(masks_root),
+                    "segmentation_root": str(segmentation_root),
                 }
             ],
         }
@@ -810,8 +844,13 @@ async def test_local_backend_forwards_the_masks_root_without_prechecking_it(
     try:
         position = arguments.index("--timed-masks")
         assert arguments[position + 1] == f"{data_root.resolve()}={masks_root.resolve()}"
+        position = arguments.index("--timed-segmentation")
+        assert arguments[position + 1] == (
+            f"{data_root.resolve()}={segmentation_root.resolve()}"
+        )
         assert "--qc-export" not in arguments
         assert not masks_root.exists()
+        assert not segmentation_root.exists()
     finally:
         await backend.close(context)  # type: ignore[arg-type]
 

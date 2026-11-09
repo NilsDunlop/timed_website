@@ -145,6 +145,11 @@ def test_generator_mirrors_inventory_and_writes_native_ome_formats(tmp_path: Pat
             "path": str(tmp_path / "qc-export-next"),
             skip_field: "no Zarr metadata and no *.zarr inside",
         },
+        {
+            # Production runs sit below plain plate folders, not *.zarr stores.
+            "path": str(tmp_path / "timed-seg"),
+            skip_field: "no Zarr metadata and no *.zarr inside",
+        },
     ]
     assert errors == []
     assert set(by_name) == {

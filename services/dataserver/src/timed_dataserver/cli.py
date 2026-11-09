@@ -77,6 +77,14 @@ def _parser() -> argparse.ArgumentParser:
         metavar="COLLECTION=FOLDER",
         help="read-only mask folder mirroring a TIMED collection's plates; may be repeated",
     )
+    serve_parser.add_argument(
+        "--timed-segmentation",
+        action="append",
+        default=[],
+        metavar="COLLECTION=FOLDER",
+        help="read-only folder of a TIMED collection's production segmentation runs; "
+        "may be repeated",
+    )
 
     subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
     return parser
@@ -188,7 +196,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         qc_paths = parse_qc_path_configs(args.qc_export, args.qc_annotations)
-        timed_masks = parse_timed_mask_mappings(args.timed_masks)
+        timed_masks = parse_timed_mask_mappings(args.timed_masks) + parse_timed_mask_mappings(
+            args.timed_segmentation, layout="production"
+        )
     except (QcConfigurationError, MaskConfigurationError) as exc:
         parser.error(str(exc))
     settings = ServerSettings(

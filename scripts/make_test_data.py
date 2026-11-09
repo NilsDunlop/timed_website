@@ -24,10 +24,20 @@ from zarr.codecs import BloscCodec
 
 if __package__:
     from .mask_stores import write_fixture_mask_stores, write_reader_decoys
-    from .timed_mask_stores import TIMED_MASKS_DIRECTORY, write_fixture_timed_masks
+    from .timed_mask_stores import (
+        TIMED_MASKS_DIRECTORY,
+        TIMED_SEGMENTATION_DIRECTORY,
+        write_fixture_timed_masks,
+        write_fixture_timed_segmentation,
+    )
 else:  # Run directly as scripts/make_test_data.py.
     from mask_stores import write_fixture_mask_stores, write_reader_decoys
-    from timed_mask_stores import TIMED_MASKS_DIRECTORY, write_fixture_timed_masks
+    from timed_mask_stores import (
+        TIMED_MASKS_DIRECTORY,
+        TIMED_SEGMENTATION_DIRECTORY,
+        write_fixture_timed_masks,
+        write_fixture_timed_segmentation,
+    )
 
 TIMEPOINTS = 6
 HEIGHT = 512
@@ -312,11 +322,13 @@ def _replace_packed_fixture_directory(output: Path) -> Path:
     return target
 
 
-def _replace_timed_masks_directory(output: Path) -> None:
-    target = output / TIMED_MASKS_DIRECTORY
+def _replace_timed_masks_directory(output: Path, name: str = TIMED_MASKS_DIRECTORY) -> None:
+    if name not in (TIMED_MASKS_DIRECTORY, TIMED_SEGMENTATION_DIRECTORY):
+        raise ValueError(f"Refusing to replace an unexpected mask folder: {name}")
+    target = output / name
     resolved_output = output.resolve()
     resolved_target = target.resolve()
-    if resolved_target.parent != resolved_output or target.name != TIMED_MASKS_DIRECTORY:
+    if resolved_target.parent != resolved_output or target.name != name:
         raise ValueError(f"Refusing to replace unexpected path: {target}")
     if target.exists():
         shutil.rmtree(target)
@@ -1475,6 +1487,10 @@ def generate_test_data(
         )
         _replace_timed_masks_directory(output)
         write_fixture_timed_masks(output, timepoints=TIMEPOINTS, height=HEIGHT, width=WIDTH)
+        _replace_timed_masks_directory(output, TIMED_SEGMENTATION_DIRECTORY)
+        write_fixture_timed_segmentation(
+            output, timepoints=TIMEPOINTS, height=HEIGHT, width=WIDTH
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
