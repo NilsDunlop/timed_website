@@ -1,9 +1,10 @@
 .PHONY: dev test-cluster test test-e2e test-data gen-api check-api lint
 
-PROFILES ?= config/profiles.example.yaml
+# Empty: config/profiles.yaml plus the optional ~/.timed/profiles.local.yaml.
+PROFILES ?=
 
 dev:
-	uv run python scripts/dev.py --profiles "$(PROFILES)"
+	uv run python scripts/dev.py $(if $(PROFILES),--profiles "$(PROFILES)",)
 
 test-cluster:
 	uv run python dev/test_cluster/server.py

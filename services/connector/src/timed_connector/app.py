@@ -108,7 +108,7 @@ def create_app(
     )
     async def connect(request: ConnectRequest) -> SessionSnapshot:
         try:
-            return await session.connect(request.profile_id)
+            return await session.connect(request.profile_id, request.username)
         except SessionError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

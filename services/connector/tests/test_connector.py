@@ -310,9 +310,32 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
     assert parse_job_id("1234;cluster\n") == "1234"
 
 
+REPOSITORY_ROOT = Path(__file__).parents[3]
+SHARED_PROFILES = REPOSITORY_ROOT / "config" / "profiles.yaml"
+DEV_PROFILES = REPOSITORY_ROOT / "config" / "profiles.dev.yaml"
+
+
+def test_the_shared_profiles_hold_only_arrhenius_without_a_username() -> None:
+    store = load_profiles(SHARED_PROFILES)
+    assert [profile.id for profile in store.public()] == ["arrhenius"]
+    profile = store.get("arrhenius")
+    assert profile.username is None
+    assert profile.ssh_key is None
+    assert "username" not in SHARED_PROFILES.read_text(encoding="utf-8")
+
+
+def test_the_development_profiles_hold_the_test_cluster_and_fixtures() -> None:
+    store = load_profiles(DEV_PROFILES)
+    assert [profile.id for profile in store.public()] == [
+        "test-cluster",
+        "local",
+        "test-cluster-datasets",
+        "local-datasets",
+    ]
+
+
 def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
-    repository_root = Path(__file__).parents[3]
-    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+    store = load_profiles(SHARED_PROFILES)
     profile = store.get("arrhenius")
 
     assert profile.slurm is not None
@@ -359,7 +382,7 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     )
 
     script = render_job_script(
-        profile,
+        profile.for_user("colleague"),
         executable="/state/server/0.1.0/venv/bin/timed-dataserver",
         shell_state_dir="/state",
     )
@@ -370,39 +393,18 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     assert f"--qc-annotations {cell_health.path}={cell_health.qc_annotations}" in script
 
 
-def test_berzelius_profile_is_cpu_only_and_has_only_timed() -> None:
-    repository_root = Path(__file__).parents[3]
-    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
-    assert [profile.id for profile in store.public()][:2] == ["arrhenius", "berzelius"]
-    profile = store.get("berzelius")
-
-    assert profile.host == "berzelius.nsc.liu.se"
-    assert profile.username == "x_nildu"
-    assert profile.data_roots == ["/proj/berzelius-2026-62/users/x_nildu/TIMED/zarr"]
-    assert profile.metadata_root == "/proj/berzelius-2026-62/users/x_nildu/TIMED/metadata"
-    assert len(profile.collections) == 1
-    assert profile.collections[0].model_dump() == {
-        "id": "timed",
-        "title": "TIMED",
-        "description": "Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels",
-        "path": "/proj/berzelius-2026-62/users/x_nildu/TIMED/zarr",
-        "default": True,
-        "qc_available": False,
-    }
-    assert profile.slurm is not None
-    assert profile.slurm.account == "berzelius-2026-299"
-    assert profile.slurm.partition == "berzelius-cpu"
-    assert profile.slurm.cpus == 2
-    assert profile.slurm.time == "08:00:00"
-    assert profile.slurm.mem is None
-
+def test_a_cpu_profile_without_memory_requests_neither_memory_nor_gpus() -> None:
+    profile = slurm_profile(
+        slurm={"account": "project-cpu", "partition": "cpu-only", "time": "08:00:00", "cpus": 2},
+        collections=[{"id": "timed", "title": "TIMED", "path": "/data/zarr", "default": True}],
+    )
     script = render_job_script(
         profile,
         executable="/state/server/0.5.1/venv/bin/timed-dataserver",
         shell_state_dir="/state",
     )
-    assert "#SBATCH --account=berzelius-2026-299" in script
-    assert "#SBATCH --partition=berzelius-cpu" in script
+    assert "#SBATCH --account=project-cpu" in script
+    assert "#SBATCH --partition=cpu-only" in script
     assert "#SBATCH --cpus-per-task=2" in script
     assert "#SBATCH --time=08:00:00" in script
     assert "#SBATCH --mem=" not in script
@@ -411,32 +413,43 @@ def test_berzelius_profile_is_cpu_only_and_has_only_timed() -> None:
     assert "--qc-annotations" not in script
 
 
-def test_local_timed_profile_keeps_windows_drive_paths_and_has_only_timed() -> None:
-    repository_root = Path(__file__).parents[3]
-    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
-    profile = store.get("local-timed")
-
-    assert profile.kind == "local"
-    assert profile.data_roots == ["D:/TIMED/zarr"]
-    assert profile.metadata_root == "D:/TIMED/metadata"
-    assert len(profile.collections) == 1
+def test_local_profiles_keep_drive_letter_paths_whole(tmp_path: Path) -> None:
+    # Forward-slash drive paths such as D:/TIMED/zarr, written here from tmp_path.
+    timed = tmp_path / "TIMED"
+    data, metadata = timed / "zarr", timed / "metadata"
+    data.mkdir(parents=True)
+    metadata.mkdir()
+    profile = Profile.model_validate(
+        {
+            "id": "local-timed",
+            "name": "Local TIMED",
+            "kind": "local",
+            "data_roots": [data.as_posix()],
+            "metadata_root": metadata.as_posix(),
+            "collections": [
+                {
+                    "id": "timed",
+                    "title": "TIMED",
+                    "path": data.as_posix(),
+                    "default": True,
+                    "masks_root": (timed / "corrected").as_posix(),
+                    "segmentation_root": (timed / "seg").as_posix(),
+                }
+            ],
+        }
+    )
     collection = profile.collections[0]
-    assert collection.id == "timed"
-    assert collection.title == "TIMED"
-    assert collection.default
-    assert not collection.qc_available
-    if os.name == "nt":
-        assert collection.path == str(Path("D:/TIMED/zarr").resolve())
-        assert collection.masks_root == str(Path("D:/TIMED/corrected").resolve())
-        assert collection.segmentation_root == str(Path("D:/TIMED/seg").resolve())
-        validated = validate_profile(store, "local-timed")
-        assert LocalBackend._data_roots(validated) == [Path("D:/TIMED/zarr").resolve()]
-        assert LocalBackend._metadata_root(validated) == Path("D:/TIMED/metadata").resolve()
+    assert collection.path == str(data.resolve())
+    assert collection.masks_root == str((timed / "corrected").resolve())
+    assert collection.segmentation_root == str((timed / "seg").resolve())
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    validated = validate_profile(store, "local-timed")
+    assert LocalBackend._data_roots(validated) == [data.resolve()]
+    assert LocalBackend._metadata_root(validated) == metadata.resolve()
 
 
-def test_example_fixture_profiles_enable_qc_with_isolated_annotations() -> None:
-    repository_root = Path(__file__).parents[3]
-    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+def test_development_fixture_profiles_enable_qc_with_isolated_annotations() -> None:
+    store = load_profiles(DEV_PROFILES)
 
     cluster_collection = store.get("test-cluster-datasets").collections[1]
     assert cluster_collection.qc_export == "/absolute/path/to/repo/test-data/qc-export"
@@ -444,47 +457,49 @@ def test_example_fixture_profiles_enable_qc_with_isolated_annotations() -> None:
 
     local_collection = store.get("local-datasets").collections[1]
     assert local_collection.qc_export == str(
-        (repository_root / "test-data" / "qc-export").resolve()
+        (REPOSITORY_ROOT / "test-data" / "qc-export").resolve()
     )
     assert local_collection.qc_annotations == str(
-        (repository_root / ".timed" / "qc-annotations").resolve()
+        (REPOSITORY_ROOT / ".timed" / "qc-annotations").resolve()
     )
 
 
-def test_example_fixture_profiles_mirror_timed_masks_beside_the_plates() -> None:
-    repository_root = Path(__file__).parents[3]
-    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
+def test_development_fixture_profiles_mirror_timed_masks_beside_the_plates() -> None:
+    store = load_profiles(DEV_PROFILES)
 
     cluster_timed = store.get("test-cluster-datasets").collections[0]
     assert cluster_timed.masks_root == "/absolute/path/to/repo/test-data/timed-masks"
     assert cluster_timed.segmentation_root == "/absolute/path/to/repo/test-data/timed-seg"
     local_timed = store.get("local-datasets").collections[0]
-    assert local_timed.masks_root == str((repository_root / "test-data" / "timed-masks").resolve())
+    assert local_timed.masks_root == str((REPOSITORY_ROOT / "test-data" / "timed-masks").resolve())
     assert local_timed.segmentation_root == str(
-        (repository_root / "test-data" / "timed-seg").resolve()
+        (REPOSITORY_ROOT / "test-data" / "timed-seg").resolve()
     )
-    for profile_id in ("arrhenius", "berzelius", "test-cluster", "local"):
+    for profile_id in ("test-cluster", "local"):
         assert all(
             collection.masks_root is None for collection in store.get(profile_id).collections
         )
+    assert all(
+        collection.masks_root is None
+        for collection in load_profiles(SHARED_PROFILES).get("arrhenius").collections
+    )
 
 
 def test_the_arrhenius_timed_collection_reads_the_production_segmentation() -> None:
-    repository_root = Path(__file__).parents[3]
-    store = load_profiles(repository_root / "config" / "profiles.example.yaml")
-    timed, cell_health = store.get("arrhenius").collections
+    timed, cell_health = load_profiles(SHARED_PROFILES).get("arrhenius").collections
     assert timed.segmentation_root == (
         "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/seg/track_v0/production/"
         "seg-track-v0"
     )
     assert cell_health.segmentation_root is None
-    for profile_id in ("berzelius", "test-cluster", "local"):
+    development = load_profiles(DEV_PROFILES)
+    for profile_id in ("test-cluster", "local"):
         assert all(
             collection.segmentation_root is None
-            for collection in store.get(profile_id).collections
+            for collection in development.get(profile_id).collections
         )
     script = render_job_script(
-        store.get("arrhenius"),
+        load_profiles(SHARED_PROFILES).get("arrhenius").for_user("colleague"),
         executable="/state/server/0.7.0/venv/bin/timed-dataserver",
         shell_state_dir="/state",
     )
@@ -581,6 +596,116 @@ async def test_full_session_flow_never_exposes_answers_or_token(tmp_path: Path) 
     assert backend.removed == ["42"]
     assert backend.forward_closed == 1
     assert backend.closed == 1
+
+
+class RecordingBackend(FakeBackend):
+    """A fake cluster that remembers the profile each step received."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path, host_known=True)
+        self.seen: list[Profile] = []
+
+    async def connect(
+        self,
+        profile: Profile,
+        status: HostKeyStatus,
+        prompt_callback: Callable[[list[Prompt]], Any],
+    ) -> object:
+        self.seen.append(profile)
+        return await super().connect(profile, status, prompt_callback)
+
+    async def submit_job(self, context: object, profile: Profile) -> str:
+        self.seen.append(profile)
+        return await super().submit_job(context, profile)
+
+
+@pytest.mark.asyncio
+async def test_a_slurm_profile_without_a_username_asks_for_one_at_connect(
+    tmp_path: Path,
+) -> None:
+    profile = slurm_profile(username=None)
+    session = ConnectorSession(
+        ProfileStore([profile], tmp_path / "profiles.yaml"),
+        RecordingBackend(tmp_path),
+        poll_interval=0.001,
+    )
+    with pytest.raises(SessionError, match="Enter your username to connect to Test cluster"):
+        await session.connect(profile.id)
+    assert session.snapshot().state == "disconnected"
+
+
+@pytest.mark.asyncio
+async def test_the_connect_username_and_its_paths_reach_every_cluster_step(
+    tmp_path: Path,
+) -> None:
+    profile = slurm_profile(
+        username="profile-default",
+        collections=[
+            {
+                "id": "cells",
+                "title": "Cells",
+                "path": "/data/cells.index.parquet",
+                "qc_export": "/qc/export",
+                "qc_annotations": "/home/{username}/annotations",
+            }
+        ],
+    )
+    backend = RecordingBackend(tmp_path)
+    session = ConnectorSession(
+        ProfileStore([profile], tmp_path / "profiles.yaml"), backend, poll_interval=0.001
+    )
+    await session.connect(profile.id, "alice")
+    await authenticate_session(session)
+    await wait_for_state(session, "connected")
+
+    assert [seen.username for seen in backend.seen] == ["alice", "alice"]
+    assert [seen.collections[0].qc_annotations for seen in backend.seen] == [
+        "/home/alice/annotations",
+        "/home/alice/annotations",
+    ]
+    assert session.snapshot().profile_id == profile.id
+    # The stored profile keeps its default and its placeholder for the next user.
+    assert profile.username == "profile-default"
+    assert profile.collections[0].qc_annotations == "/home/{username}/annotations"
+    await session.disconnect()
+
+    await session.connect(profile.id)
+    await authenticate_session(session)
+    await wait_for_state(session, "connected")
+    assert backend.seen[-1].username == "profile-default"
+    await session.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_the_connect_route_takes_an_optional_username(tmp_path: Path) -> None:
+    profile = slurm_profile(username=None)
+    store = ProfileStore([profile], tmp_path / "profiles.yaml")
+    session = ConnectorSession(store, RecordingBackend(tmp_path), poll_interval=0.001)
+    app = create_app(store, session, port=8700)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8700",
+    ) as client:
+        missing = await client.post(
+            "/connector/connect", headers=CLIENT_HEADER, json={"profile_id": "test"}
+        )
+        assert missing.status_code == 409
+        assert missing.json() == {"detail": "Enter your username to connect to Test cluster"}
+        for bad in ("-oProxyCommand=x", "two words", "a/b", ""):
+            invalid = await client.post(
+                "/connector/connect",
+                headers=CLIENT_HEADER,
+                json={"profile_id": "test", "username": bad},
+            )
+            assert invalid.status_code == 422, bad
+        started = await client.post(
+            "/connector/connect",
+            headers=CLIENT_HEADER,
+            json={"profile_id": "test", "username": "alice"},
+        )
+        assert started.status_code == 202
+        assert "alice" not in started.text
+        await session.disconnect()
 
 
 @pytest.mark.asyncio

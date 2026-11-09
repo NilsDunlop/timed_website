@@ -19,7 +19,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--profiles",
         type=Path,
-        default=Path.home() / ".timed" / "profiles.yaml",
+        help=(
+            "read only this profiles file; by default the connector reads "
+            "config/profiles.yaml plus the optional ~/.timed/profiles.local.yaml"
+        ),
     )
     parser.add_argument("--port", type=int, default=8700)
     return parser
@@ -40,6 +43,7 @@ def main() -> int:
     options: dict[str, object] = {"cwd": REPOSITORY_ROOT}
     if os.name != "nt":
         options["start_new_session"] = True
+    profiles = [] if args.profiles is None else ["--profiles", str(args.profiles)]
     connector = subprocess.Popen(
         [
             sys.executable,
@@ -48,8 +52,7 @@ def main() -> int:
             "serve",
             "--port",
             str(args.port),
-            "--profiles",
-            str(args.profiles),
+            *profiles,
         ],
         **options,
     )
