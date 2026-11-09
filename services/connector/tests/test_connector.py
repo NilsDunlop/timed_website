@@ -925,6 +925,10 @@ def test_slurm_script_maps_each_timed_collection_to_its_masks() -> None:
     assert script.count("--timed-masks") == 1
     assert "--timed-segmentation '/data/with space/zarr=/seg with space/track'" in script
     assert script.count("--timed-segmentation") == 1
+    # Every collection is named, so the server can report one this account can't read.
+    assert "--collection '/data/with space/zarr'" in script
+    assert "--collection '/data/with space/other'" in script
+    assert script.count("--collection") == 2
 
 
 @pytest.mark.asyncio
@@ -1026,6 +1030,9 @@ async def test_local_backend_forwards_qc_paths_without_prechecking_them(
     )
     context = await backend.start(profile, lambda line: None)
     try:
+        collection_position = arguments.index("--collection")
+        assert arguments[collection_position + 1] == str(index.resolve())
+        assert arguments.count("--collection") == 1
         export_position = arguments.index("--qc-export")
         annotations_position = arguments.index("--qc-annotations")
         assert arguments[export_position + 1] == (f"{index.resolve()}={qc_export.resolve()}")

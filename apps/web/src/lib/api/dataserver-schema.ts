@@ -350,6 +350,27 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccessIssue
+         * @description A configured path this account can't read, or QC annotations it can't write.
+         *
+         *     ``path`` names only data roots, the metadata folder and collections, which
+         *     profiles already show; mask and QC folders stay unnamed. ``collection`` is
+         *     the configured path of the collection the issue belongs to.
+         */
+        AccessIssue: {
+            /** Collection */
+            collection?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "data_root" | "metadata" | "collection" | "masks" | "segmentation" | "qc_export" | "qc_annotations";
+            /** Path */
+            path?: string | null;
+            /** Reason */
+            reason: string;
+        };
         /** AcquisitionChannelSummary */
         AcquisitionChannelSummary: {
             /** Name */
@@ -492,6 +513,8 @@ export interface components {
         };
         /** HandshakeResponse */
         HandshakeResponse: {
+            /** Access Issues */
+            access_issues?: components["schemas"]["AccessIssue"][];
             /** Api Version */
             api_version: string;
             capabilities: components["schemas"]["Capabilities"];

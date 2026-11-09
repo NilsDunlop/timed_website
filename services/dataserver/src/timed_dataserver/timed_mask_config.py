@@ -112,9 +112,13 @@ def mask_private_folders(
     mappings: Sequence[TimedMaskMapping],
     guard: RootGuard,
 ) -> PrivateFolders:
-    """The configured mask folders, which are never browsable, linkable or served."""
+    """The configured mask folders, which are never browsable, linkable or served.
+
+    This covers every configured folder, also one left out of service because
+    this account can't read it.
+    """
     return PrivateFolders(
-        roots=frozenset(mapping.masks_root for mapping in mappings),
+        roots=frozenset(mapping.masks_root.resolve(strict=False) for mapping in mappings),
         data_roots=guard.roots,
     )
 

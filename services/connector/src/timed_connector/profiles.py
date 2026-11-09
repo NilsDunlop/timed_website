@@ -11,6 +11,8 @@ one. An explicit ``--profiles`` file is read alone, exactly as before.
 
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -144,23 +146,22 @@ def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
         for root in profile.data_roots:
             path = _local_path(root)
             resolved = path.resolve()
-            if not resolved.is_dir():
+            if not local_path_present(resolved):
                 raise ProfileError(f"Local profile path does not exist: {path}")
             resolved_roots.append(resolved)
 
         if profile.metadata_root is not None:
             metadata_root = _local_path(profile.metadata_root)
-            if not metadata_root.resolve().is_dir():
+            if not local_path_present(metadata_root.resolve()):
                 raise ProfileError(f"Local profile path does not exist: {metadata_root}")
 
         for collection in profile.collections:
             path = _local_path(collection.path)
-            try:
-                resolved = path.resolve(strict=True)
-            except (OSError, RuntimeError) as exc:
+            if not local_path_present(path, folder=False):
                 raise ProfileError(
                     f"Local collection {collection.id!r} path does not exist: {path}"
-                ) from exc
+                )
+            resolved = path.resolve()
             if not any(resolved.is_relative_to(root) for root in resolved_roots):
                 raise ProfileError(
                     f"Local collection {collection.id!r} path must be inside a data root: {path}"
@@ -181,3 +182,18 @@ def _local_path(value: str) -> Path:
     if not path.is_absolute():
         path = Path.cwd() / path
     return path
+
+
+def local_path_present(path: Path, *, folder: bool = True) -> bool:
+    """Whether a local path exists, counting one this account can't look up.
+
+    Only a missing path stops a local connection; the data server reports what
+    the account can't read.
+    """
+    try:
+        status = os.stat(path)
+    except PermissionError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return not folder or stat.S_ISDIR(status.st_mode)

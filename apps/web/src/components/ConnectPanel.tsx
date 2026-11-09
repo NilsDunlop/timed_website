@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { accessIssues, accessMessage, collectionIssue } from "../lib/accessIssues";
 import type { components } from "../lib/api/connector-schema";
 import {
   apiErrorMessage,
@@ -225,6 +226,9 @@ export default function ConnectPanel() {
       ? "Enter only the login name: letters, digits, '.', '_' or '-'."
       : "";
   const usernameReady = !needsUsername || (typedUsername !== "" && !usernameProblem);
+  // What this account can't read, reported by the data server once it runs.
+  const issues = connected ? accessIssues(session.handshake) : [];
+  const issueCollections = activeProfile?.collections ?? [];
 
   return (
     <div className="stack">
@@ -299,6 +303,7 @@ export default function ConnectPanel() {
               {profileCollections.map((collection) => (
                 <option key={collection.id} value={collection.id}>
                   {collection.title}
+                  {collectionIssue(issues, collection.path) ? " (unavailable)" : ""}
                 </option>
               ))}
             </select>
@@ -455,6 +460,18 @@ export default function ConnectPanel() {
           <a href={dataSelectionHref(selectedCollection?.id ?? null)}>
             Browse data
           </a>
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div className="notice warning" role="status" data-testid="access-issues">
+          <strong>Some data isn't available to your account</strong>
+          <ul className="access-issues">
+            {issues.map((issue, index) => (
+              <li key={`${issue.kind}-${index}`}>{accessMessage(issue, issueCollections)}</li>
+            ))}
+          </ul>
+          <p>Ask the data owner for access, then disconnect and connect again.</p>
         </div>
       )}
 

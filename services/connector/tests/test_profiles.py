@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -10,12 +11,14 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from timed_connector.cli import main
+from timed_connector.local_backend import LocalBackend
 from timed_connector.models import Profile
 from timed_connector.profiles import (
     SHARED_PROFILES,
     ProfileError,
     load_profile_files,
     load_profiles,
+    validate_profile,
 )
 
 
@@ -212,3 +215,41 @@ def test_check_profile_reads_the_shared_file_and_the_personal_file(
     explicit = _write(tmp_path / "only.yaml", [_shared()])
     assert main(["check-profile", "arrhenius", "--profiles", str(explicit)]) == 2
     assert "Unknown profile: arrhenius" in capsys.readouterr().err
+
+
+def test_a_local_path_this_account_cant_read_still_connects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a missing local path stops connecting; the data server reports the rest."""
+    data = tmp_path / "data"
+    collection = data / "zarr"
+    collection.mkdir(parents=True)
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    profile = {
+        "id": "laptop",
+        "name": "This computer",
+        "kind": "local",
+        "data_roots": [str(data)],
+        "metadata_root": str(metadata),
+        "collections": [{"id": "timed", "title": "TIMED", "path": str(collection)}],
+    }
+    store = load_profiles(_write(tmp_path / "profiles.yaml", [profile]))
+    locked = {str(path.resolve()) for path in (data, collection, metadata)}
+    real_stat = os.stat
+
+    def stat(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        if str(path) in locked:
+            raise PermissionError(13, "Permission denied")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat)
+    validated = validate_profile(store, "laptop")
+    assert LocalBackend._data_roots(validated) == [data.resolve()]
+    assert LocalBackend._metadata_root(validated) == metadata.resolve()
+
+    gone = {"id": "timed", "title": "TIMED", "path": str(data / "gone")}
+    store = load_profiles(_write(tmp_path / "missing.yaml", [{**profile, "collections": [gone]}]))
+    with pytest.raises(ProfileError, match="path does not exist"):
+        validate_profile(store, "laptop")

@@ -32,4 +32,5 @@ async def handshake(ctx: Annotated[ServerContext, Depends(get_context)]) -> Hand
                 config.annotations_writable for config in ctx.qc_paths.values()
             ),
         ),
+        access_issues=list(ctx.access_issues),
     )

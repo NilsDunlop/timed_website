@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -25,17 +25,25 @@ class QcPathConfig:
 
     @property
     def export_readable(self) -> bool:
-        return self.export_path.is_dir() and os.access(
+        return _is_dir(self.export_path) and os.access(
             self.export_path,
             os.R_OK | os.X_OK,
         )
 
     @property
     def annotations_writable(self) -> bool:
-        return self.annotations_path.is_dir() and os.access(
+        return _is_dir(self.annotations_path) and os.access(
             self.annotations_path,
             os.R_OK | os.W_OK | os.X_OK,
         )
+
+
+def _is_dir(path: Path) -> bool:
+    """Whether a folder exists; False also when this account can't look it up."""
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,13 +53,14 @@ class QcPrivateRoots(PrivateFolders):
     @classmethod
     def from_configs(
         cls,
-        configs: Mapping[Path, QcPathConfig],
+        configs: Iterable[QcPathConfig],
         guard: RootGuard,
     ) -> QcPrivateRoots:
+        """Every configured QC folder, also those of an index left out of service."""
         return cls(
             roots=frozenset(
-                private_path
-                for config in configs.values()
+                private_path.resolve(strict=False)
+                for config in configs
                 for private_path in (config.export_path, config.annotations_path)
             ),
             data_roots=guard.roots,

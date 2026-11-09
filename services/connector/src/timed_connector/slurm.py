@@ -96,6 +96,7 @@ def render_job_script(
     if profile.metadata_root is not None:
         command.extend(("--metadata-root", profile.metadata_root))
     for collection in profile.collections:
+        command.extend(("--collection", collection.path))
         if collection.masks_root is not None:
             command.extend(("--timed-masks", f"{collection.path}={collection.masks_root}"))
         if collection.segmentation_root is not None:

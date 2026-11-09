@@ -85,6 +85,13 @@ def _parser() -> argparse.ArgumentParser:
         help="read-only folder of a TIMED collection's production segmentation runs; "
         "may be repeated",
     )
+    serve_parser.add_argument(
+        "--collection",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="a dataset collection, checked for access at startup; may be repeated",
+    )
 
     subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
     return parser
@@ -201,6 +208,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     except (QcConfigurationError, MaskConfigurationError) as exc:
         parser.error(str(exc))
+    if not all(Path(value).expanduser().is_absolute() for value in args.collection):
+        parser.error("--collection paths must be absolute")
     settings = ServerSettings(
         data_roots=tuple(args.data_root),
         state_dir=args.state_dir,
@@ -210,6 +219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         qc_paths=qc_paths,
         mask_cache_mb=args.mask_cache_mb,
         timed_masks=timed_masks,
+        collections=tuple(args.collection),
     )
     if settings.packed_cache_mb <= 0:
         raise SystemExit("--packed-cache-mb must be greater than zero")

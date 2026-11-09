@@ -23,6 +23,31 @@ class Capabilities(ApiModel):
     qc_annotations_writable: bool = False
 
 
+AccessIssueKind = Literal[
+    "data_root",
+    "metadata",
+    "collection",
+    "masks",
+    "segmentation",
+    "qc_export",
+    "qc_annotations",
+]
+
+
+class AccessIssue(ApiModel):
+    """A configured path this account can't read, or QC annotations it can't write.
+
+    ``path`` names only data roots, the metadata folder and collections, which
+    profiles already show; mask and QC folders stay unnamed. ``collection`` is
+    the configured path of the collection the issue belongs to.
+    """
+
+    kind: AccessIssueKind
+    reason: str
+    path: str | None = None
+    collection: str | None = None
+
+
 class HandshakeResponse(ApiModel):
     api_version: str
     server_version: str
@@ -31,6 +56,8 @@ class HandshakeResponse(ApiModel):
     data_roots: list[str]
     python_version: str
     capabilities: Capabilities
+    access_issues: list[AccessIssue] = Field(default_factory=list)
+    """What this account can't read, checked once at startup."""
 
 
 class QcStatusResponse(ApiModel):

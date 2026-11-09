@@ -62,8 +62,14 @@ def _reject_parent_segments(raw: str) -> None:
 class RootGuard:
     """Resolve paths while following symlinks and enforcing configured roots."""
 
-    def __init__(self, roots: tuple[Path, ...] | list[Path]) -> None:
-        if not roots:
+    def __init__(
+        self,
+        roots: tuple[Path, ...] | list[Path],
+        *,
+        allow_empty: bool = False,
+    ) -> None:
+        """Resolve the roots; ``allow_empty`` admits none, when the account can read none."""
+        if not roots and not allow_empty:
             raise ValueError("At least one data root is required")
         resolved: list[Path] = []
         for root in roots:
@@ -84,6 +90,8 @@ class RootGuard:
         candidates = (
             [supplied] if supplied.is_absolute() else [root / supplied for root in self.roots]
         )
+        if not candidates:
+            raise PathForbiddenError("Path is outside the configured data roots")
         safe_missing: Path | None = None
         for candidate in candidates:
             try:

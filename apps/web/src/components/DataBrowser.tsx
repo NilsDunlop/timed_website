@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
+import { accessIssues, accessMessage, collectionIssue } from "../lib/accessIssues";
 import type { components } from "../lib/api/dataserver-schema";
 import {
   apiErrorMessage,
@@ -303,6 +304,7 @@ export default function DataBrowser() {
   const [wellKind, setWellKind] = useState<"all" | "treatment" | "control">("all");
   const [entryFilter, setEntryFilter] = useState("");
   const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState("");
   const [busy, setBusy] = useState(false);
 
   const activeCollection =
@@ -370,6 +372,15 @@ export default function DataBrowser() {
         setProfileId(nextProfileId);
         setCollections(availableCollections);
         setActiveCollectionId(collection?.id ?? null);
+        // A dataset this account can't read is shown as unavailable, unopened.
+        const blocked = collection
+          ? collectionIssue(accessIssues(sessionResult.data.handshake), collection.path)
+          : null;
+        if (collection && blocked) {
+          setUnavailable(accessMessage(blocked, availableCollections));
+          setBreadcrumbs([{ label: collection.title, path: null }]);
+          return;
+        }
         const listedPath = await loadListing(collection?.path ?? null);
         const canonicalCollectionPath = collection
           ? (listedPath ?? collection.path)
@@ -1098,6 +1109,15 @@ export default function DataBrowser() {
             </p>
           </div>
         )}
+        {unavailable && (
+          <div className="notice warning" role="status">
+            <strong>{unavailable}</strong>
+            <p>
+              Choose another dataset on <a href="/">Connect</a>, or ask the data owner
+              for access.
+            </p>
+          </div>
+        )}
 
         <nav className="breadcrumbs" aria-label="Data path">
           {breadcrumbs.map((crumb, index) => (
@@ -1168,7 +1188,7 @@ export default function DataBrowser() {
               ) : null}
             </li>
           ))}
-          {!busy && visibleEntries.length === 0 && (
+          {!busy && !unavailable && visibleEntries.length === 0 && (
             <li className="muted">
               {showEntryFilter && normalizedEntryFilter
                 ? "No entries match this filter."

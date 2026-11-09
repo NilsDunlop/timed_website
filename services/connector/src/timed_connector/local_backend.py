@@ -20,6 +20,7 @@ from .dataserver_connection import (
     verify_handshake,
 )
 from .models import Profile
+from .profiles import local_path_present
 
 
 class LocalBackendError(RuntimeError):
@@ -54,7 +55,7 @@ class LocalBackend:
             if not root.is_absolute():
                 root = Path.cwd() / root
             resolved = root.resolve()
-            if not resolved.is_dir():
+            if not local_path_present(resolved):
                 raise LocalBackendError(f"Local data root does not exist: {resolved}")
             roots.append(resolved)
         return roots
@@ -67,7 +68,7 @@ class LocalBackend:
         if not root.is_absolute():
             root = Path.cwd() / root
         resolved = root.resolve()
-        if not resolved.is_dir():
+        if not local_path_present(resolved):
             raise LocalBackendError(f"Local metadata root does not exist: {resolved}")
         return resolved
 
@@ -121,6 +122,7 @@ class LocalBackend:
         if metadata_root is not None:
             arguments.extend(("--metadata-root", str(metadata_root)))
         for collection in profile.collections:
+            arguments.extend(("--collection", collection.path))
             if collection.masks_root is not None:
                 arguments.extend(("--timed-masks", f"{collection.path}={collection.masks_root}"))
             if collection.segmentation_root is not None:

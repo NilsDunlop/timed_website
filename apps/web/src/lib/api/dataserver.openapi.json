@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "AccessIssue": {
+        "additionalProperties": false,
+        "description": "A configured path this account can't read, or QC annotations it can't write.\n\n``path`` names only data roots, the metadata folder and collections, which\nprofiles already show; mask and QC folders stay unnamed. ``collection`` is\nthe configured path of the collection the issue belongs to.",
+        "properties": {
+          "collection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "kind": {
+            "enum": [
+              "data_root",
+              "metadata",
+              "collection",
+              "masks",
+              "segmentation",
+              "qc_export",
+              "qc_annotations"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "title": "AccessIssue",
+        "type": "object"
+      },
       "AcquisitionChannelSummary": {
         "additionalProperties": false,
         "properties": {
@@ -438,6 +489,13 @@
       "HandshakeResponse": {
         "additionalProperties": false,
         "properties": {
+          "access_issues": {
+            "items": {
+              "$ref": "#/components/schemas/AccessIssue"
+            },
+            "title": "Access Issues",
+            "type": "array"
+          },
           "api_version": {
             "title": "Api Version",
             "type": "string"

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { accessIssues, accessMessage, qcIssue } from "../lib/accessIssues";
 import type { components as ConnectorComponents } from "../lib/api/connector-schema";
 import type { components as DataServerComponents } from "../lib/api/dataserver-schema";
 import {
@@ -436,6 +437,13 @@ export default function QcBrowser() {
     if (!selection) throw new Error("This profile has no datasets.");
     if (!selection.collection.qc_available) {
       throw new Error(`${selection.collection.title} does not provide a QC review export.`);
+    }
+    const blocked = qcIssue(
+      accessIssues(sessionResult.data.handshake),
+      selection.collection.path,
+    );
+    if (blocked) {
+      throw new Error(accessMessage(blocked, selection.profile.collections ?? []));
     }
     writeCollectionPreference(
       window.localStorage,
