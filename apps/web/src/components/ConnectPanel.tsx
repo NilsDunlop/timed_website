@@ -13,6 +13,12 @@ import {
   readCollectionPreference,
   writeCollectionPreference,
 } from "../lib/collectionNavigation";
+import {
+  initialUsername,
+  isUsername,
+  readUsername,
+  writeUsername,
+} from "../lib/connectUsername";
 
 type Profile = components["schemas"]["Profile"];
 type Session = components["schemas"]["SessionSnapshot"];
@@ -30,10 +36,22 @@ function preferredCollectionId(profile: Profile): string {
   return initialCollection(collections, null, rememberedId)?.id ?? "";
 }
 
+function preferredUsername(profile: Profile | undefined): string {
+  if (!profile || profile.kind !== "slurm") return "";
+  let remembered: string | null = null;
+  try {
+    remembered = readUsername(window.localStorage, profile.id);
+  } catch {
+    // Browser storage is optional. Fall back to the profile's own username.
+  }
+  return initialUsername(remembered, profile.username);
+}
+
 export default function ConnectPanel() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState("");
   const [collectionId, setCollectionId] = useState("");
+  const [username, setUsername] = useState("");
   const [session, setSession] = useState<Session>(idleSession);
   const [answers, setAnswers] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -75,6 +93,7 @@ export default function ConnectPanel() {
         );
         setProfileId(nextProfileId);
         setCollectionId(nextProfile ? preferredCollectionId(nextProfile) : "");
+        setUsername(preferredUsername(nextProfile));
         setSession(sessionResult.data);
       } catch (reason) {
         if (active) {
@@ -116,13 +135,21 @@ export default function ConnectPanel() {
   }
 
   async function connect() {
+    const login = needsUsername ? username.trim() : null;
     await mutate(async () => {
       const result = await connectorClient.POST("/connector/connect", {
         headers: webClientHeaders,
-        body: { profile_id: profileId },
+        body: login ? { profile_id: profileId, username: login } : { profile_id: profileId },
       });
       if (!result.data) {
         throw new Error(apiErrorMessage(result.error, "Could not start connection"));
+      }
+      if (login) {
+        try {
+          writeUsername(window.localStorage, profileId, login);
+        } catch {
+          // Browser storage is optional. The username is asked again next time.
+        }
       }
       return result.data;
     });
@@ -162,6 +189,7 @@ export default function ConnectPanel() {
     const nextCollectionId = nextProfile ? preferredCollectionId(nextProfile) : "";
     setProfileId(nextProfileId);
     setCollectionId(nextCollectionId);
+    setUsername(preferredUsername(nextProfile));
     notifyCollectionSelection(nextProfileId, nextCollectionId);
   }
 
@@ -190,6 +218,13 @@ export default function ConnectPanel() {
     profileCollections.find((collection) => collection.id === collectionId) ??
     null;
   const localMode = activeProfile?.kind === "local";
+  const needsUsername = selectedProfile?.kind === "slurm";
+  const typedUsername = username.trim();
+  const usernameProblem =
+    needsUsername && typedUsername && !isUsername(typedUsername)
+      ? "Enter only the login name: letters, digits, '.', '_' or '-'."
+      : "";
+  const usernameReady = !needsUsername || (typedUsername !== "" && !usernameProblem);
 
   return (
     <div className="stack">
@@ -215,7 +250,11 @@ export default function ConnectPanel() {
           ))}
         </select>
         {!active && !connected ? (
-          <button type="button" disabled={!profileId || busy} onClick={connect}>
+          <button
+            type="button"
+            disabled={!profileId || busy || !usernameReady}
+            onClick={connect}
+          >
             {session.state === "error" ? "Reconnect" : "Connect"}
           </button>
         ) : (
@@ -224,6 +263,28 @@ export default function ConnectPanel() {
           </button>
         )}
       </div>
+
+      {needsUsername && (
+        <div className="stack">
+          <label className="username-control">
+            <span>Username</span>
+            <input
+              name="username"
+              autoComplete="username"
+              spellCheck={false}
+              value={username}
+              disabled={active || connected || busy}
+              aria-describedby="username-help"
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </label>
+          <p id="username-help" className="field-help">
+            {usernameProblem ||
+              `Your login name on ${selectedProfile?.host ?? "the cluster"}. ` +
+                "The password and verification code are asked after Connect."}
+          </p>
+        </div>
+      )}
 
       {profileCollections.length > 0 && (
         <div className="stack">

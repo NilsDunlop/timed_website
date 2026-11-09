@@ -195,13 +195,19 @@ const { title } = Astro.props;
   }
 
   .dataset-selector-control,
+  .username-control,
   .entry-filter {
     display: grid;
     gap: 0.35rem;
     font-weight: 700;
   }
 
-  .dataset-description {
+  .username-control input {
+    max-width: 22rem;
+  }
+
+  .dataset-description,
+  .field-help {
     margin: 0 0 0.55rem;
     color: #4d5c50;
   }
