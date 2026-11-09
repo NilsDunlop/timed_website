@@ -162,6 +162,10 @@ dataset contracts and onboarding steps.
   (`masks_root`). Arrhenius and the local external-drive profile read the
   production runs for every PB100140_P2.1 field, and the local profile also
   the export's four fields, all read-only.
+- Version 0.7.1 makes TIMED requests cheaper: plate listings and field metadata
+  are memoised by file identity instead of being re-read on every request, so
+  mask outlines follow a frame step two to three times sooner on the local
+  copy.
 
 Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
 the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its

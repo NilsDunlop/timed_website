@@ -68,6 +68,12 @@ datasets are stored atomically in `<state-dir>/datasets.json`; unlinking never
 deletes image data. Error details name files relative to their dataset or root,
 never by absolute path.
 
+Parsed metadata files and TIMED plate listings are memoised by file identity
+(device, inode, size and modification time), so a TIMED request no longer
+rescans its plate or re-reads a field's `zarr.json`, while an added, removed or
+rewritten field is picked up on the next request. Validation still runs on every
+request; memoised metadata is shared and must not be mutated.
+
 A packed dataset is detected from the schema of an `*.index.parquet` file and
 its adjacent tar shards, not from its filename alone. The server presents
 `<index>/<experiment>/<plate>` as a guarded virtual hierarchy. Each field is an

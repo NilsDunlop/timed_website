@@ -1023,3 +1023,30 @@ on every field checked, the cell and nucleus outlines are aligned and follow
 the displayed frame, and the counts update with it. The opt-in real-data test
 confirms every frame's counts against the export's tables. The Arrhenius check
 of 2026-11-09 is recorded in `docs/arrhenius.md`.
+
+## 2026-11-09: TIMED request overhead (0.7.1)
+
+Release 0.7.1 removes the per-request cost of TIMED's collection facade
+(DS-20), measured on the local copy of PB100140_P2.1 with the drive awake.
+
+- **Memoised by file identity.** Every TIMED request, including each `/zarr`
+  chunk range and each mask count and outline, used to list the plate folder,
+  resolve every field and re-read the field's `zarr.json`: about 400
+  filesystem calls and 135 to 150 ms per request. Parsed metadata files and
+  plate listings are now kept while the file or the plate folder keeps its
+  device, inode, size and modification time. Adding, removing or replacing a
+  field changes the folder's modification time, and rewriting a metadata file
+  changes its own, so either is picked up on the next request without a
+  restart. As for the mask caches, a change within one timestamp tick of the
+  previous read waits for the next change.
+- **Validation and responses are unchanged.** Field metadata is still validated
+  on every request, so a broken field answers exactly as before, and no API
+  response changes. Such a request now takes about 5 ms and 11 to 15
+  filesystem calls.
+- **No field-summary request on open.** The viewer no longer fetches a TIMED
+  field's well summaries when opening it; they served only the site-position
+  repair note, hidden since 0.5.3.
+- **Measured effect.** In interleaved runs against the old server, mask
+  outlines trailed a frame step by a median of 0.4 s against 1.4 s, and counts
+  by 0.2 s against 0.7 s; separate runs of the old code measured 0.8 s and
+  0.2 s. Fields reached "Image ready" sooner in the interleaved runs.
