@@ -49,12 +49,6 @@ export function siteIdFromPath(path: string): string | undefined {
   return /^[A-Za-z]+\/\d+\/([^/]+)(?:\/|$)/.exec(path)?.[1];
 }
 
-/** Upper-case, unpadded well of a collection field: the TIMED wells route path. */
-export function timedWellPathFromField(path: string): string | null {
-  const match = /^([A-Za-z]+\d+)_s\d+\.zarr$/i.exec(path);
-  return match?.[1]?.toUpperCase() ?? null;
-}
-
 /** Positive collection site in any letter case, as QC site options read it. */
 export function positiveSiteFromPath(path: string): number | null {
   const match = /_s(\d+)\.zarr$/i.exec(path);

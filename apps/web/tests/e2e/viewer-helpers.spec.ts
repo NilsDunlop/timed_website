@@ -46,7 +46,6 @@ function viewerSource(path: string, metadata: PlateMetadata | null): ViewerSourc
     datasetId: "dataset",
     path,
     image: image([]),
-    field: null,
     metadata,
     loader: [],
     readyKey: "",

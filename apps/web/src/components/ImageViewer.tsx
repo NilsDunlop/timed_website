@@ -15,7 +15,7 @@ import {
   dataServerClient,
   webClientHeaders,
 } from "../lib/api/client";
-import { fieldPathFor, timedWellPathFromField, wellIdFromPath } from "../lib/fieldPath";
+import { fieldPathFor, wellIdFromPath } from "../lib/fieldPath";
 import { qcRequestFromQuery, type QcViewerRequest } from "../lib/qc/qcViewerSession";
 import { writeQcViewerLink } from "../lib/qc/qcViewerLink";
 import {
@@ -39,7 +39,6 @@ import {
 import {
   encodedZarrPath,
   imageFromSummary,
-  type FieldSummary,
   type ImageSummary,
   type Source,
   type ViewerSourceState,
@@ -420,38 +419,8 @@ export default function ImageViewer() {
           }
           return request;
         };
-        async function selectedFieldFor(source: {
-          datasetId: string;
-          path: string;
-        }): Promise<FieldSummary | null> {
-          const wellPath = timedWellPathFromField(source.path);
-          if (!wellPath) return null;
-          const result = await dataServerClient.GET(
-            "/api/datasets/{dataset_id}/wells/{well_path}",
-            {
-              params: {
-                path: {
-                  dataset_id: source.datasetId,
-                  well_path: wellPath,
-                },
-              },
-            },
-          );
-          if (!result.data) {
-            throw new Error(
-              apiErrorMessage(result.error, "Could not load field information"),
-            );
-          }
-          return result.data.fields.find((field) => field.path === source.path) ?? null;
-        }
         const sourceDetails = await Promise.all(
-          sourceSpecs.map(async (source) => {
-            const [details, field] = await Promise.all([
-              detailsFor(source.datasetId),
-              selectedFieldFor(source),
-            ]);
-            return { ...details, field };
-          }),
+          sourceSpecs.map((source) => detailsFor(source.datasetId)),
         );
         const configuredSources = sourceSpecs.map((source, index) => {
           const details = sourceDetails[index];
@@ -466,7 +435,6 @@ export default function ImageViewer() {
           return {
             ...source,
             image: selectedImage,
-            field: details.field,
             metadata: details.metadata,
           };
         });
