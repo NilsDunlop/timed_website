@@ -1,7 +1,7 @@
 """Opt-in, read-only check of the real TIMED masks for PB100140_P2.1.
 
-Set TIMED_TEST_REAL_TIMED_MASKS=1 (and optionally TIMED_REAL_TIMED_COPY_ROOT,
-default D:/TIMED) to run it against a copy holding zarr/, the presentation
+Set TIMED_TEST_REAL_TIMED_MASKS=1 and TIMED_REAL_TIMED_COPY_ROOT to the copy's
+folder to run it against a copy holding zarr/, the presentation
 export's corrected/ folder and the production segmentation's seg/ folder. For
 the export's four fields it checks every frame's nucleus and cell counts against
 the export's own counts tables; the production run must match the same tables'
@@ -61,6 +61,14 @@ PRODUCTION_RUNS = (("cells", PRODUCTION_MODEL), ("nuclei", f"{PRODUCTION_MODEL}_
 KNOWN_DIFFERENCE = {("C15", 1, 31): {"nuclei": 37, "cells": 39}}
 
 
+def _copy_root() -> Path:
+    """The external TIMED copy, which these opt-in checks never assume."""
+    root = os.environ.get("TIMED_REAL_TIMED_COPY_ROOT")
+    if not root:
+        pytest.skip("set TIMED_REAL_TIMED_COPY_ROOT to the external TIMED copy's folder")
+    return Path(root)
+
+
 def _run_array(seg_plate: Path, well: str, site: int, run: str) -> Path:
     field = f"{well}_s{site}"
     return seg_plate / "sites" / field / "stage1" / run / "labels" / PLATE_NAME / f"{field}.zarr"
@@ -73,7 +81,7 @@ async def test_real_production_segmentation_matches_the_corrected_export_read_on
     if os.environ.get("TIMED_TEST_REAL_TIMED_MASKS") != "1":
         pytest.skip("set TIMED_TEST_REAL_TIMED_MASKS=1 to test the real TIMED masks")
 
-    copy_root = Path(os.environ.get("TIMED_REAL_TIMED_COPY_ROOT", "D:/TIMED"))
+    copy_root = _copy_root()
     data_root = copy_root / "zarr"
     masks_root = copy_root / "corrected"
     seg_root = copy_root / "seg"
@@ -162,7 +170,7 @@ async def test_real_timed_masks_follow_the_exports_counts_read_only(tmp_path: Pa
     if os.environ.get("TIMED_TEST_REAL_TIMED_MASKS") != "1":
         pytest.skip("set TIMED_TEST_REAL_TIMED_MASKS=1 to test the real TIMED masks")
 
-    copy_root = Path(os.environ.get("TIMED_REAL_TIMED_COPY_ROOT", "D:/TIMED"))
+    copy_root = _copy_root()
     data_root = copy_root / "zarr"
     masks_root = copy_root / "corrected"
     plate = data_root / f"{PLATE_NAME}.zarr"

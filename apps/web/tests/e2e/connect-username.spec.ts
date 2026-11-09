@@ -35,7 +35,7 @@ const LAPTOP = {
 };
 
 test("the username helpers keep only plain login names", () => {
-  for (const name of ["alice", "x_nildu", "a.b-c", "dev"]) expect(isUsername(name)).toBe(true);
+  for (const name of ["alice", "x_user", "a.b-c", "dev"]) expect(isUsername(name)).toBe(true);
   for (const name of ["", "-oProxyCommand=x", "two words", "a/b"]) {
     expect(isUsername(name)).toBe(false);
   }

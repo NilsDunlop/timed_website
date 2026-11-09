@@ -313,6 +313,8 @@ def test_slurm_script_is_complete_and_shell_quotes_values() -> None:
 REPOSITORY_ROOT = Path(__file__).parents[3]
 SHARED_PROFILES = REPOSITORY_ROOT / "config" / "profiles.yaml"
 DEV_PROFILES = REPOSITORY_ROOT / "config" / "profiles.dev.yaml"
+# The shared storage project, which holds every shared data path.
+SHARED_STORAGE = "/nobackup/proj/disk/naiss2024-5-630/"
 
 
 def test_the_shared_profiles_hold_only_arrhenius_without_a_username() -> None:
@@ -341,19 +343,11 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
     assert profile.slurm is not None
     assert profile.slurm.account == "naiss2026-3-679-cpu"
     assert profile.slurm.partition == "cpu"
-    assert profile.metadata_root == (
-        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/metadata"
-    )
-    assert profile.data_roots == [
-        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr",
-        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080",
-    ]
-    assert [collection.model_dump() for collection in profile.collections] == [
+    assert [collection.model_dump(exclude={"path"}) for collection in profile.collections] == [
         {
             "id": "timed",
             "title": "TIMED",
             "description": "Live-cell time-lapse · 8 plates · 48 h, hourly · 3 channels",
-            "path": "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr",
             "default": True,
             "qc_available": False,
         },
@@ -363,23 +357,24 @@ def test_arrhenius_profile_renders_verified_slurm_directives() -> None:
             "description": (
                 "idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - 9 plates - 5 channels"
             ),
-            "path": (
-                "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/"
-                "idr0080/idr0080-raw.index.parquet"
-            ),
             "default": False,
             "qc_available": True,
         },
     ]
 
-    cell_health = profile.collections[1]
-    assert cell_health.qc_export == (
-        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/"
-        "qc_metrics_compute/website_export"
-    )
-    assert cell_health.qc_annotations == (
-        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations"
-    )
+    # The shared paths are checked by their place, not copied here.
+    timed_root, cell_health_root = profile.data_roots
+    timed, cell_health = profile.collections
+    assert timed.path == timed_root
+    assert cell_health.path == f"{cell_health_root}/idr0080-raw.index.parquet"
+    assert profile.metadata_root is not None
+    assert cell_health.qc_export is not None
+    assert cell_health.qc_annotations is not None
+    assert profile.metadata_root.endswith("/TIMED/metadata")
+    assert cell_health.qc_export.endswith("/qc_metrics_compute/website_export")
+    assert cell_health.qc_annotations.endswith("/qc_review/annotations")
+    shared = [*profile.data_roots, profile.metadata_root, cell_health.qc_export]
+    assert all(path.startswith(SHARED_STORAGE) for path in [*shared, cell_health.qc_annotations])
 
     script = render_job_script(
         profile.for_user("colleague"),
@@ -414,7 +409,7 @@ def test_a_cpu_profile_without_memory_requests_neither_memory_nor_gpus() -> None
 
 
 def test_local_profiles_keep_drive_letter_paths_whole(tmp_path: Path) -> None:
-    # Forward-slash drive paths such as D:/TIMED/zarr, written here from tmp_path.
+    # Forward-slash drive paths such as D:/data/zarr, written here from tmp_path.
     timed = tmp_path / "TIMED"
     data, metadata = timed / "zarr", timed / "metadata"
     data.mkdir(parents=True)
@@ -487,10 +482,9 @@ def test_development_fixture_profiles_mirror_timed_masks_beside_the_plates() -> 
 
 def test_the_arrhenius_timed_collection_reads_the_production_segmentation() -> None:
     timed, cell_health = load_profiles(SHARED_PROFILES).get("arrhenius").collections
-    assert timed.segmentation_root == (
-        "/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/seg/track_v0/production/"
-        "seg-track-v0"
-    )
+    assert timed.segmentation_root is not None
+    assert timed.segmentation_root.startswith(SHARED_STORAGE)
+    assert timed.segmentation_root.endswith("/TIMED/seg/track_v0/production/seg-track-v0")
     assert cell_health.segmentation_root is None
     development = load_profiles(DEV_PROFILES)
     for profile_id in ("test-cluster", "local"):
