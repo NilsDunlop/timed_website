@@ -89,3 +89,64 @@ size.
 - Always affects a whole site-timepoint across all three channels.
 - `stage_z` is within the normal range for these events.
 - Raised with the lab.
+
+## Segmentation masks (TIMED addition, 2026-11)
+
+Not part of the conversion. A presentation export (2026-11-06, "not a pipeline
+output") holds masks for four P2.1 fields: C05, C15, F13 and G07, site 1. It
+mirrors the image layout in a tree beside it,
+`corrected/PB100140_P2.1.zarr/<well>_s<site>.zarr/`, one Zarr v3 group per
+field; the export's own `README.md` records how it was made. TIMED reads
+`masks_raw` (cells) and `nuclei`. The group also holds `raw` (a copy of the
+field), `corrected_505` and `masks_corrected` (cells on TiLu-corrected 505 nm,
+not used).
+
+| Property | `masks_raw` and `nuclei` |
+|---|---|
+| Shape, axes | (48, 2500, 2500), t, y, x (`axes` attribute) |
+| Data type | uint16, fill value 0 |
+| Chunks | (1, 1250, 1250), four per plane |
+| Shard | whole array, one file `<array>/0.0.0` (`v2` chunk keys, `.` separator); index at the end, CRC32C |
+| Compression | Blosc zstd, level 5, byte shuffle |
+| Time | `t_indices` 0 to 47, equal to the field's |
+
+- **Kinds:** `masks_raw` holds whole-cell labels from Cellpose-SAM (`cpsam`,
+  cellpose 4.2.1.1, diameter 90, run `R5_cells_cpsam_dS`, digest
+  `2a760ccd1f0e`) on raw 505 and 625 nm. `nuclei` holds classical foreground
+  objects on raw 625 nm (radius-3 opening, 80 px floor; digest `97117440304a`).
+  Per field, the median share of a frame's nuclei that lie inside a cell is
+  94 to 100%.
+- **Labels:** 0 is background; each frame's objects are numbered 1 to N without
+  gaps, so the largest label is the count (37 to 112 cells and 36 to 92 nuclei
+  per frame, equal to the export's `counts.csv`). Labels are not tracked: every
+  frame was segmented on its own, so an id names a different object in the next
+  frame.
+- **Alignment:** plane size, orientation and timepoints match the field as
+  stored, with no transpose or flip. Mask frame i belongs to image frame i: the
+  export's `raw` equals the field, and each frame's nuclei fit that frame's
+  cells better than its neighbours'.
+
+### Production segmentation
+
+The production run covers all 392 PB100140_P2.1 fields. It lies on Arrhenius
+under `TIMED/seg/track_v0/production/seg-track-v0`, copied to `D:/TIMED/seg`, as
+`<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`,
+one bare array per run and field. TIMED reads two runs:
+
+- `R4_cpsam_dS_corrected`: Cellpose-SAM cells (diameter 90) on TiLu-corrected
+  505 nm (`tilu_v1_provisional:5feabc75e262`) and raw 625 nm. Its `run.json`
+  names the nucleus run.
+- `R4_cpsam_dS_corrected_nuclei`: classical nuclei (`R2_classical625`) on raw
+  625 nm.
+
+The arrays are stored like the export's: shape, chunks, codecs, `v2` keys and
+`t_indices` 0 to 47 are the same. They have no `axes` attribute, but store
+their `run_id`, `plate`, `well` and `site`, plus per-plane input QC `records`
+(about 450 KB of metadata). Every field's `production_verification.json`
+passed with 48 planes and none refused, from one segmentation commit
+(`44276ae`). Labels number each frame 1 to N without gaps.
+
+On the four exported fields, the nuclei equal the export's `nuclei`. The cells
+equal the export's `masks_corrected` in every frame except C15 time index 31,
+where the run has 39 cells against the export's 40: one export cell is part of
+a neighbour.

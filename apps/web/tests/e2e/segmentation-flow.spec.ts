@@ -45,10 +45,9 @@ test("outlines a Cell Health field and keeps its outline preset", async ({ page 
   await expect(panel).toBeVisible();
   await expect(panel.locator("legend").first()).toHaveText("Segmentation");
   await expect(model).toHaveValue(DEFAULT_MODEL);
-  await expect(model.locator("option")).toHaveText([
-    `${DEFAULT_MODEL} (IDR0080_B90)`,
-    `${STOCK_MODEL} (R2)`,
-  ]);
+  // The selector shows each full tag; the selected model's recipe has its own line.
+  await expect(model.locator("option")).toHaveText([DEFAULT_MODEL, STOCK_MODEL]);
+  await expect(panel.getByTestId("segmentation-recipe")).toHaveText("IDR0080_B90");
   await expect(panel.getByTestId("segmentation-unfrozen")).toHaveText("May still change");
   await expect(counts).toHaveText("4 nuclei · 2 cells · 2 cytoplasm");
   for (const name of ["Nuclei", "Cells", "Cytoplasm"]) {
@@ -77,6 +76,7 @@ test("outlines a Cell Health field and keeps its outline preset", async ({ page 
 
   await model.selectOption(STOCK_MODEL);
   await expect(counts).toHaveText("4 nuclei · 6 cells · 6 cytoplasm");
+  await expect(panel.getByTestId("segmentation-recipe")).toHaveText("R2");
   await expect(page).toHaveURL(new RegExp(`[?&]model=${STOCK_MODEL}(&|$)`));
   await expect.poll(() => nucleusPixels(page, canvas)).toBeGreaterThan(0);
 
@@ -114,7 +114,7 @@ test("offers only shared models when comparing plates and outlines every panel",
   await expectImageReady(page, "Images ready");
 
   const { model, counts, kind } = panelParts(page);
-  await expect(model.locator("option")).toHaveText([`${DEFAULT_MODEL} (IDR0080_B90)`]);
+  await expect(model.locator("option")).toHaveText([DEFAULT_MODEL]);
   await expect(counts.locator("li")).toHaveCount(2);
   await expect(counts.locator("li").nth(0)).toHaveText("A4 nuclei · 2 cells · 2 cytoplasm");
   await expect(counts.locator("li").nth(1)).toHaveText(/^B\d+ nuclei/);
@@ -137,34 +137,6 @@ test("offers only shared models when comparing plates and outlines every panel",
     await opened.first().getByRole("button", { name: "Remove", exact: true }).click();
     await expect(opened).toHaveCount(count - 1);
   }
-  await disconnect(page);
-});
-
-test("shows no segmentation panel for TIMED fields", async ({ page }) => {
-  await connect(page, "local-datasets", { dataset: "timed" });
-  await page.goto("/data?collection=timed");
-  // Collection mode names TIMED plates without their .zarr suffix.
-  const plate = page.locator(".file-list li").filter({
-    has: page.getByText("test_plate", { exact: true }),
-  });
-  await plate.getByRole("button", { name: "Open", exact: true }).click();
-  await page.getByRole("button", { name: "Well A1" }).click();
-  await page.getByTestId("open-selected").click();
-  await expectImageReady(page);
-  await expect(page.getByTestId("segmentation-panel")).toHaveCount(0);
-
-  const preset = new URL(page.url());
-  preset.searchParams.set("outlines", "nuclei");
-  await page.goto(preset.pathname + preset.search);
-  await expectImageReady(page);
-  await expect(page.getByTestId("segmentation-panel")).toHaveCount(0);
-
-  await page.getByRole("link", { name: "Back to data" }).click();
-  await page
-    .locator(".dataset-list li")
-    .first()
-    .getByRole("button", { name: "Remove", exact: true })
-    .click();
   await disconnect(page);
 });
 

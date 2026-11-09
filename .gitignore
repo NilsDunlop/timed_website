@@ -14,6 +14,7 @@ node_modules/
 apps/web/dist/
 apps/web/playwright-report/
 apps/web/test-results/
+.playwright-mcp/
 
 # Generated/local TIMED state and data
 test-data/

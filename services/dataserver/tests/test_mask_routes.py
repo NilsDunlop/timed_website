@@ -379,3 +379,90 @@ async def test_mask_decoding_and_rendering_run_off_the_event_loop(
     assert [response.status_code for response in responses] == [200, 200, 200]
     assert {name for name, _thread in threads} == {"models", "plate", "counts", "target", "outline"}
     assert event_loop_thread not in {thread for _name, thread in threads}
+
+
+def test_a_field_listing_reports_each_models_coverage_of_that_field(
+    client: TestClient,
+    data_root: Path,
+) -> None:
+    covered = _plate(client, data_root, "idr0080-A549", 14610)
+    assert _list(client, covered, well="a01", site=1) == [B90_14610, _stock(available=True)]
+    b90_only = _plate(client, data_root, "idr0080-A549", 14611)
+    assert _list(client, b90_only, well="A01", site=1) == [B90_14610, _stock(available=False)]
+    # A field whose rewrite is still being written keeps its committed record.
+    plate, well, site = mask_stores.IN_PROGRESS_FIELD
+    in_progress = _plate(client, data_root, "idr0080-A549", plate)
+    assert _list(client, in_progress, well=well, site=site) == [
+        B90_14610,
+        _stock(available=False),
+    ]
+    for well, site in (("C02", 1), ("A01", 3), ("A-1", 1)):
+        assert _list(client, covered, well=well, site=site) == []
+    for params in ({"well": "A01"}, {"site": "1"}):
+        refused = client.get(f"/api/datasets/{covered}/masks", headers=AUTH, params=params)
+        assert refused.status_code == 422
+        assert refused.json() == {"detail": "Give well and site together, or neither"}
+
+
+def test_a_field_that_no_model_covers_lists_none(data_root: Path, tmp_path: Path) -> None:
+    root = _copied_root(data_root, tmp_path)
+    plate, missing = 14611, (WELLS[-1], 2)
+    mask_stores.write_plate_store(
+        root / "masks" / B90,
+        B90,
+        "idr0080-A549",
+        plate,
+        [
+            (name, number, mask_stores.field_masks(B90, plate, index, number, SHAPE))
+            for index, name in enumerate(WELLS)
+            for number in make_test_data.PACKED_SITES
+            if (name, number) != missing
+        ],
+    )
+    with _isolated(root, tmp_path) as client:
+        index = root / make_test_data.PACKED_INDEX_NAME
+        dataset = _link(client, index / "idr0080-A549" / str(plate))
+        assert _list(client, dataset, well=missing[0], site=missing[1]) == []
+        assert [model["model_tag"] for model in _list(client, dataset)] == [B90, STOCK]
+        assert _list(client, dataset, well=WELLS[0], site=1)[0]["available"] is True
+
+
+def _list(client: TestClient, dataset: str, **params: object) -> list[dict]:
+    response = client.get(f"/api/datasets/{dataset}/masks", headers=AUTH, params=params)
+    assert response.status_code == 200, response.text
+    return response.json()["models"]
+
+
+def test_an_unreadable_store_keeps_its_plate_answer_in_a_field_listing(
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    root = _copied_root(data_root, tmp_path)
+    stock_tar = root / "masks" / STOCK / "idr0080-A549" / "Plate14610.masks.tar"
+    stock_tar.write_bytes(stock_tar.read_bytes()[:4096])
+    with _isolated(root, tmp_path) as client:
+        dataset = _link(client, root / make_test_data.PACKED_INDEX_NAME / "idr0080-A549" / "14610")
+        listed = _list(client, dataset, well="A01", site=1)
+        assert [(model["model_tag"], model["available"]) for model in listed] == [
+            (B90, True),
+            (STOCK, True),
+        ]
+        stock = client.get(f"/api/datasets/{dataset}/masks/{STOCK}/A01/1", headers=AUTH)
+        assert stock.status_code == 409
+
+
+def test_packed_masks_take_no_timepoint_or_zero(client: TestClient, data_root: Path) -> None:
+    dataset = _plate(client, data_root, "idr0080-A549", 14610)
+    counts = f"/api/datasets/{dataset}/masks/{B90}/A01/1"
+    outline = f"{counts}/nuclei.png"
+    plain = client.get(counts, headers=AUTH).json()
+    assert client.get(counts, headers=AUTH, params={"t": 0}).json() == plain
+    etag = client.get(outline, headers=AUTH).headers["etag"]
+    assert client.get(outline, headers=AUTH, params={"t": 0}).headers["etag"] == etag
+    for route in (counts, outline):
+        refused = client.get(route, headers=AUTH, params={"t": 1})
+        assert refused.status_code == 422
+        assert refused.json() == {
+            "detail": "These masks have a single timepoint: omit t or give 0, not 1"
+        }
+        assert client.get(route, headers=AUTH, params={"t": -1}).status_code == 422

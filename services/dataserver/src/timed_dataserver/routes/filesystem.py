@@ -10,13 +10,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..context import ServerContext, get_context
 from ..errors import forbidden, translate_path_errors, unprocessable
-from ..linked import PACKED_PLATE_DESCRIPTOR, packed_path, packed_profile
+from ..linked import PACKED_PLATE_INFO, packed_path, packed_profile
 from ..models import FilesystemEntry, FilesystemListResponse
 from ..omezarr import inspect_store
 from ..packed import PackedCatalogue, PackedIndexError, get_catalogue_in_thread, is_packed_index
 from ..paths import PathForbiddenError, PathNotFoundError, os_error_reason
 
 router = APIRouter()
+
+MASK_FOLDERS_NOT_BROWSABLE = "Configured mask folders are not browsable"
 
 
 def _quantity(count: int, singular: str) -> str:
@@ -50,6 +52,8 @@ async def list_files(
         )
     if ctx.qc_private_roots.contains_raw(path):
         raise forbidden(PathForbiddenError("Configured QC folders are not browsable"))
+    if ctx.mask_private_roots.contains_raw(path):
+        raise forbidden(PathForbiddenError(MASK_FOLDERS_NOT_BROWSABLE))
     packed = await packed_path(ctx, path)
     if packed is not None:
         if packed.plate is not None:
@@ -80,7 +84,7 @@ async def list_files(
                     name=profile.plate_display_name(packed.experiment, plate),
                     path=str(Path(packed.registry_key) / str(plate)),
                     kind="dir",
-                    ome_zarr=PACKED_PLATE_DESCRIPTOR.info,
+                    ome_zarr=PACKED_PLATE_INFO,
                     detail=(
                         f"{_quantity(len(plate_info.wells), 'well')} · "
                         f"{_quantity(len(plate_info.sites), 'site')} · "
@@ -96,6 +100,8 @@ async def list_files(
         root = ctx.guard.root_for(target)
     if ctx.qc_private_roots.contains(target):
         raise forbidden(PathForbiddenError("Configured QC folders are not browsable"))
+    if ctx.mask_private_roots.contains(target):
+        raise forbidden(PathForbiddenError(MASK_FOLDERS_NOT_BROWSABLE))
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Only directories can be listed")
 
@@ -121,7 +127,9 @@ async def list_files(
             safe_child = ctx.guard.resolve(str(child))
         except (PathForbiddenError, PathNotFoundError):
             continue
-        if ctx.qc_private_roots.contains(safe_child):
+        if ctx.qc_private_roots.contains(safe_child) or ctx.mask_private_roots.contains(
+            safe_child
+        ):
             continue
         is_directory = safe_child.is_dir()
         packed_index = not is_directory and await anyio.to_thread.run_sync(

@@ -19,6 +19,7 @@ from . import API_VERSION, __version__
 from .app import ServerSettings, create_app
 from .qc_config import QcConfigurationError, parse_qc_path_configs
 from .registry import atomic_json_write
+from .timed_mask_config import MaskConfigurationError, parse_timed_mask_mappings
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -68,6 +69,21 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         metavar="INDEX=FOLDER",
         help="QC annotations folder keyed by a packed index path; may be repeated",
+    )
+    serve_parser.add_argument(
+        "--timed-masks",
+        action="append",
+        default=[],
+        metavar="COLLECTION=FOLDER",
+        help="read-only mask folder mirroring a TIMED collection's plates; may be repeated",
+    )
+    serve_parser.add_argument(
+        "--timed-segmentation",
+        action="append",
+        default=[],
+        metavar="COLLECTION=FOLDER",
+        help="read-only folder of a TIMED collection's production segmentation runs; "
+        "may be repeated",
     )
 
     subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
@@ -180,7 +196,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         qc_paths = parse_qc_path_configs(args.qc_export, args.qc_annotations)
-    except QcConfigurationError as exc:
+        timed_masks = parse_timed_mask_mappings(args.timed_masks) + parse_timed_mask_mappings(
+            args.timed_segmentation, layout="production"
+        )
+    except (QcConfigurationError, MaskConfigurationError) as exc:
         parser.error(str(exc))
     settings = ServerSettings(
         data_roots=tuple(args.data_root),
@@ -190,6 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         packed_cache_mb=args.packed_cache_mb,
         qc_paths=qc_paths,
         mask_cache_mb=args.mask_cache_mb,
+        timed_masks=timed_masks,
     )
     if settings.packed_cache_mb <= 0:
         raise SystemExit("--packed-cache-mb must be greater than zero")

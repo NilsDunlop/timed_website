@@ -1,9 +1,10 @@
 import {
-  formatMaskCounts,
+  maskCountParts,
   maskKindColor,
   maskKindLabel,
   MAX_OUTLINE_WIDTH,
   MIN_OUTLINE_WIDTH,
+  type MaskCounts,
 } from "../../lib/maskOverlays";
 import type { MaskOverlays } from "./useMaskOverlays";
 
@@ -19,6 +20,23 @@ type SegmentationPanelProps = {
   onWidthChange: (width: number) => void;
   onOpacityChange: (opacity: number) => void;
 };
+
+/** One count per kind; a narrow column breaks the line between kinds, never inside one. */
+function CountLine({ kinds, counts }: { kinds: readonly string[]; counts: MaskCounts }) {
+  const parts = maskCountParts(kinds, counts);
+  return (
+    <span className="segmentation-count-line">
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 && " "}
+          <span className="segmentation-count">
+            {index < parts.length - 1 ? part + " ·" : part}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /** Outline toggles for the segmentation masks; shown only when masks exist. */
 export default function SegmentationPanel({
@@ -43,11 +61,16 @@ export default function SegmentationPanel({
           <span>Model</span>
           <select
             value={model.model_tag}
+            title={model.recipe ?? undefined}
             onChange={(event) => onModelChange(event.target.value)}
           >
             {models.map((option) => (
-              <option key={option.model_tag} value={option.model_tag}>
-                {option.recipe ? `${option.model_tag} (${option.recipe})` : option.model_tag}
+              <option
+                key={option.model_tag}
+                value={option.model_tag}
+                title={option.recipe ?? undefined}
+              >
+                {option.model_tag}
               </option>
             ))}
           </select>
@@ -61,21 +84,28 @@ export default function SegmentationPanel({
             May still change
           </span>
         )}
+        {model.recipe && (
+          <small className="segmentation-recipe" data-testid="segmentation-recipe">
+            {model.recipe}
+          </small>
+        )}
       </div>
 
       <ul className="segmentation-counts" data-testid="segmentation-counts">
         {sources.map((source) => {
           const counts = masks.counts.get(source.key);
-          const text =
-            counts?.status === "ready"
-              ? formatMaskCounts(model.kinds, counts.value)
-              : counts?.status === "error"
-                ? `Counts unavailable: ${counts.message}`
-                : "Counting objects…";
           return (
             <li key={source.key}>
               {source.label && <span className="comparison-index">{source.label}</span>}
-              <span>{text}</span>
+              {counts?.status === "ready" ? (
+                <CountLine kinds={model.kinds} counts={counts.value} />
+              ) : (
+                <span>
+                  {counts?.status === "error"
+                    ? `Counts unavailable: ${counts.message}`
+                    : "Counting objects…"}
+                </span>
+              )}
             </li>
           );
         })}

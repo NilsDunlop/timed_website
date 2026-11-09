@@ -179,7 +179,12 @@ def _profile(
                 "name": "Test cluster with datasets",
                 "data_roots": [cluster_data_root, cluster_idr0080_root],
                 "collections": [
-                    {**timed_collection, "path": cluster_data_root},
+                    {
+                        **timed_collection,
+                        "path": cluster_data_root,
+                        "masks_root": cluster_data_root.rstrip("/") + "/timed-masks",
+                        "segmentation_root": cluster_data_root.rstrip("/") + "/timed-seg",
+                    },
                     {
                         **idr0080_collection,
                         "path": cluster_idr0080_index,
@@ -194,7 +199,12 @@ def _profile(
                 "name": "This computer with datasets",
                 "data_roots": [local_data_root, local_idr0080_root],
                 "collections": [
-                    {**timed_collection, "path": local_data_root},
+                    {
+                        **timed_collection,
+                        "path": local_data_root,
+                        "masks_root": str(Path(local_data_root) / "timed-masks"),
+                        "segmentation_root": str(Path(local_data_root) / "timed-seg"),
+                    },
                     {
                         **idr0080_collection,
                         "path": local_idr0080_index,
@@ -229,6 +239,19 @@ def _local_profile(path: Path, local_data_root: Path) -> None:
 def _real_timed_profile(path: Path, copy_root: Path) -> None:
     data_root = copy_root / "zarr"
     metadata_root = copy_root / "metadata"
+    masks_root = copy_root / "corrected"
+    segmentation_root = copy_root / "seg"
+    timed_collection: dict[str, object] = {
+        "id": "timed",
+        "title": "TIMED",
+        "description": "Live-cell time-lapse · PB100140_P2.1 · 48 h, hourly · 3 channels",
+        "path": str(data_root),
+        "default": True,
+    }
+    if masks_root.is_dir():
+        timed_collection["masks_root"] = str(masks_root)
+    if segmentation_root.is_dir():
+        timed_collection["segmentation_root"] = str(segmentation_root)
     value = {
         "profiles": [
             {
@@ -237,18 +260,7 @@ def _real_timed_profile(path: Path, copy_root: Path) -> None:
                 "kind": "local",
                 "data_roots": [str(data_root)],
                 "metadata_root": str(metadata_root),
-                "collections": [
-                    {
-                        "id": "timed",
-                        "title": "TIMED",
-                        "description": (
-                            "Live-cell time-lapse · PB100140_P2.1 · "
-                            "48 h, hourly · 3 channels"
-                        ),
-                        "path": str(data_root),
-                        "default": True,
-                    }
-                ],
+                "collections": [timed_collection],
             }
         ]
     }
@@ -390,6 +402,10 @@ def main() -> int:
     qc_export = TEST_DATA / "qc-export"
     if not real_local and not qc_export.is_dir():
         raise RuntimeError("Run `make test-data` to create the QC export fixture")
+    if not real_local and not all(
+        (TEST_DATA / name).is_dir() for name in ("timed-masks", "timed-seg")
+    ):
+        raise RuntimeError("Run `make test-data` to create the TIMED mask fixtures")
     required_ports = [arguments.connector_port]
     if not arguments.built_ui:
         required_ports.append(arguments.web_port)
@@ -573,8 +589,11 @@ def main() -> int:
                     "TIMED_REAL_LOCAL_STORE": str(real_local_store),
                 }
             )
+        test_environment.pop("TIMED_REAL_TIMED_SEGMENTATION", None)
         if real_timed_copy:
             test_environment["TIMED_REAL_TIMED_COPY"] = "1"
+            if (real_timed_copy / "seg").is_dir():
+                test_environment["TIMED_REAL_TIMED_SEGMENTATION"] = "1"
         test_environment.pop("TIMED_E2E_LOCAL_ONLY", None)
         if arguments.local_only:
             test_environment["TIMED_E2E_LOCAL_ONLY"] = "1"

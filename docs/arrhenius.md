@@ -230,6 +230,32 @@ the development build `0.6.0.dev0`; the release commit sets version `0.6.0`.
 The count line's layout in the narrow controls column, and one region where
 the segmentation itself could be better, were noted for later work.
 
+## TIMED segmentation outlines
+
+Status: passed manually on Arrhenius on 2026-11-09, with a fresh job running
+the development build `0.7.0.dev1` (installed as `0.7.0.dev1-1d3a73873ad0`);
+the release keeps version `0.7.0`.
+
+The TIMED collection reads the production segmentation under
+`TIMED/seg/track_v0/production/seg-track-v0` as its `segmentation_root`. On
+PB100140_P2.1:
+
+- C05 site 1 offered `R4_cpsam_dS_corrected` alone, since the presentation
+  export is configured only for the local copy. At time 1 it read 74 nuclei ·
+  98 cells, with outlines on the cells.
+- A comparison of C05 and C15, site 1, followed time in both panels. At time 1
+  the listings took 109 and 222 ms, the C05 counts 78 ms, and the outlines
+  184 ms (C05) and 261 to 263 ms (C15) (`masks:listing-ready`,
+  `masks:counts-ready`, `outline:ready`).
+- C15 site 1 at time 32 read 37 nuclei · 39 cells, and C03 site 1 read 45
+  nuclei · 55 cells.
+- On another plate (P1.2, well K15, site 1) the viewer behaved as intended,
+  without masks: the runs cover P2.1 only.
+
+The operator reported every step working as intended. The same steps on the
+local copy, with the export's `masks_raw` as a second model, matched every
+expected count.
+
 ## Troubleshooting
 
 - Job pending indefinitely: verify the account and partition.

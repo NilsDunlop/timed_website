@@ -121,6 +121,15 @@ class LocalBackend:
         if metadata_root is not None:
             arguments.extend(("--metadata-root", str(metadata_root)))
         for collection in profile.collections:
+            if collection.masks_root is not None:
+                arguments.extend(("--timed-masks", f"{collection.path}={collection.masks_root}"))
+            if collection.segmentation_root is not None:
+                arguments.extend(
+                    (
+                        "--timed-segmentation",
+                        f"{collection.path}={collection.segmentation_root}",
+                    )
+                )
             if collection.qc_export is None or collection.qc_annotations is None:
                 continue
             arguments.extend(("--qc-export", f"{collection.path}={collection.qc_export}"))

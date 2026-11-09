@@ -57,8 +57,9 @@ file.
 Run `uv run timed-dataserver export-openapi` to print the complete API schema.
 The `serve` command accepts one or more data roots, a host and port (including
 dynamic port `0`), an environment, a connection-file path and a state directory,
-plus an optional metadata root, the packed and mask cache budgets and repeated
-`--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings.
+plus an optional metadata root, the packed and mask cache budgets, repeated
+`--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings and repeated
+`--timed-masks` and `--timed-segmentation` `COLLECTION=FOLDER` mappings.
 
 The server writes the selected port and random bearer token to the connection
 file only after Uvicorn is accepting connections, and removes the file during
@@ -81,16 +82,32 @@ stores for packed plates whose code profile declares a masks folder; the
 listing answers every linked dataset, with no models when it has none. Decoded
 masks share a 512 MiB LRU (`serve --mask-cache-mb`) and outline PNGs a 256 MiB
 one. Mask readers never open leases, `profiles/`, the run ledger or QC tables.
+A TIMED collection's `masks_root` mirrors its plates and fields; each field's
+`masks_raw` and `nuclei` arrays form model `masks_raw` (kinds `cells` and
+`nuclei`). Its `segmentation_root` holds production runs at
+`<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`,
+with the plate's name without `.zarr`; model `R4_cpsam_dS_corrected` pins its
+cell run and the linked `R4_cpsam_dS_corrected_nuclei` run. Run arrays store
+no axes, so their (t, y, x) order is pinned, but each must store the plate,
+well, site and run id its path names. The production model is listed first and
+is the default wherever it covers a field. Every TIMED mask array holds one
+plane per image timepoint, so counts and outlines take `?t=`, and caches and
+ETags key on `t` and the files' identities. TIMED masks appear only in a
+listing that names a field with `well` and `site`; fields without masks list
+none. Mask folders are read-only and, like the QC folders, never browsable,
+linkable or served.
 
 ## Connector and test cluster
 
 `config/profiles.example.yaml` is the repository's active development profile;
 do not assume a separate `~/.timed/profiles.yaml` on the operator workstation.
 Its Arrhenius profile declares both the **TIMED** and **Cell Health** collections,
-with TIMED carrying the sole `default: true`. Dataset choice remains available
-on Connect before and after connecting. The Berzelius and `local-timed`
-profiles expose only TIMED; the latter reads the external downtime mirror at
-`D:/TIMED` and must remain read-only. For a manual test-cluster run, replace
+with TIMED carrying the sole `default: true` and reading the production
+segmentation under `TIMED/seg/track_v0/production/seg-track-v0`. Dataset choice
+remains available on Connect before and after connecting. The Berzelius and
+`local-timed` profiles expose only TIMED; the latter reads the external downtime
+mirror at `D:/TIMED`, including the export masks under `D:/TIMED/corrected` and
+the production segmentation under `D:/TIMED/seg`, and must remain read-only. For a manual test-cluster run, replace
 the profile's absolute-path placeholders, run `make test-cluster` on
 macOS/Linux (or WSL), and run `make dev` in another terminal.
 
@@ -152,13 +169,16 @@ Every viewer panel derives its own scale bar from source metadata. TIMED uses
 0.29898804047838085 micrometres per pixel. A source without a valid pixel size
 gets no scale bar; never infer one.
 
-When every source's plate has masks, a **Segmentation** panel joins the viewer
+When every source's field has masks, a **Segmentation** panel joins the viewer
 controls, which the QC field view shares: the models every source covers
-(default first), a "May still change" badge, each source's object counts, kind
-toggles that start off, width and opacity. Listings and counts load beside the
-image; outlines are `VivCanvas` overlay layers that follow the displayed
-timepoint and never affect "Image ready". `outlines=` and `model=` keep them
-in the link. TIMED shows no panel.
+(default first, full tag, recipe on its own line), a "May still change" badge
+for unfrozen models, each source's object counts (breaking only between
+kinds), kind toggles that start off, width and opacity. Listings load beside
+the image. Outlines are `VivCanvas` overlay layers that follow the displayed
+timepoint and never affect "Image ready"; on a source with a time axis
+(TIMED) its counts follow the displayed timepoint too, and nothing is fetched
+for a frame before it is on screen. `outlines=` and `model=` keep them in the
+link. A TIMED field without masks shows no panel.
 
 `make test-e2e` creates isolated legacy and collection-aware test-cluster and
 local profiles. It drives Connect -> Data -> View for TIMED and the packed
@@ -254,9 +274,11 @@ single-resolution native `test_image_v04.zarr` (Zarr v2) and
 `test_image_v05.zarr` (Zarr v3), the packed idr0080-like fixture under
 `packed/idr0080-like/` (an index beside three plate shards of five-channel,
 64 by 64 fields, with well metadata, `tar+wal/v1` mask stores for two models
-from `scripts/mask_stores.py`, and decoy fragment and mask indexes), and
-the QC exports `qc-export/` and `qc-export-next/`. The output is deterministic
-and gitignored.
+from `scripts/mask_stores.py`, and decoy fragment and mask indexes),
+`timed-masks/` (time-varying `masks_raw` and `nuclei` arrays for four TIMED
+fields) and `timed-seg/` (the production layout for those fields and
+test_plate A02 s2), both from `scripts/timed_mask_stores.py`, and the QC exports
+`qc-export/` and `qc-export-next/`. The output is deterministic and gitignored.
 
 ## Cell Health / idr0080 real data
 

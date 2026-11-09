@@ -38,7 +38,7 @@ class StoreDescriptor:
     """The small amount of metadata needed to classify a store."""
 
     info: OmeZarrInfo
-    layout: Literal["native", "timed-collection", "packed"]
+    layout: Literal["native", "timed-collection"]
     metadata_prefix: str = ""
 
 
@@ -298,6 +298,12 @@ def _is_timed_array(path: Path) -> bool:
     except OmeZarrError:
         return False
     return True
+
+
+def timed_field_geometry(path: Path) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """A validated TIMED field array's (t, c, y, x) shape and time indices."""
+    metadata = _timed_field_metadata(path)
+    return tuple(metadata["shape"]), tuple(metadata["attributes"]["timed"]["t_indices"])
 
 
 def _collection_fields(path: Path) -> list[tuple[str, str, int, Path]]:

@@ -1,7 +1,8 @@
-"""Packed paths, linked-dataset lookup and display names shared by the routes."""
+"""Packed paths, typed linked-dataset lookup and display names shared by the routes."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -13,10 +14,29 @@ from .omezarr import StoreDescriptor, inspect_store
 from .packed import PackedIndexError, PackedVirtualPath, resolve_packed_virtual_path_in_thread
 from .packed_profiles import PackedDatasetProfile, PackedProfileError
 
-PACKED_PLATE_DESCRIPTOR = StoreDescriptor(
-    info=OmeZarrInfo(kind="plate", version="0.5", zarr_format=3),
-    layout="packed",
-)
+PACKED_PLATE_INFO = OmeZarrInfo(kind="plate", version="0.5", zarr_format=3)
+
+
+@dataclass(frozen=True, slots=True)
+class LinkedPackedPlate:
+    """A linked plate inside a packed index's virtual hierarchy."""
+
+    record: DatasetRecord
+    packed: PackedVirtualPath
+    experiment: str
+    plate: int
+
+
+@dataclass(frozen=True, slots=True)
+class LinkedStore:
+    """A linked native OME-Zarr store or TIMED collection on the filesystem."""
+
+    record: DatasetRecord
+    path: Path
+    descriptor: StoreDescriptor
+
+
+LinkedDataset = LinkedPackedPlate | LinkedStore
 
 
 def _descriptor_or_404(path: Path) -> StoreDescriptor:
@@ -65,18 +85,29 @@ async def displayed_dataset(ctx: ServerContext, record: DatasetRecord) -> Datase
     )
 
 
-async def linked(
-    ctx: ServerContext,
-    dataset_id: str,
-) -> tuple[DatasetRecord, Path, StoreDescriptor, PackedVirtualPath | None]:
+async def linked(ctx: ServerContext, dataset_id: str) -> LinkedDataset:
+    """Resolve a linked record: packed paths first, then the filesystem store."""
     record = ctx.registry.get(dataset_id)
     if record is None:
         raise not_found("Dataset is not linked")
     packed = await packed_path(ctx, record.path)
     if packed is not None:
-        if packed.plate is None:
+        # A packed plate path always names its experiment as well.
+        if packed.plate is None or packed.experiment is None:
             raise not_found("Packed plate is no longer available")
-        return record, packed.index_path, PACKED_PLATE_DESCRIPTOR, packed
+        return LinkedPackedPlate(record, packed, packed.experiment, packed.plate)
     with translate_path_errors():
         path = ctx.guard.resolve(record.path)
-    return record, path, _descriptor_or_404(path), None
+    return LinkedStore(record, path, _descriptor_or_404(path))
+
+
+async def require_packed_plate(
+    ctx: ServerContext,
+    dataset_id: str,
+    detail: str,
+) -> LinkedPackedPlate:
+    """The linked packed plate, or 404 with *detail* for any other kind."""
+    dataset = await linked(ctx, dataset_id)
+    if not isinstance(dataset, LinkedPackedPlate):
+        raise not_found(detail)
+    return dataset

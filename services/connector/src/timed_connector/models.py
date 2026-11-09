@@ -29,6 +29,10 @@ class CollectionConfig(ApiModel):
     default: bool = False
     qc_export: str | None = Field(default=None, min_length=1, exclude=True)
     qc_annotations: str | None = Field(default=None, min_length=1, exclude=True)
+    masks_root: str | None = Field(default=None, min_length=1, exclude=True)
+    """A read-only folder mirroring this TIMED collection's plates and fields."""
+    segmentation_root: str | None = Field(default=None, min_length=1, exclude=True)
+    """A read-only folder of production segmentation runs for this TIMED collection."""
 
     @computed_field
     @property
@@ -44,6 +48,11 @@ class CollectionConfig(ApiModel):
             "=" in value for value in (self.path, self.qc_export, self.qc_annotations or "")
         ):
             raise ValueError("QC mapping paths must not contain '='")
+        if any(
+            folder is not None and "=" in self.path + folder
+            for folder in (self.masks_root, self.segmentation_root)
+        ):
+            raise ValueError("Mask mapping paths must not contain '='")
         return self
 
 
@@ -104,6 +113,8 @@ class Profile(ApiModel):
                 for field_name, value in (
                     ("qc_export", collection.qc_export),
                     ("qc_annotations", collection.qc_annotations),
+                    ("masks_root", collection.masks_root),
+                    ("segmentation_root", collection.segmentation_root),
                 ):
                     if value is None:
                         continue
@@ -127,6 +138,16 @@ class Profile(ApiModel):
                             if collection.qc_annotations is not None
                             else None
                         ),
+                        "masks_root": (
+                            str(_normalized_local_path(collection.masks_root))
+                            if collection.masks_root is not None
+                            else None
+                        ),
+                        "segmentation_root": (
+                            str(_normalized_local_path(collection.segmentation_root))
+                            if collection.segmentation_root is not None
+                            else None
+                        ),
                     }
                 )
                 for collection in self.collections
@@ -142,6 +163,13 @@ class Profile(ApiModel):
                 ):
                     raise ValueError(
                         "QC mapping paths must not contain '=' after local path normalization"
+                    )
+                if any(
+                    folder is not None and "=" in collection.path + folder
+                    for folder in (collection.masks_root, collection.segmentation_root)
+                ):
+                    raise ValueError(
+                        "Mask mapping paths must not contain '=' after local path normalization"
                     )
         return self
 

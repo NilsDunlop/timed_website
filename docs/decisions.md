@@ -949,3 +949,77 @@ a sanity check, following the mask-store contract in `docs/data/IDR0080.md`.
 
 The operator check on Arrhenius (plate 14610, well A01, site 1) is recorded in
 `docs/arrhenius.md`.
+
+## 2026-11-09: TIMED segmentation outlines over time (0.7.0)
+
+Release 0.7.0 draws segmentation masks over TIMED fields, frame by frame, as a
+sanity check. They come from a presentation export for four PB100140_P2.1
+fields (C05, C15, F13 and G07, site 1) and from the production segmentation of
+all 392 PB100140_P2.1 fields, both recorded in `docs/data/CONVERSION.md`.
+
+- **A mask folder per collection.** A collection's optional `masks_root`
+  mirrors its plates and fields, `<plate>.zarr/<well>_s<site>.zarr/`. The
+  connector keeps it out of its API and passes
+  `serve --timed-masks COLLECTION=FOLDER`. The server checks each mapping at
+  startup: the collection lies inside a data root, and the folder contains
+  neither a data root nor its collection and overlaps no other mask folder.
+  Mask folders are read-only and, like the QC folders, never browsable,
+  linkable or served, and no path follows a symlink out of them.
+- **Production runs per collection.** A collection's optional
+  `segmentation_root` holds the production layout,
+  `<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`
+  with the plate's name without `.zarr`, and is passed as
+  `serve --timed-segmentation`. It follows the same rules as `masks_root`; a
+  collection has at most one folder of each kind. The Arrhenius TIMED
+  collection and the local copy read it, so TIMED masks also work on Arrhenius.
+- **The production model comes first.** `R4_cpsam_dS_corrected` (recipe
+  "Cellpose-SAM cells (TiLu-corrected 505 + raw 625 nm)") offers kinds
+  `nuclei` and `cells` from the cell run and its linked classical-nuclei run.
+  It is listed before `masks_raw`, so it is the default; the export's fields
+  still offer `masks_raw` for comparison. It has no "May still change" badge:
+  the run is finished and verified, and the badge means files may still be
+  written.
+- **Pinned axes, stricter identity.** The runs store no axes. Their (t, y, x)
+  order is pinned by the layout rather than rewriting any `zarr.json`, and
+  each array must store the plate, well, site and run id its path names.
+- **Arrays pinned in code.** Model `masks_raw` offers kinds `nuclei` (array
+  `nuclei`, classical objects on raw 625 nm) and `cells` (array `masks_raw`,
+  Cellpose-SAM on raw 505 and 625 nm). It is frozen, so it shows no "May still
+  change" badge, and its recipe line names both sources. Each array must have
+  its field's timepoints, `t_indices` and plane size. It is read one plane at
+  a time from its single shard after a CRC32C check of the shard index, with
+  omitted chunks as background. A field offers whichever kinds it holds.
+- **Revisions.** Decoded planes and outline PNGs share the existing caches,
+  keyed on each file's device, inode, size and mtime and on the timepoint, and
+  ETags include the timepoint, so a regenerated export is picked up without a
+  restart.
+- **Additive API parameters; existing calls are unchanged.** With `well` and
+  `site`, the listing reports whether each model covers that field, and a
+  field without masks lists none. TIMED masks appear only there, so a plate
+  listing still lists none, as before. Counts and outlines take an optional
+  `t`: TIMED needs it within the field's timepoints, packed masks accept none
+  or 0, and anything else answers 422.
+- **One reader per dataset kind.** `linked()` returns typed results and every
+  reader has a `mask_source()` hook; the Cell Health masks moved behind it
+  unchanged. There is no separate capability flag: a reader without masks
+  returns no mask source.
+- **The viewer follows the displayed frame.** On a source with a time axis,
+  counts and outlines are requested for the frame on screen and never before
+  it; Cell Health asks once, as before. Nothing is prefetched: on the local USB
+  drive outlines trail a prefetched frame by 0.3 to 1.8 s, mostly the existing
+  per-request TIMED overhead, and the first request after about 45 s idle waits
+  about 20 s for the drive. The operator judged this acceptable.
+- **Panel layout.** The count line breaks only between kinds, and the model
+  selector shows the full tag with the recipe on its own line.
+- **Labels are not tracked.** Every frame was segmented on its own, so an id
+  names a different object in the next frame. A cell-level review over time
+  needs tracking first.
+- **Not offered.** The export's TiLu-corrected cells (`masks_corrected`) are
+  not offered; the production cells equal them except at C15 time index 31,
+  where one export cell is part of a neighbour.
+
+The operator's local checks passed on 2026-11-07, 2026-11-08 and 2026-11-09:
+on every field checked, the cell and nucleus outlines are aligned and follow
+the displayed frame, and the counts update with it. The opt-in real-data test
+confirms every frame's counts against the export's tables. The Arrhenius check
+of 2026-11-09 is recorded in `docs/arrhenius.md`.
