@@ -1,4 +1,10 @@
-"""Metadata-only OME-Zarr inspection and TIMED collection adaptation."""
+"""Metadata-only OME-Zarr inspection and TIMED collection adaptation.
+
+Parsed metadata files and TIMED plate listings are memoised while the files
+and the plate folder keep their identity (``file_memo``), so a request no
+longer rescans a plate or re-reads a field's metadata; validation still runs on
+every request. Memoised metadata is shared: treat it as read-only.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
+from .file_memo import FileMemo
 from .models import (
     AcquisitionSummary,
     AxisSummary,
@@ -27,6 +34,11 @@ from .paths import PathForbiddenError, error_reason
 FIELD_NAME = re.compile(r"^(?P<row>[A-Za-z]+)(?P<column>\d+)_s(?P<site>\d+)\.zarr$")
 METADATA_LIMIT = 8 * 1024 * 1024
 PIXEL_SIZE_MICROMETERS = 0.3
+
+type CollectionField = tuple[str, str, int, Path]
+
+_METADATA_FILES: FileMemo[dict[str, Any]] = FileMemo(max_entries=4096)
+_COLLECTION_FIELDS: FileMemo[tuple[CollectionField, ...]] = FileMemo(max_entries=256)
 
 
 class OmeZarrError(ValueError):
@@ -57,6 +69,11 @@ def _file_label(path: Path) -> str:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
+    """A metadata file's JSON object, memoised while the file keeps its identity."""
+    return _METADATA_FILES.get(path, path, lambda: _load_json(path))
+
+
+def _load_json(path: Path) -> dict[str, Any]:
     try:
         if path.stat().st_size > METADATA_LIMIT:
             raise OmeZarrError(f"Metadata file is too large: {_file_label(path)}")
@@ -306,8 +323,17 @@ def timed_field_geometry(path: Path) -> tuple[tuple[int, ...], tuple[int, ...]]:
     return tuple(metadata["shape"]), tuple(metadata["attributes"]["timed"]["t_indices"])
 
 
-def _collection_fields(path: Path) -> list[tuple[str, str, int, Path]]:
-    fields: list[tuple[str, str, int, Path]] = []
+def _collection_fields(path: Path) -> list[CollectionField]:
+    """A TIMED plate's fields, memoised while the plate folder keeps its identity.
+
+    Adding, removing or replacing a field changes the folder's modification
+    time, so the folder is listed again on the next request.
+    """
+    return list(_COLLECTION_FIELDS.get(path, path, lambda: tuple(_scan_collection(path))))
+
+
+def _scan_collection(path: Path) -> list[CollectionField]:
+    fields: list[CollectionField] = []
     try:
         resolved_path = path.resolve(strict=True)
     except OSError:
@@ -745,7 +771,8 @@ def collection_resource(store: Path, relative: str) -> VirtualResource | None:
         raw_attributes = metadata.get("attributes")
         timed = raw_attributes.get("timed", {}) if isinstance(raw_attributes, dict) else {}
         if isinstance(timed, dict) and isinstance(timed.get("axes"), list):
-            metadata["dimension_names"] = timed["axes"]
+            # A copy: the parsed metadata is memoised and shared.
+            metadata = {**metadata, "dimension_names": timed["axes"]}
         return VirtualResource(content=_json_bytes(metadata))
     if len(parts) >= 3 and parts[1] == "s0":
         mapped = str(PurePosixPath(parts[0]).joinpath(*parts[2:]))

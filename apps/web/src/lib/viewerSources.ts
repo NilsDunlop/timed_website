@@ -4,7 +4,6 @@ import type { components } from "./api/dataserver-schema";
 import type { PlateMetadata } from "./plateMetadata";
 
 export type ImageSummary = components["schemas"]["ImageSummary"];
-export type FieldSummary = components["schemas"]["FieldSummary"];
 export type Summary =
   | ImageSummary
   | components["schemas"]["PlateSummary"];
@@ -15,7 +14,6 @@ export type ViewerSourceState = {
   datasetId: string;
   path: string;
   image: ImageSummary;
-  field: FieldSummary | null;
   metadata: PlateMetadata | null;
   loader: Loader;
   readyKey: string;
