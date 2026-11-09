@@ -132,7 +132,10 @@ the sole `default: true` and reading the production segmentation under
 matches a shared profile overrides its fields (mappings key by key,
 collections by `id`, other values replace); any other entry adds a personal
 profile, such as Berzelius or a local mirror, which must remain read-only. An
-explicit `--profiles` file is read alone. Dataset choice remains available on
+explicit `--profiles` file is read alone. The connector reads the files again
+when one changes, so an edit applies at the next profile list or connect
+without a restart; a broken edit is reported until it is fixed, and a reused
+job keeps the settings it started with. Dataset choice remains available on
 Connect before and after connecting. For a manual test-cluster run, copy
 `config/profiles.dev.yaml` outside the repository, replace its absolute-path
 placeholders, run `make test-cluster` on macOS/Linux (or WSL), and run

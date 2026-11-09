@@ -7,19 +7,24 @@ import os
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import yaml
 from pydantic import ValidationError
+from timed_connector.app import create_app
 from timed_connector.cli import main
 from timed_connector.local_backend import LocalBackend
 from timed_connector.models import Profile
 from timed_connector.profiles import (
     SHARED_PROFILES,
     ProfileError,
+    ReloadingProfileStore,
     load_profile_files,
     load_profiles,
     validate_profile,
+    watched_profiles,
 )
+from timed_connector.session import ConnectorSession
 
 
 def _write(path: Path, profiles: list[dict[str, Any]]) -> Path:
@@ -253,3 +258,69 @@ def test_a_local_path_this_account_cant_read_still_connects(
     store = load_profiles(_write(tmp_path / "missing.yaml", [{**profile, "collections": [gone]}]))
     with pytest.raises(ProfileError, match="path does not exist"):
         validate_profile(store, "laptop")
+
+
+def _touch_later(path: Path, seconds: int) -> None:
+    """Move a file's modification time on, as a later save in an editor would."""
+    later = path.stat().st_mtime_ns + seconds * 1_000_000_000
+    os.utime(path, ns=(later, later))
+
+
+def test_the_connector_follows_edits_to_its_profile_files(tmp_path: Path) -> None:
+    shared = _write(tmp_path / "profiles.yaml", [_shared()])
+    personal = tmp_path / "profiles.local.yaml"
+    store = ReloadingProfileStore(
+        lambda: load_profile_files(shared, personal), [shared, personal]
+    )
+    assert store.get("cluster").username is None
+
+    _write(personal, [{"id": "cluster", "username": "alice"}])
+    assert store.get("cluster").username == "alice"
+
+    # A broken edit is reported until it is fixed, never hidden by the old profiles.
+    personal.write_text("profiles: [", encoding="utf-8")
+    _touch_later(personal, 1)
+    with pytest.raises(ProfileError, match="profiles.local.yaml"):
+        store.public()
+    with pytest.raises(ProfileError, match="profiles.local.yaml"):
+        store.get("cluster")
+
+    _write(personal, [{"id": "cluster", "username": "bob"}])
+    _touch_later(personal, 2)
+    assert [profile.username for profile in store.public()] == ["bob"]
+
+    personal.unlink()
+    assert store.get("cluster").username is None
+
+
+@pytest.mark.asyncio
+async def test_the_profiles_route_and_connect_read_the_edited_file(tmp_path: Path) -> None:
+    shared = _write(tmp_path / "profiles.yaml", [_shared()])
+    store = watched_profiles(shared)
+    app = create_app(store, ConnectorSession(store, FakeLoginBackend()), port=8700)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8700",
+    ) as client:
+        assert (await client.get("/connector/profiles")).json()[0]["name"] == "Cluster"
+
+        _write(shared, [{**_shared(), "name": "Renamed cluster"}])
+        _touch_later(shared, 1)
+        assert (await client.get("/connector/profiles")).json()[0]["name"] == "Renamed cluster"
+
+        shared.write_text("profiles: [", encoding="utf-8")
+        _touch_later(shared, 2)
+        listed = await client.get("/connector/profiles")
+        assert listed.status_code == 500
+        assert "profiles.yaml" in listed.json()["detail"]
+        connect = await client.post(
+            "/connector/connect",
+            headers={"X-Timed-Client": "web"},
+            json={"profile_id": "cluster", "username": "alice"},
+        )
+        assert connect.status_code == 409
+        assert "profiles.yaml" in connect.json()["detail"]
+
+
+class FakeLoginBackend:
+    """A cluster backend these tests never reach: they stop before any login."""

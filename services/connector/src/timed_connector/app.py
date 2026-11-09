@@ -20,7 +20,7 @@ from .models import (
     RespondRequest,
     SessionSnapshot,
 )
-from .profiles import ProfileStore
+from .profiles import ProfileError, ProfileStore
 from .proxy import proxy_request
 from .session import ConnectorSession, SessionError
 
@@ -94,7 +94,11 @@ def create_app(
 
     @app.get("/connector/profiles", response_model=list[Profile])
     async def list_profiles() -> list[Profile]:
-        return profiles.public()
+        try:
+            return profiles.public()
+        except ProfileError as exc:
+            # A profiles file edited while the connector runs no longer loads.
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
 
     @app.get("/connector/session", response_model=SessionSnapshot)
     async def get_session() -> SessionSnapshot:

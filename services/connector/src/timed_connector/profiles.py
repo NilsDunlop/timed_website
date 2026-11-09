@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import stat
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,51 @@ class ProfileStore:
 
     def public(self) -> list[Profile]:
         return list(self.profiles)
+
+
+class ReloadingProfileStore(ProfileStore):
+    """Profiles that follow their files, for the long-running connector.
+
+    The files are read again when either changes size or modification time, so
+    an edit applies at the next profile list or connect without a restart. A
+    file that no longer loads raises ProfileError until it is fixed, rather than
+    leaving the previous profiles in use.
+    """
+
+    def __init__(self, load: Callable[[], ProfileStore], files: Sequence[Path]) -> None:
+        self._load = load
+        self._files = tuple(files)
+        self._identity = self._file_identity()
+        self._use(load())
+
+    def _use(self, store: ProfileStore) -> None:
+        ProfileStore.__init__(self, list(store.profiles), store.source)
+
+    def _file_identity(self) -> tuple[tuple[int, int] | None, ...]:
+        identity: list[tuple[int, int] | None] = []
+        for path in self._files:
+            try:
+                status = path.stat()
+            except OSError:
+                identity.append(None)
+            else:
+                identity.append((status.st_mtime_ns, status.st_size))
+        return tuple(identity)
+
+    def refresh(self) -> None:
+        """Read the files again if either changed since they were last read."""
+        identity = self._file_identity()
+        if identity != self._identity:
+            self._use(self._load())
+            self._identity = identity
+
+    def get(self, profile_id: str) -> Profile:
+        self.refresh()
+        return super().get(profile_id)
+
+    def public(self) -> list[Profile]:
+        self.refresh()
+        return super().public()
 
 
 def _read_yaml(source: Path) -> Any:
@@ -136,6 +182,17 @@ def load_profile_files(
             f"Invalid profiles from {shared_source} and {personal_source}: {exc}"
         ) from exc
     return ProfileStore(document.profiles, shared_source)
+
+
+def watched_profiles(
+    profiles: Path | None,
+    personal: Path | None = PERSONAL_PROFILES,
+) -> ReloadingProfileStore:
+    """The connector's profiles: an explicit file alone, else the shared and personal files."""
+    if profiles is not None:
+        return ReloadingProfileStore(lambda: load_profiles(profiles), [profiles.expanduser()])
+    files = [SHARED_PROFILES, *([] if personal is None else [personal.expanduser()])]
+    return ReloadingProfileStore(lambda: load_profile_files(personal=personal), files)
 
 
 def validate_profile(store: ProfileStore, profile_id: str) -> Profile:

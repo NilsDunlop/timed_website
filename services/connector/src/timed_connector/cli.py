@@ -22,9 +22,8 @@ from .profiles import (
     PERSONAL_PROFILES,
     ProfileError,
     ProfileStore,
-    load_profile_files,
-    load_profiles,
     validate_profile,
+    watched_profiles,
 )
 from .session import ConnectorSession, SessionBackend
 
@@ -153,9 +152,7 @@ def _export_openapi() -> None:
 
 
 def _store(args: argparse.Namespace) -> ProfileStore:
-    if args.profiles is not None:
-        return load_profiles(args.profiles)
-    return load_profile_files(personal=args.personal_profiles)
+    return watched_profiles(args.profiles, args.personal_profiles)
 
 
 async def _terminal_try(args: argparse.Namespace) -> int:
