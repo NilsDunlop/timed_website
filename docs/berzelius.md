@@ -6,15 +6,16 @@ data-server package, TIMED collection facade, and per-plate metadata contract.
 
 ## Profile and job
 
-Choose **Berzelius (NSC)** and then **TIMED** on Connect. The profile connects to
-`berzelius.nsc.liu.se` as `x_nildu`, using the normal password followed by the
-six-digit verification code. It exposes only the TIMED collection; Cell Health
+Berzelius is a personal profile in the operator's `~/.timed/profiles.local.yaml`,
+not in the repository. Choose **Berzelius (NSC)** and then **TIMED** on Connect.
+The profile connects to `berzelius.nsc.liu.se` with the operator's NSC username,
+using the normal password followed by the six-digit verification code. It exposes only the TIMED collection; Cell Health
 and QC are not configured and must not appear.
 
 The data server reads:
 
-- images from `/proj/berzelius-2026-62/users/x_nildu/TIMED/zarr`;
-- metadata from `/proj/berzelius-2026-62/users/x_nildu/TIMED/metadata`.
+- images from `/proj/berzelius-2026-62/users/<username>/TIMED/zarr`;
+- metadata from `/proj/berzelius-2026-62/users/<username>/TIMED/metadata`.
 
 Slurm uses account `berzelius-2026-299`, partition `berzelius-cpu`, two CPU
 cores, and an eight-hour time limit. The job deliberately requests neither a
@@ -76,33 +77,35 @@ verified afterward.
 ## Local downtime copy
 
 During the planned Berzelius downtime, an exact read-only working copy is
-available on the operator workstation:
+available on an external drive of the operator workstation, called `<copy>`
+here:
 
-- images: `D:/TIMED/zarr/PB100140_P2.1.zarr`;
-- per-plate metadata: `D:/TIMED/metadata`;
-- segmentation masks for C05, C15, F13 and G07 site 1: `D:/TIMED/corrected`,
+- images: `<copy>/zarr/PB100140_P2.1.zarr`;
+- per-plate metadata: `<copy>/metadata`;
+- segmentation masks for C05, C15, F13 and G07 site 1: `<copy>/corrected`,
   the profile's read-only `masks_root` (layout in
   [CONVERSION.md](data/CONVERSION.md));
-- the production segmentation for every field: `D:/TIMED/seg`, the profile's
+- the production segmentation for every field: `<copy>/seg`, the profile's
   read-only `segmentation_root`, a copy of the Arrhenius runs.
 
-Choose **Local TIMED (external drive)** and **TIMED** to use it. The
+Choose **Local TIMED (external drive)** and **TIMED** to use it. The personal
 `local-timed` profile is collection-aware and starts the normal loopback data
 server; it does not emulate SSH or Slurm. Windows drive-letter paths are passed
 to the child process as individual arguments and are not split at the colon.
 The server's registry, connection file and test output remain under TIMED's
-local state or the repository test runtime. Nothing is written to `D:/TIMED`.
+local state or the repository test runtime. Nothing is written to the copy.
 
 The opt-in real-copy checks are:
 
 ```powershell
+$env:TIMED_REAL_TIMED_COPY_ROOT = "<copy>"
 $env:TIMED_TEST_REAL_TIMED_COPY = "1"
 uv run pytest services/dataserver/tests/test_real_timed_copy.py -q
 Remove-Item Env:TIMED_TEST_REAL_TIMED_COPY
 $env:TIMED_TEST_REAL_TIMED_MASKS = "1"
 uv run pytest services/dataserver/tests/test_real_timed_masks.py -q
 Remove-Item Env:TIMED_TEST_REAL_TIMED_MASKS
-uv run python scripts/run_e2e.py --real-timed-copy D:/TIMED
+uv run python scripts/run_e2e.py --real-timed-copy <copy>
 ```
 
 The server check opens the plate through the HTTP facade, loads all 196 metadata

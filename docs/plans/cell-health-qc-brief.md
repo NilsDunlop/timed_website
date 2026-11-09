@@ -319,7 +319,7 @@ The existing viewer with a QC panel, opened from the QC page or a queue
 - **Files.** The server writes only into the configured annotations folder,
   which the operator creates. Per reviewer it writes
   `annotations_<reviewer>.jsonl`.
-- **Reviewer.** The reviewer is the user running the data server (`nilsdu`), reduced to `[A-Za-z0-9_-]`. No part of a file path comes from a request.
+- **Reviewer.** The reviewer is the user running the data server, reduced to `[A-Za-z0-9_-]`. No part of a file path comes from a request.
 - **Append only.**
   - Open with `O_WRONLY | O_APPEND | O_CREAT` and write each record as one line in a single `write`, followed by `fsync`.
   - Never truncate, rewrite, rename or delete.

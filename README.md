@@ -1,177 +1,186 @@
 # TIMED imaging platform
 
-TIMED is a web platform for interactively browsing and viewing microscopy data
-without moving full datasets away from their storage. It supports native
-OME-Zarr, TIMED's bare-array collections, and the packed Cell Health (idr0080)
-dataset through a read-only virtual OME-Zarr facade. Its primary target is the
-Arrhenius NAISS cluster: a local connector establishes SSH, starts a
-token-protected data server in Slurm, and exposes it to a same-origin Astro web
-application.
+TIMED lets you browse and view microscopy data where it is stored, without
+copying it. It reads native OME-Zarr, TIMED's live-cell collections and the
+packed Cell Health (idr0080) dataset. For the Arrhenius NAISS cluster, a small
+connector on your computer logs in over SSH, starts a private data server in a
+Slurm job and shows the data in your browser.
 
-The repository includes deterministic fixtures, the authenticated data server,
-the local/HPC connector, collection-aware dataset navigation, and the
-interactive viewer workflow.
+## Getting started
 
-## Prerequisites
+These steps are the same on Windows, macOS and Linux.
 
-- Python 3.12 or newer and [uv](https://docs.astral.sh/uv/)
-- Node.js 24 LTS and pnpm 12.9.1
+### 1. Access
 
-## Quick start
+Sort this out first; it takes the longest.
+
+- **A NAISS account on Arrhenius with two-factor authentication (2FA).**
+  Request it in SUPR and set your password and 2FA as NAISS describes in
+  [How to get access](https://hpc.pages.naiss.se/user-documentation/support-docs/arrhenius_hpc/login/requesting_account/).
+- **Membership in the compute project** `naiss2026-3-679`. TIMED submits its
+  job with this project's Slurm account, `naiss2026-3-679-cpu`; without
+  membership the job is refused.
+- **Membership in the storage project** `naiss2024-5-630`, and read access to
+  the shared data paths listed in [Data access for the team](#data-access-for-the-team).
+
+### 2. Software
+
+- [Git](https://git-scm.com/downloads).
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), which also
+  installs Python.
+- [Node.js 24](https://nodejs.org/), then pnpm through corepack: run
+  `corepack enable` once. On Windows, run it in a terminal opened as
+  administrator.
+
+### 3. Install and start
 
 ```bash
+git clone https://github.com/NilsDunlop/timed_website.git
+cd timed_website
 uv sync
 pnpm install --frozen-lockfile
-uv run pytest
-pnpm -C apps/web check
-pnpm -C apps/web build
+uv run python scripts/dev.py
 ```
 
-Common development commands are documented in `CLAUDE.md` and exposed through
-the root `Makefile`.
+Open <http://localhost:4321>. Stop TIMED with Ctrl+C; the last command starts
+it again.
 
-The Makefile uses `config/profiles.example.yaml` by default. The equivalent
-cross-platform command is:
+### 4. Connect
 
-```bash
-uv run python scripts/dev.py --profiles config/profiles.example.yaml
-```
+1. Choose **Arrhenius (NAISS)** and a dataset, type your NAISS username and
+   press **Connect**. The browser remembers the username; nothing secret is
+   stored anywhere.
+2. On your first connection, unless your `~/.ssh/known_hosts` already lists
+   Arrhenius, TIMED shows the login node's SSH host key. Accept it only if it
+   matches a fingerprint NAISS publishes for `login.hpc.arrhenius.naiss.se`
+   ([source](https://hpc.pages.naiss.se/user-documentation/support-docs/arrhenius_hpc/login/login/),
+   checked 2026-11-09):
+   - ECDSA `SHA256:hKGSrZ0sLGKCtSx/dpH6emMKLIh+A3yFbbr6xE48VkA`
+   - ED25519 `SHA256:2Nhh0rn/E3+X//GQIf2yrQdpF8yedTTU5O/awPy6qhQ`
+   - RSA `SHA256:e5w/jDOuyPe3R5SaEEovBYgyGYCWZGgoH+3HWLuRk8E`
 
-That file keeps **TIMED** as the default Arrhenius collection and offers
-**Cell Health** as the idr0080 collection. It also includes the TIMED-only
-Berzelius profile and a **Local TIMED (external drive)** profile for the
-read-only downtime mirror at `D:/TIMED`. Generate the fixtures with
-`make test-data` (or `uv run python scripts/make_test_data.py`), then choose
-**This computer with datasets** to exercise the same collection flow locally.
+   TIMED keeps accepted keys in its own known-hosts file and never changes
+   `~/.ssh`.
+3. Enter your password, then the verification code from your 2FA app.
 
-The isolated browser suite exercises both the SSH/Slurm harness and local mode:
+The password and the code are required at every login; an SSH key is optional.
+TIMED applies your `~/.ssh/config` entries for the host, except that the
+username typed on the Connect page wins over a `User` line, and it offers your
+SSH agent's and default keys. To offer one key only, set `ssh_key` in your
+personal file (below).
 
-```bash
-pnpm -C apps/web test
-```
+The first connection waits for the Slurm job to start; the Connect page shows
+the queue state and why it waits. The first time, and after each TIMED update,
+TIMED also installs its data server under `~/.timed/server` on Arrhenius, which
+takes a few minutes. Once the page says **connected**, choose **Browse data**.
+**Disconnect and cancel job** ends the job.
 
-On Windows the suite starts the test cluster inside WSL with uv;
-`uv run python scripts/run_e2e.py --local-only` runs it without the cluster.
+### Your personal file
 
-An external real-data sample can be tested without copying it into the
-repository. The store must be an immediate child of the supplied data root:
-
-```bash
-uv run python scripts/run_e2e.py \
-  --real-local-root /path/to/local/data \
-  --real-local-store sample-plate.zarr
-```
-
-This opt-in flow renders the first field, verifies three adjacent timepoints,
-prints render-completion timings, and shuts down its local data server. If a
-development server is already running, validate the production build without
-interrupting it:
-
-```bash
-pnpm -C apps/web build
-uv run python scripts/run_e2e.py --built-ui --connector-port 8870 \
-  --real-local-root /path/to/local/data \
-  --real-local-store sample-plate.zarr
-```
-
-To inspect experiment/acquisition metadata for metadata-aware plate views, run
-the read-only inspector in an environment with PyArrow and save its JSON report:
-
-```bash
-uv run --with pyarrow python scripts/inspect_timed_metadata.py \
-  /path/to/TIMED/metadata --output timed-metadata-inspection.json
-```
-
-The inspector reads no image chunks. It summarizes acquisition JSON, CSV and
-Parquet schemas and values, redacts credential-like fields, and caps table reads
-at 200,000 rows per file by default.
-
-To enable plate and well metadata in the application, set `metadata_root` next
-to `data_roots` in the selected profile:
+The optional `~/.timed/profiles.local.yaml` (on Windows
+`C:\Users\<you>\.timed\profiles.local.yaml`) is yours and never part of the
+repository. An entry with a shared profile's `id` overrides that profile's
+fields; any other entry adds a profile of your own. For example:
 
 ```yaml
-metadata_root: /path/to/TIMED/metadata
+profiles:
+  - id: arrhenius
+    username: your-naiss-username   # fills in the Connect page
+    ssh_key: ~/.ssh/id_ed25519      # offer only this key
 ```
 
-TIMED then loads the matching per-plate CSV and acquisition JSON on demand. The
-plate view can highlight wells by compound, mechanism class, or control status,
-and both the plate view and image viewer show structured experiment information.
-The inspected high-level layout and join rules are documented in
-[`docs/data/METADATA.md`](docs/data/METADATA.md); raw inspection output and
-instrument-specific details remain local.
+Any other field can be overridden the same way, such as `slurm: {account: …}`
+for another compute project. In a Slurm profile, the metadata folder and a
+collection's QC, mask and segmentation folders may contain `{username}`, which
+is filled in at connect.
 
-## Collections and Cell Health
+### Troubleshooting
 
-Profiles may declare ordered collections. For those profiles, the Connect page
-owns the active **Dataset** choice and remembers it per profile. The Data page
-shows only that collection and restores its last opened plate and selected
-well; explicit `collection` and `dataset` URL parameters remain deep links.
-Profiles without collections retain the original filesystem browser.
+- **"Your account can't read …"** appears after connecting: those datasets or
+  features stay unavailable to your account. Ask the data owner for access (see
+  [Data access for the team](#data-access-for-the-team)), then disconnect and
+  connect again.
+- **The job waits in the queue:** the Connect page shows the queue state and
+  the reason. Wait, or press **Disconnect and cancel job** and try later.
+- **A wrong password or code:** the login fails. Press **Reconnect** and enter
+  a fresh code from your app.
+- **"Too many authentication failures":** your SSH agent offered too many keys
+  before the password prompt. Set `ssh_key` in your personal file.
+- **The login node doesn't answer:** NAISS names
+  `arrhenius1.hpc.arrhenius.naiss.se` and `arrhenius3.hpc.arrhenius.naiss.se`
+  as alternatives; set one as `host` in your personal file.
 
-Cell Health browses idr0080 by cell line, plate, well, and site, with gene,
-guide, control, and well-type metadata. In packed slot order, its five stains
-are DNA, ER, AGP, RNA, and Mito. Color mode starts with the DNA/ER/AGP
-composite; Grayscale presents one channel at a time. The Display switch is
-shown only when every loaded
-source declares that capability, so TIMED retains its original channel and time
-controls. Cell Health preserves a selected well across plates, can highlight
-the same gene or controls on the active plate, and uses the existing
-four-field comparison tray.
+## Data access for the team
 
-The data server opens idr0080's Parquet index and adjacent tar shards read-only,
-then exposes each field as an in-memory OME-Zarr 0.5 / Zarr v3 hierarchy. The
-source TIFF planes are decoded and cached on demand; no converted dataset is
-written. Calibrated sources show an independently computed scale bar in every
-viewer panel, including comparisons, while uncalibrated sources show none.
+The shared profile, `config/profiles.yaml`, reads these paths on Arrhenius.
+This is the checklist for sharing them: the images are shared, the
+segmentation masks not yet.
 
-See [`docs/data/IDR0080.md`](docs/data/IDR0080.md) for the verified data facts
-and [`docs/ADDING_DATASETS.md`](docs/ADDING_DATASETS.md) for the supported
-dataset contracts and onboarding steps.
+| Path | Used for |
+| --- | --- |
+| `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr` | TIMED images |
+| `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/metadata` | TIMED plate metadata |
+| `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/seg/track_v0/production/seg-track-v0` | TIMED segmentation outlines |
+| `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080` | Cell Health images |
+| `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_metrics_compute/website_export` | Cell Health QC review |
+| `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations` | QC annotations, written only by the operator |
+
+To check a path for an account, log in to Arrhenius with it and run
+`namei -l <path>`. It lists every folder on the way: each needs execute (`x`)
+permission for that account, and the last one read (`r`) as well. An account
+that can't read a path still connects; the Connect page then lists what it
+can't read. A colleague who can't write the annotations folder sees QC
+read-only.
+
+## Using TIMED
+
+Profiles may declare ordered collections. The Connect page owns the active
+**Dataset** choice and remembers it per profile; the Data page shows only that
+collection and restores its last opened plate and selected well. Explicit
+`collection` and `dataset` URL parameters remain deep links. Profiles without
+collections keep the original filesystem browser.
+
+Cell Health browses idr0080 by cell line, plate, well and site, with gene,
+guide, control and well-type metadata. Its five stains are DNA, ER, AGP, RNA
+and Mito. Color mode starts with the DNA/ER/AGP composite; Grayscale shows one
+channel at a time. Cell Health keeps the selected well across plates, can
+highlight the same gene or the controls, and compares up to four fields. The
+optional QC page reviews a versioned QC export and records append-only
+annotations. Segmentation outlines are offered where a field has masks.
+
+The data server opens every dataset read-only and presents it to the viewer as
+OME-Zarr; packed TIFF planes are decoded on demand and no converted dataset is
+written. See [`docs/data/IDR0080.md`](docs/data/IDR0080.md) for the Cell Health
+data, [`docs/data/METADATA.md`](docs/data/METADATA.md) for TIMED plate metadata
+and [`docs/ADDING_DATASETS.md`](docs/ADDING_DATASETS.md) for adding datasets.
+
+## Development
+
+[`CLAUDE.md`](CLAUDE.md) is the contributor guide: architecture, commands,
+tests, the local SSH/Slurm test cluster and real-data checks.
+`config/profiles.dev.yaml` holds the test-cluster and fixture profiles:
+
+```bash
+uv run python scripts/make_test_data.py
+uv run python scripts/dev.py --profiles config/profiles.dev.yaml
+```
 
 ## Current status
 
 - The original TIMED prototype milestones M0-M8 are complete, including local
   subprocess mode and the Arrhenius SSH/Slurm path.
-- Cell Health Phase 1 is complete: collection selection, packed-image browsing,
-  metadata-aware plate views, Color/Grayscale viewing, comparison, and scale
-  bars have been accepted on Arrhenius.
-- Cell Health QC review (Part B) was accepted on Arrhenius and released as
-  0.5.0. The optional QC page reads a versioned export, presents a compact
-  reason-first Sites/Wells workflow, carries exact flagged sites into well
-  review, and records append-only site or well annotations. The viewer applies
-  the export's fixed QC windows and shows only registered review metrics.
-- Version 0.5.1 adds strict, geometry-independent TIMED field validation for
-  the Berzelius P2.1 layout, its per-plate metadata and optional site-repair
-  note. The same layout is validated read-only through the external-drive
-  mirror while Berzelius is unavailable.
-- Version 0.5.2 restructures the data server and viewer for segmentation
-  without changing behaviour, the API, URLs or stored data.
-- Version 0.5.3 fixes the review findings: exact contrast sliders, the QC
-  overview's open state and site scope, path-free error details, private QC
-  folders, a Windows reviewer rule, connection-file removal after SIGTERM, and
-  remote installs constrained to `uv.lock`. The viewer no longer shows the
-  site-position repair note.
-- Version 0.6.0 adds segmentation outlines for Cell Health (Part C): the viewer
-  and the QC field view offer each plate's mask models, their object counts and
-  nucleus, cell and cytoplasm outlines, read-only from CellPrompter's stores.
-  TIMED is unchanged.
-- Version 0.7.0 adds TIMED segmentation outlines over time: the viewer offers
-  each masked field's cell and nucleus outlines and counts for the displayed
-  frame. A collection may name a production segmentation folder
-  (`segmentation_root`) and a presentation export that mirrors its plates
-  (`masks_root`). Arrhenius and the local external-drive profile read the
-  production runs for every PB100140_P2.1 field, and the local profile also
-  the export's four fields, all read-only.
-- Version 0.7.1 makes TIMED requests cheaper: plate listings and field metadata
-  are memoised by file identity instead of being re-read on every request, so
-  mask outlines follow a frame step two to three times sooner on the local
-  copy.
+- Cell Health Phase 1 (collections, packed-image browsing, metadata-aware plate
+  views, Color/Grayscale, comparison and scale bars) and QC review (0.5.0) were
+  accepted on Arrhenius.
+- 0.5.1 validates the Berzelius P2.1 layout; 0.5.2 restructures the data server
+  and viewer without changing behaviour; 0.5.3 fixes the review findings.
+- 0.6.0 adds Cell Health segmentation outlines, and 0.7.0 TIMED outlines over
+  time from a production segmentation folder (`segmentation_root`) or a
+  presentation export (`masks_root`). 0.7.1 makes TIMED requests cheaper.
+- 0.8.0 makes TIMED shareable: a shared profile without personal values, an
+  optional personal file, the username on the Connect page, optional SSH keys,
+  and an access report so that a path an account can't read never blocks
+  connecting.
 
-Choose **Arrhenius (NAISS)** for the primary HPC path, **Berzelius (NSC)** for
-the temporary TIMED-only Slurm path, or **Local TIMED (external drive)** for its
-local read-only mirror. **This computer** and the collection-aware fixture
-profiles use the gitignored synthetic datasets.
-
-The real Arrhenius validation steps require the operator to enter their own SSH
-password and verification code. Credentials and data-server tokens must never be
-committed, logged, or included in screenshots.
+Credentials and data-server tokens are never stored, logged, committed or
+shown in screenshots.

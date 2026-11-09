@@ -795,7 +795,7 @@ explicitly deferred.
 
 ## 2026-11-05: use the external Berzelius mirror during planned downtime
 
-The external-drive copy at `D:/TIMED` mirrors the Berzelius `zarr/` and
+An external-drive copy on the operator workstation mirrors the Berzelius `zarr/` and
 `metadata/` layout, including all 392 field arrays, explicit axes and the two
 per-plate runtime metadata files. A separate collection-aware `local-timed`
 profile makes this copy the main validation target while the cluster is
@@ -1050,3 +1050,38 @@ Release 0.7.1 removes the per-request cost of TIMED's collection facade
   outlines trailed a frame step by a median of 0.4 s against 1.4 s, and counts
   by 0.2 s against 0.7 s; separate runs of the old code measured 0.8 s and
   0.2 s. Fields reached "Image ready" sooner in the interleaved runs.
+
+## 2026-11-09: shareable profiles and onboarding (0.8.0)
+
+Release 0.8.0 lets a colleague clone the repository, follow the README and
+connect to Arrhenius with their own account. It replaces the 2026-10-23
+decision to run from `config/profiles.example.yaml`.
+
+- **Shared and personal profiles.** `config/profiles.yaml` holds only the
+  Arrhenius profile with its shared data paths and no username. The optional
+  `~/.timed/profiles.local.yaml` is never committed: an entry with a shared
+  profile's `id` overrides its fields (mappings key by key, collections by
+  `id`, other values replace), and any other entry adds a personal profile,
+  such as Berzelius or a local mirror. Berzelius stays personal. An explicit
+  `--profiles` file is read alone; `config/profiles.dev.yaml` holds the
+  test-cluster and fixture profiles.
+- **Username at connect.** The Connect page asks Slurm profiles for a login
+  name, remembers it per profile in browser storage and sends it with the
+  connect request (an additive field). It wins over the profile's `username`
+  and over `User` in `~/.ssh/config`. `{username}` in a Slurm profile's
+  metadata root and per-collection folders is filled in at connect. Password
+  and 2FA prompts are unchanged, and nothing secret is stored.
+- **SSH keys are optional.** A key-less login with password and code works on
+  Arrhenius, so keys only make logging in easier. A personal `ssh_key` is the
+  only key offered. Without it, AsyncSSH offers agent, `~/.ssh/config` and
+  default keys, and a login ended by "Too many authentication failures" before
+  the password prompt is retried once offering none.
+- **Access never blocks connecting.** The data server checks each configured
+  path once at startup, as its own account. What that account can't read is
+  left out of service and listed in the handshake's `access_issues` (an
+  additive field), which the Connect, Data and QC pages turn into plain
+  "Your account can't read …" messages. Only permission problems are listed;
+  missing paths keep their existing errors, collections outside every data
+  root are never opened, mask and QC folders are never named, and every
+  configured QC and mask folder stays private. An annotations folder an
+  account can't write keeps QC read-only, as before.

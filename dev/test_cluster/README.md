@@ -18,9 +18,9 @@ with `TEST_CLUSTER_PASSWORD` and `TEST_CLUSTER_VERIFICATION_CODE`. Set
 `TEST_CLUSTER_PENDING_SECONDS` to keep submitted jobs pending long enough to
 exercise queue UI.
 
-Copy `config/profiles.example.yaml` to `~/.timed/profiles.yaml` and replace the
-test-cluster data root placeholder with the absolute path to this checkout's
-`test-data` directory. The harness writes only below its state directory, by
+Copy `config/profiles.dev.yaml` outside the repository, replace its
+`/absolute/path/to/repo` placeholders with this checkout's absolute path, and
+start TIMED with `uv run python scripts/dev.py --profiles <that copy>`. The harness writes only below its state directory, by
 default the gitignored `dev/test_cluster/.state/`. SFTP is chrooted to its test
 home, direct TCP forwarding is limited to loopback destinations, and commands
 run through `bash -lc` with the stand-in Slurm commands first on `PATH`.
