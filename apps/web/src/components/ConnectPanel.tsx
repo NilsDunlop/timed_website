@@ -226,6 +226,7 @@ export default function ConnectPanel() {
       ? "Enter only the login name: letters, digits, '.', '_' or '-'."
       : "";
   const usernameReady = !needsUsername || (typedUsername !== "" && !usernameProblem);
+  const canConnect = Boolean(profileId) && !busy && usernameReady;
   // What this account can't read, reported by the data server once it runs.
   const issues = connected ? accessIssues(session.handshake) : [];
   const issueCollections = activeProfile?.collections ?? [];
@@ -253,12 +254,8 @@ export default function ConnectPanel() {
             </option>
           ))}
         </select>
-        {!active && !connected ? (
-          <button
-            type="button"
-            disabled={!profileId || busy || !usernameReady}
-            onClick={connect}
-          >
+        {!active ? (
+          <button type="button" disabled={!canConnect} onClick={connect}>
             {session.state === "error" ? "Reconnect" : "Connect"}
           </button>
         ) : (
@@ -267,28 +264,6 @@ export default function ConnectPanel() {
           </button>
         )}
       </div>
-
-      {needsUsername && (
-        <div className="stack">
-          <label className="username-control">
-            <span>Username</span>
-            <input
-              name="username"
-              autoComplete="username"
-              spellCheck={false}
-              value={username}
-              disabled={active || connected || busy}
-              aria-describedby="username-help"
-              onChange={(event) => setUsername(event.target.value)}
-            />
-          </label>
-          <p id="username-help" className="field-help">
-            {usernameProblem ||
-              `Your login name on ${selectedProfile?.host ?? "the cluster"}. ` +
-                "The password and verification code are asked after Connect."}
-          </p>
-        </div>
-      )}
 
       {profileCollections.length > 0 && (
         <div className="stack">
@@ -314,42 +289,29 @@ export default function ConnectPanel() {
         </div>
       )}
 
-      <dl className="status-grid" aria-live="polite">
-        <div>
-          <dt>Status</dt>
-          <dd data-testid="session-state">{session.state.replaceAll("_", " ")}</dd>
+      {/* The login steps, in order: username, host key, password and code. */}
+      {needsUsername && !active && (
+        <div className="stack">
+          <label className="username-control">
+            <span>Username</span>
+            <input
+              name="username"
+              autoComplete="username"
+              spellCheck={false}
+              value={username}
+              disabled={busy}
+              aria-describedby="username-help"
+              onChange={(event) => setUsername(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && canConnect) void connect();
+              }}
+            />
+          </label>
+          <p id="username-help" className="field-help">
+            {usernameProblem || "The password and verification code are asked after Connect."}
+          </p>
         </div>
-        {localMode && connected && (
-          <div>
-            <dt>Data server</dt>
-            <dd>127.0.0.1:{session.local_forward_port}</dd>
-          </div>
-        )}
-        {session.job_id && (
-          <div>
-            <dt>Slurm job</dt>
-            <dd>{session.job_id}</dd>
-          </div>
-        )}
-        {session.slurm_state && (
-          <div>
-            <dt>Queue state</dt>
-            <dd>{session.slurm_state}</dd>
-          </div>
-        )}
-        {session.pending_reason && (
-          <div>
-            <dt>Pending reason</dt>
-            <dd>{session.pending_reason}</dd>
-          </div>
-        )}
-        {session.node && (
-          <div>
-            <dt>Compute node</dt>
-            <dd>{session.node}</dd>
-          </div>
-        )}
-      </dl>
+      )}
 
       {session.state === "host_key_confirm" && (
         <section className="subpanel" aria-labelledby="host-key-heading">
@@ -408,7 +370,10 @@ export default function ConnectPanel() {
       {session.state === "choose_existing_job" && (
         <section className="subpanel">
           <h3>Existing TIMED job</h3>
-          <p>Reuse a running server, or cancel it and submit a fresh job.</p>
+          <p>
+            Reuse a running server, or cancel it and submit a fresh job. A reused
+            server keeps the settings it started with.
+          </p>
           <ul className="plain-list">
             {(session.existing_jobs ?? []).map((job) => (
               <li key={job.job_id} className="job-choice">
@@ -446,6 +411,43 @@ export default function ConnectPanel() {
           </ul>
         </section>
       )}
+
+      <dl className="status-grid" aria-live="polite">
+        <div>
+          <dt>Status</dt>
+          <dd data-testid="session-state">{session.state.replaceAll("_", " ")}</dd>
+        </div>
+        {localMode && connected && (
+          <div>
+            <dt>Data server</dt>
+            <dd>127.0.0.1:{session.local_forward_port}</dd>
+          </div>
+        )}
+        {session.job_id && (
+          <div>
+            <dt>Slurm job</dt>
+            <dd>{session.job_id}</dd>
+          </div>
+        )}
+        {session.slurm_state && (
+          <div>
+            <dt>Queue state</dt>
+            <dd>{session.slurm_state}</dd>
+          </div>
+        )}
+        {session.pending_reason && (
+          <div>
+            <dt>Pending reason</dt>
+            <dd>{session.pending_reason}</dd>
+          </div>
+        )}
+        {session.node && (
+          <div>
+            <dt>Compute node</dt>
+            <dd>{session.node}</dd>
+          </div>
+        )}
+      </dl>
 
       {session.state === "error" && (
         <div className="notice error" role="alert">

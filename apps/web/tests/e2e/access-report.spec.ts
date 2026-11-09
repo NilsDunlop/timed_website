@@ -101,6 +101,9 @@ test("Connect lists what this account can't read and marks the dataset", async (
     "TIMED (unavailable)",
     "Cell Health",
   ]);
+  // Connected: the login field is gone, as after any login.
+  await expect(page.getByLabel("Username")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Disconnect and cancel job" })).toBeVisible();
 });
 
 test("Data shows an unavailable dataset without opening it", async ({ page }) => {

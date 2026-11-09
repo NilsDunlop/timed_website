@@ -23,7 +23,7 @@ const SHARED = {
   remote_state_dir: "~/.timed",
   auto_install_uv: true,
   module_loads: [],
-  collections: [],
+  collections: [{ id: "timed", title: "TIMED", path: "/data/zarr", default: true }],
 };
 const LAPTOP = {
   ...SHARED,
@@ -75,8 +75,18 @@ test("a Slurm profile asks for a username, sends it and remembers it", async ({ 
   const username = page.getByLabel("Username");
   const connect = page.getByRole("button", { name: "Connect", exact: true });
   await expect(username).toHaveValue("");
-  await expect(page.getByText("Your login name on login.example.org.")).toBeVisible();
+  await expect(
+    page.getByText("The password and verification code are asked after Connect."),
+  ).toBeVisible();
   await expect(connect).toBeDisabled();
+  // A login form: profile, dataset, then the username; the values are not bold.
+  const fields = page.locator("#profile, select[name=dataset], input[name=username]");
+  const order = await fields.evaluateAll((nodes) =>
+    nodes.map((node) => node.id || node.getAttribute("name")),
+  );
+  expect(order).toEqual(["profile", "dataset", "username"]);
+  await expect(username).toHaveCSS("font-weight", "400");
+  await expect(page.getByLabel("Dataset")).toHaveCSS("font-weight", "400");
 
   await username.fill("two words");
   await expect(page.getByText("Enter only the login name")).toBeVisible();
@@ -86,6 +96,9 @@ test("a Slurm profile asks for a username, sends it and remembers it", async ({ 
   await expect(connect).toBeEnabled();
   await connect.click();
   await expect.poll(() => sent).toEqual([{ profile_id: "cluster", username: "alice" }]);
+  // After a failed attempt the field is back, and Enter connects as the button does.
+  await page.getByLabel("Username").press("Enter");
+  await expect.poll(() => sent.length).toBe(2);
 
   await page.reload();
   await expect(page.getByLabel("Username")).toHaveValue("alice");

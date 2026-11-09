@@ -199,11 +199,13 @@ const { title } = Astro.props;
   .entry-filter {
     display: grid;
     gap: 0.35rem;
-    font-weight: 700;
   }
 
-  .username-control input {
-    max-width: 22rem;
+  /* Only the caption is bold; the chosen or typed value keeps the normal weight. */
+  .dataset-selector-control > span,
+  .username-control > span,
+  .entry-filter > span {
+    font-weight: 700;
   }
 
   .dataset-description,
