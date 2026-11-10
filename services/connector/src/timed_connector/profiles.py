@@ -1,13 +1,34 @@
-"""YAML profile loading and validation."""
+"""YAML profile loading and validation.
+
+By default the connector reads two files. The shared ``config/profiles.yaml``
+in the repository holds settings every user shares and no personal values. The
+optional personal ``~/.timed/profiles.local.yaml`` is never committed: an entry
+whose ``id`` matches a shared profile overrides that profile's fields, and any
+other entry adds a personal profile. Overrides merge mappings key by key and
+collections by ``id``; any other value, including a list, replaces the shared
+one. An explicit ``--profiles`` file is read alone, exactly as before.
+"""
 
 from __future__ import annotations
 
+import os
+import stat
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
 
 from .models import Profile, ProfilesDocument
+
+# The connector runs from its repository checkout, where it is a uv workspace
+# member, so the shared file is found beside its sources.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+SHARED_PROFILES = REPOSITORY_ROOT / "config" / "profiles.yaml"
+PERSONAL_PROFILES = Path.home() / ".timed" / "profiles.local.yaml"
+FORMER_PROFILES = Path.home() / ".timed" / "profiles.yaml"
+"""Read by default before 0.8.0; now only through --profiles."""
 
 
 class ProfileError(ValueError):
@@ -32,17 +53,154 @@ class ProfileStore:
         return list(self.profiles)
 
 
-def load_profiles(path: Path) -> ProfileStore:
-    """Load profiles with strict Pydantic validation and no interpolation."""
-    source = path.expanduser().resolve()
+class ReloadingProfileStore(ProfileStore):
+    """Profiles that follow their files, for the long-running connector.
+
+    The files are read again when either changes size or modification time, so
+    an edit applies at the next profile list or connect without a restart. A
+    file that no longer loads raises ProfileError until it is fixed, rather than
+    leaving the previous profiles in use.
+    """
+
+    def __init__(self, load: Callable[[], ProfileStore], files: Sequence[Path]) -> None:
+        self._load = load
+        self._files = tuple(files)
+        self._identity = self._file_identity()
+        self._use(load())
+
+    def _use(self, store: ProfileStore) -> None:
+        ProfileStore.__init__(self, list(store.profiles), store.source)
+
+    def _file_identity(self) -> tuple[tuple[int, int] | None, ...]:
+        identity: list[tuple[int, int] | None] = []
+        for path in self._files:
+            try:
+                status = path.stat()
+            except OSError:
+                identity.append(None)
+            else:
+                identity.append((status.st_mtime_ns, status.st_size))
+        return tuple(identity)
+
+    def refresh(self) -> None:
+        """Read the files again if either changed since they were last read."""
+        identity = self._file_identity()
+        if identity != self._identity:
+            self._use(self._load())
+            self._identity = identity
+
+    def get(self, profile_id: str) -> Profile:
+        self.refresh()
+        return super().get(profile_id)
+
+    def public(self) -> list[Profile]:
+        self.refresh()
+        return super().public()
+
+
+def _read_yaml(source: Path) -> Any:
     try:
-        raw = yaml.safe_load(source.read_text(encoding="utf-8"))
-        document = ProfilesDocument.model_validate(raw)
+        return yaml.safe_load(source.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ProfileError(f"Could not read profiles file {source}: {exc}") from exc
-    except (yaml.YAMLError, ValidationError) as exc:
+    except yaml.YAMLError as exc:
+        raise ProfileError(f"Invalid profiles file {source}: {exc}") from exc
+
+
+def _document(raw: Any, source: Path) -> dict[str, Any]:
+    """A profiles file's content, which must hold a 'profiles' list."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("profiles"), list):
+        raise ProfileError(f"Invalid profiles file {source}: expected a 'profiles' list")
+    return raw
+
+
+def _validated(raw: Any, source: Path) -> ProfileStore:
+    try:
+        document = ProfilesDocument.model_validate(raw)
+    except ValidationError as exc:
         raise ProfileError(f"Invalid profiles file {source}: {exc}") from exc
     return ProfileStore(document.profiles, source)
+
+
+def load_profiles(path: Path) -> ProfileStore:
+    """Load one profiles file with strict Pydantic validation and no interpolation."""
+    source = path.expanduser().resolve()
+    return _validated(_read_yaml(source), source)
+
+
+def _merge_by_id(shared: list[Any], personal: list[Any], where: str) -> list[Any]:
+    merged = list(shared)
+    positions = {
+        item.get("id"): index for index, item in enumerate(merged) if isinstance(item, dict)
+    }
+    for item in personal:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise ProfileError(f"Every entry in {where} needs an id")
+        index = positions.get(item["id"])
+        if index is None:
+            positions[item["id"]] = len(merged)
+            merged.append(item)
+        else:
+            merged[index] = _merge(merged[index], item, f"{where} {item['id']!r}")
+    return merged
+
+
+def _merge(shared: dict[str, Any], personal: dict[str, Any], where: str) -> dict[str, Any]:
+    merged = dict(shared)
+    for key, value in personal.items():
+        current = merged.get(key)
+        if key == "collections" and isinstance(current, list) and isinstance(value, list):
+            merged[key] = _merge_by_id(current, value, f"{where} collections")
+        elif isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _merge(current, value, f"{where} {key}")
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_profile_files(
+    shared: Path = SHARED_PROFILES,
+    personal: Path | None = PERSONAL_PROFILES,
+) -> ProfileStore:
+    """Load the shared profiles and, when it exists, the personal file on top."""
+    shared_source = shared.expanduser().resolve()
+    personal_source = None if personal is None else personal.expanduser().resolve()
+    if personal_source is None or not personal_source.exists():
+        return load_profiles(shared_source)
+    personal_raw = _read_yaml(personal_source)
+    if personal_raw is None:
+        # An empty or comment-only personal file adds nothing.
+        return load_profiles(shared_source)
+    raw = _document(_read_yaml(shared_source), shared_source)
+    entries = _document(personal_raw, personal_source)["profiles"]
+    ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
+    repeated = sorted({value for value in ids if ids.count(value) > 1 and isinstance(value, str)})
+    if repeated:
+        raise ProfileError(
+            f"Invalid profiles file {personal_source}: repeated ids {', '.join(repeated)}"
+        )
+    try:
+        merged = _merge_by_id(raw["profiles"], entries, "profiles")
+    except ProfileError as exc:
+        raise ProfileError(f"Invalid profiles file {personal_source}: {exc}") from exc
+    try:
+        document = ProfilesDocument.model_validate({**raw, "profiles": merged})
+    except ValidationError as exc:
+        raise ProfileError(
+            f"Invalid profiles from {shared_source} and {personal_source}: {exc}"
+        ) from exc
+    return ProfileStore(document.profiles, shared_source)
+
+
+def watched_profiles(
+    profiles: Path | None,
+    personal: Path | None = PERSONAL_PROFILES,
+) -> ReloadingProfileStore:
+    """The connector's profiles: an explicit file alone, else the shared and personal files."""
+    if profiles is not None:
+        return ReloadingProfileStore(lambda: load_profiles(profiles), [profiles.expanduser()])
+    files = [SHARED_PROFILES, *([] if personal is None else [personal.expanduser()])]
+    return ReloadingProfileStore(lambda: load_profile_files(personal=personal), files)
 
 
 def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
@@ -53,23 +211,22 @@ def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
         for root in profile.data_roots:
             path = _local_path(root)
             resolved = path.resolve()
-            if not resolved.is_dir():
+            if not local_path_present(resolved):
                 raise ProfileError(f"Local profile path does not exist: {path}")
             resolved_roots.append(resolved)
 
         if profile.metadata_root is not None:
             metadata_root = _local_path(profile.metadata_root)
-            if not metadata_root.resolve().is_dir():
+            if not local_path_present(metadata_root.resolve()):
                 raise ProfileError(f"Local profile path does not exist: {metadata_root}")
 
         for collection in profile.collections:
             path = _local_path(collection.path)
-            try:
-                resolved = path.resolve(strict=True)
-            except (OSError, RuntimeError) as exc:
+            if not local_path_present(path, folder=False):
                 raise ProfileError(
                     f"Local collection {collection.id!r} path does not exist: {path}"
-                ) from exc
+                )
+            resolved = path.resolve()
             if not any(resolved.is_relative_to(root) for root in resolved_roots):
                 raise ProfileError(
                     f"Local collection {collection.id!r} path must be inside a data root: {path}"
@@ -80,6 +237,8 @@ def validate_profile(store: ProfileStore, profile_id: str) -> Profile:
             known_hosts = Path.cwd() / known_hosts
         if known_hosts.exists() and not known_hosts.is_file():
             raise ProfileError(f"known_hosts is not a file: {known_hosts}")
+    if profile.ssh_key is not None and not _local_path(profile.ssh_key).is_file():
+        raise ProfileError(f"SSH key file does not exist: {_local_path(profile.ssh_key)}")
     return profile
 
 
@@ -88,3 +247,18 @@ def _local_path(value: str) -> Path:
     if not path.is_absolute():
         path = Path.cwd() / path
     return path
+
+
+def local_path_present(path: Path, *, folder: bool = True) -> bool:
+    """Whether a local path exists, counting one this account can't look up.
+
+    Only a missing path stops a local connection; the data server reports what
+    the account can't read.
+    """
+    try:
+        status = os.stat(path)
+    except PermissionError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return not folder or stat.S_ISDIR(status.st_mode)

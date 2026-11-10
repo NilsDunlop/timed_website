@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { accessIssues, accessMessage, collectionIssue } from "../lib/accessIssues";
 import type { components } from "../lib/api/connector-schema";
 import {
   apiErrorMessage,
@@ -13,6 +14,12 @@ import {
   readCollectionPreference,
   writeCollectionPreference,
 } from "../lib/collectionNavigation";
+import {
+  initialUsername,
+  isUsername,
+  readUsername,
+  writeUsername,
+} from "../lib/connectUsername";
 
 type Profile = components["schemas"]["Profile"];
 type Session = components["schemas"]["SessionSnapshot"];
@@ -30,10 +37,22 @@ function preferredCollectionId(profile: Profile): string {
   return initialCollection(collections, null, rememberedId)?.id ?? "";
 }
 
+function preferredUsername(profile: Profile | undefined): string {
+  if (!profile || profile.kind !== "slurm") return "";
+  let remembered: string | null = null;
+  try {
+    remembered = readUsername(window.localStorage, profile.id);
+  } catch {
+    // Browser storage is optional. Fall back to the profile's own username.
+  }
+  return initialUsername(remembered, profile.username);
+}
+
 export default function ConnectPanel() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState("");
   const [collectionId, setCollectionId] = useState("");
+  const [username, setUsername] = useState("");
   const [session, setSession] = useState<Session>(idleSession);
   const [answers, setAnswers] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -75,6 +94,7 @@ export default function ConnectPanel() {
         );
         setProfileId(nextProfileId);
         setCollectionId(nextProfile ? preferredCollectionId(nextProfile) : "");
+        setUsername(preferredUsername(nextProfile));
         setSession(sessionResult.data);
       } catch (reason) {
         if (active) {
@@ -116,13 +136,21 @@ export default function ConnectPanel() {
   }
 
   async function connect() {
+    const login = needsUsername ? username.trim() : null;
     await mutate(async () => {
       const result = await connectorClient.POST("/connector/connect", {
         headers: webClientHeaders,
-        body: { profile_id: profileId },
+        body: login ? { profile_id: profileId, username: login } : { profile_id: profileId },
       });
       if (!result.data) {
         throw new Error(apiErrorMessage(result.error, "Could not start connection"));
+      }
+      if (login) {
+        try {
+          writeUsername(window.localStorage, profileId, login);
+        } catch {
+          // Browser storage is optional. The username is asked again next time.
+        }
       }
       return result.data;
     });
@@ -162,6 +190,7 @@ export default function ConnectPanel() {
     const nextCollectionId = nextProfile ? preferredCollectionId(nextProfile) : "";
     setProfileId(nextProfileId);
     setCollectionId(nextCollectionId);
+    setUsername(preferredUsername(nextProfile));
     notifyCollectionSelection(nextProfileId, nextCollectionId);
   }
 
@@ -190,6 +219,17 @@ export default function ConnectPanel() {
     profileCollections.find((collection) => collection.id === collectionId) ??
     null;
   const localMode = activeProfile?.kind === "local";
+  const needsUsername = selectedProfile?.kind === "slurm";
+  const typedUsername = username.trim();
+  const usernameProblem =
+    needsUsername && typedUsername && !isUsername(typedUsername)
+      ? "Enter only the login name: letters, digits, '.', '_' or '-'."
+      : "";
+  const usernameReady = !needsUsername || (typedUsername !== "" && !usernameProblem);
+  const canConnect = Boolean(profileId) && !busy && usernameReady;
+  // What this account can't read, reported by the data server once it runs.
+  const issues = connected ? accessIssues(session.handshake) : [];
+  const issueCollections = activeProfile?.collections ?? [];
 
   return (
     <div className="stack">
@@ -214,8 +254,8 @@ export default function ConnectPanel() {
             </option>
           ))}
         </select>
-        {!active && !connected ? (
-          <button type="button" disabled={!profileId || busy} onClick={connect}>
+        {!active ? (
+          <button type="button" disabled={!canConnect} onClick={connect}>
             {session.state === "error" ? "Reconnect" : "Connect"}
           </button>
         ) : (
@@ -238,6 +278,7 @@ export default function ConnectPanel() {
               {profileCollections.map((collection) => (
                 <option key={collection.id} value={collection.id}>
                   {collection.title}
+                  {collectionIssue(issues, collection.path) ? " (unavailable)" : ""}
                 </option>
               ))}
             </select>
@@ -248,42 +289,29 @@ export default function ConnectPanel() {
         </div>
       )}
 
-      <dl className="status-grid" aria-live="polite">
-        <div>
-          <dt>Status</dt>
-          <dd data-testid="session-state">{session.state.replaceAll("_", " ")}</dd>
+      {/* The login steps, in order: username, host key, password and code. */}
+      {needsUsername && !active && (
+        <div className="stack">
+          <label className="username-control">
+            <span>Username</span>
+            <input
+              name="username"
+              autoComplete="username"
+              spellCheck={false}
+              value={username}
+              disabled={busy}
+              aria-describedby="username-help"
+              onChange={(event) => setUsername(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && canConnect) void connect();
+              }}
+            />
+          </label>
+          <p id="username-help" className="field-help">
+            {usernameProblem || "The password and verification code are asked after Connect."}
+          </p>
         </div>
-        {localMode && connected && (
-          <div>
-            <dt>Data server</dt>
-            <dd>127.0.0.1:{session.local_forward_port}</dd>
-          </div>
-        )}
-        {session.job_id && (
-          <div>
-            <dt>Slurm job</dt>
-            <dd>{session.job_id}</dd>
-          </div>
-        )}
-        {session.slurm_state && (
-          <div>
-            <dt>Queue state</dt>
-            <dd>{session.slurm_state}</dd>
-          </div>
-        )}
-        {session.pending_reason && (
-          <div>
-            <dt>Pending reason</dt>
-            <dd>{session.pending_reason}</dd>
-          </div>
-        )}
-        {session.node && (
-          <div>
-            <dt>Compute node</dt>
-            <dd>{session.node}</dd>
-          </div>
-        )}
-      </dl>
+      )}
 
       {session.state === "host_key_confirm" && (
         <section className="subpanel" aria-labelledby="host-key-heading">
@@ -342,7 +370,10 @@ export default function ConnectPanel() {
       {session.state === "choose_existing_job" && (
         <section className="subpanel">
           <h3>Existing TIMED job</h3>
-          <p>Reuse a running server, or cancel it and submit a fresh job.</p>
+          <p>
+            Reuse a running server, or cancel it and submit a fresh job. A reused
+            server keeps the settings it started with.
+          </p>
           <ul className="plain-list">
             {(session.existing_jobs ?? []).map((job) => (
               <li key={job.job_id} className="job-choice">
@@ -381,6 +412,43 @@ export default function ConnectPanel() {
         </section>
       )}
 
+      <dl className="status-grid" aria-live="polite">
+        <div>
+          <dt>Status</dt>
+          <dd data-testid="session-state">{session.state.replaceAll("_", " ")}</dd>
+        </div>
+        {localMode && connected && (
+          <div>
+            <dt>Data server</dt>
+            <dd>127.0.0.1:{session.local_forward_port}</dd>
+          </div>
+        )}
+        {session.job_id && (
+          <div>
+            <dt>Slurm job</dt>
+            <dd>{session.job_id}</dd>
+          </div>
+        )}
+        {session.slurm_state && (
+          <div>
+            <dt>Queue state</dt>
+            <dd>{session.slurm_state}</dd>
+          </div>
+        )}
+        {session.pending_reason && (
+          <div>
+            <dt>Pending reason</dt>
+            <dd>{session.pending_reason}</dd>
+          </div>
+        )}
+        {session.node && (
+          <div>
+            <dt>Compute node</dt>
+            <dd>{session.node}</dd>
+          </div>
+        )}
+      </dl>
+
       {session.state === "error" && (
         <div className="notice error" role="alert">
           <strong>{session.message ?? "Connection failed"}</strong>
@@ -394,6 +462,18 @@ export default function ConnectPanel() {
           <a href={dataSelectionHref(selectedCollection?.id ?? null)}>
             Browse data
           </a>
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div className="notice warning" role="status" data-testid="access-issues">
+          <strong>Some data isn't available to your account</strong>
+          <ul className="access-issues">
+            {issues.map((issue, index) => (
+              <li key={`${issue.kind}-${index}`}>{accessMessage(issue, issueCollections)}</li>
+            ))}
+          </ul>
+          <p>Ask the data owner for access, then disconnect and connect again.</p>
         </div>
       )}
 

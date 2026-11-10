@@ -26,7 +26,7 @@ in local and HPC modes; only its launch mechanism changes.
 ## Commands
 
 ```bash
-make dev          # connector plus Astro, using config/profiles.example.yaml
+make dev          # connector plus Astro, with the shared and personal profiles
 make test-cluster # local SSH/Slurm harness (POSIX)
 make test         # Python and web checks
 make test-e2e     # isolated test cluster plus Playwright browser suite
@@ -48,9 +48,17 @@ uv run python scripts/run_e2e.py --local-only  # browser suite without the test 
 ```
 
 The direct development command, including on Windows without GNU Make, is
-`uv run python scripts/dev.py --profiles config/profiles.example.yaml`. Set the
-Makefile's `PROFILES` variable only when deliberately using another profile
-file.
+`uv run python scripts/dev.py`, which reads `config/profiles.yaml` plus the
+optional `~/.timed/profiles.local.yaml`. `--profiles <file>` (the Makefile's
+`PROFILES` variable) reads only that file, such as `config/profiles.dev.yaml`
+with the test-cluster and fixture profiles.
+
+Real data stays outside the repository. `scripts/run_e2e.py --real-local-root
+<root> --real-local-store <store>` renders an external sample whose store is an
+immediate child of the root; add `--built-ui --connector-port <port>` beside a
+running development server. `uv run --with pyarrow python
+scripts/inspect_timed_metadata.py <metadata> --output <report>.json` summarizes
+TIMED metadata without reading image chunks.
 
 ## Data server
 
@@ -59,7 +67,17 @@ The `serve` command accepts one or more data roots, a host and port (including
 dynamic port `0`), an environment, a connection-file path and a state directory,
 plus an optional metadata root, the packed and mask cache budgets, repeated
 `--qc-export` and `--qc-annotations` `INDEX=FOLDER` mappings and repeated
-`--timed-masks` and `--timed-segmentation` `COLLECTION=FOLDER` mappings.
+`--timed-masks` and `--timed-segmentation` `COLLECTION=FOLDER` mappings, and
+repeated `--collection` paths.
+
+At startup the server checks each configured path once, as its own account.
+A data root, metadata folder, collection, mask or segmentation folder or QC
+export it can't read is left out of service and listed in the handshake's
+`access_issues`, so it starts even with no readable data root; an existing
+annotations folder it can't write is listed and keeps QC read-only. Only
+permission problems are listed: missing paths keep their errors, collections
+outside every data root are never opened, mask and QC folders are never
+named, and every configured QC and mask folder stays private.
 
 The server writes the selected port and random bearer token to the connection
 file only after Uvicorn is accepting connections, and removes the file during
@@ -105,17 +123,35 @@ linkable or served.
 
 ## Connector and test cluster
 
-`config/profiles.example.yaml` is the repository's active development profile;
-do not assume a separate `~/.timed/profiles.yaml` on the operator workstation.
-Its Arrhenius profile declares both the **TIMED** and **Cell Health** collections,
-with TIMED carrying the sole `default: true` and reading the production
-segmentation under `TIMED/seg/track_v0/production/seg-track-v0`. Dataset choice
-remains available on Connect before and after connecting. The Berzelius and
-`local-timed` profiles expose only TIMED; the latter reads the external downtime
-mirror at `D:/TIMED`, including the export masks under `D:/TIMED/corrected` and
-the production segmentation under `D:/TIMED/seg`, and must remain read-only. For a manual test-cluster run, replace
-the profile's absolute-path placeholders, run `make test-cluster` on
-macOS/Linux (or WSL), and run `make dev` in another terminal.
+The connector reads the shared `config/profiles.yaml` plus the optional
+personal `~/.timed/profiles.local.yaml`, which is never committed. The shared
+file holds only the Arrhenius profile and no username: its paths are the shared
+data paths, and QC annotations stay in the operator's folder, read-only for
+others. It declares the **TIMED** and **Cell Health** collections, TIMED carrying
+the sole `default: true` and reading the production segmentation under
+`TIMED/seg/track_v0/production/seg-track-v0`. A personal entry whose `id`
+matches a shared profile overrides its fields (mappings key by key,
+collections by `id`, other values replace); any other entry adds a personal
+profile, such as Berzelius or a local mirror, which must remain read-only. An
+explicit `--profiles` file is read alone; `~/.timed/profiles.yaml`, the default
+before 0.8.0, is only named in a warning. The connector reads the files again
+when one changes, so an edit applies at the next profile list or connect
+without a restart; a broken edit is reported until it is fixed, and a reused
+job keeps the settings it started with. Dataset choice remains available on
+Connect before and after connecting. For a manual test-cluster run, copy
+`config/profiles.dev.yaml` outside the repository, replace its absolute-path
+placeholders, run `make test-cluster` on macOS/Linux (or WSL), and run
+`make dev PROFILES=<that copy>` in another terminal.
+
+A Slurm profile needs no username: Connect asks for one and sends it with
+`POST /connector/connect`. It wins over the profile's `username` and over a
+`User` line in `~/.ssh/config`, whose other entries apply. `{username}` in a
+Slurm profile's `metadata_root` and in a collection's `qc_export`,
+`qc_annotations`, `masks_root` and `segmentation_root` is filled in at
+connect. Password and 2FA prompts are unchanged; an SSH key is optional. A
+personal `ssh_key` is the only key offered, with no agent or PKCS#11 keys;
+without it, a login that ends with "Too many authentication failures" before
+the password prompt is retried once offering no keys.
 
 The connector binds loopback only, validates `Host`, and requires
 `X-Timed-Client: web` on state-changing connector routes. Authentication
@@ -131,7 +167,9 @@ on `127.0.0.1` with a dynamic port. Its token-bearing connection file lives in
 a private temporary directory and is removed on disconnect, including after a
 forced Windows process termination. The local dataset registry persists in
 `~/.timed/local` by default; `timed-connector serve --local-state-dir` can
-override that location for isolated tests.
+override that location for isolated tests. A local path the account can't
+look up is passed to the data server, which reports it; only a missing path
+stops a local connection.
 
 The session state machine dispatches local profiles directly to
 `LocalBackend`. It does not emulate SSH, Slurm jobs, queues, or tunnels. Child
@@ -152,6 +190,12 @@ last opened plate and focused well separately for each collection, and offers a
 small **Change dataset** link. Explicit `collection` and `dataset` URL
 parameters override saved state. Profiles without collections keep the legacy
 Connect page and filesystem Data browser unchanged.
+
+For Slurm profiles, Connect requires a login name, remembers it per profile in
+browser storage and sends it with the connect request. After connecting it
+lists the handshake's access issues as "Your account can't read …" and marks
+unreadable datasets "(unavailable)"; Data and QC show an unreadable dataset
+or QC export as unavailable without loading it.
 
 The viewer pins Viv 0.23 with deck.gl 9.4.0 and luma.gl 9.4.2. Native
 OME-Zarr 0.4/Zarr v2 data loads through Viv's URL loader. OME-Zarr 0.5/Zarr v3

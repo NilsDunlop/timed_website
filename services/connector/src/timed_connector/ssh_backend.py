@@ -159,6 +159,35 @@ async def _key_passphrase(filename: str | bytes, prompt_callback: PromptCallback
     return None
 
 
+TOO_MANY_KEYS = "too many authentication failures"
+"""How OpenSSH servers end a login after MaxAuthTries public keys, before any password prompt."""
+_NO_AGENT_KEYS = [b"timed: offer no agent keys"]
+"""An agent identity filter that matches no key. AsyncSSH still asks an agent
+before the configured keys, and on Windows it finds Pageant or the OpenSSH agent
+even without an agent path, so only a filter keeps every agent key out."""
+
+
+def login_options(profile: Profile, *, keys: bool = True) -> dict[str, Any]:
+    """The login name and keys AsyncSSH may use for this profile.
+
+    The name is always explicit, so it wins over a ``User`` line in
+    ``~/.ssh/config``; the file's other entries for the host still apply. A
+    configured ``ssh_key`` is the only key offered: no agent or PKCS#11 keys.
+    Otherwise AsyncSSH offers the agent's keys, then ``~/.ssh/config``
+    identities or the default ``~/.ssh`` keys. Without ``keys`` no public key is
+    offered at all, so the server goes straight to the password and 2FA prompts.
+    """
+    options: dict[str, Any] = {"username": profile.username}
+    if not keys:
+        options["client_keys"] = None
+    elif profile.ssh_key is not None:
+        options["client_keys"] = [str(Path(profile.ssh_key).expanduser())]
+        options["agent_path"] = None
+        options["agent_identities"] = _NO_AGENT_KEYS
+        options["pkcs11_provider"] = None
+    return options
+
+
 async def connect_ssh(
     profile: Profile,
     status: HostKeyStatus,
@@ -174,15 +203,25 @@ async def connect_ssh(
     async def passphrase(filename: str | bytes) -> str | None:
         return await _key_passphrase(filename, prompt_callback)
 
-    try:
+    async def attempt(*, keys: bool) -> asyncssh.SSHClientConnection:
         return await asyncssh.connect(
             profile.host,
             profile.port,
-            username=profile.username,
             known_hosts=[str(path) for path in status.known_hosts_files],
             client_factory=lambda: client,
             passphrase=passphrase,
+            **login_options(profile, keys=keys),
         )
+
+    try:
+        try:
+            return await attempt(keys=True)
+        except asyncssh.Error as exc:
+            # An agent holding many keys can use up the server's tries before the
+            # password prompt. Without a configured key, try once more offering none.
+            if profile.ssh_key is not None or TOO_MANY_KEYS not in str(exc).lower():
+                raise
+            return await attempt(keys=False)
     except (OSError, asyncssh.Error) as exc:
         raise SSHBackendError(f"SSH connection failed: {exc}") from exc
 

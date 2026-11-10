@@ -1,0 +1,35 @@
+# Shared TIMED profiles: the settings everyone uses, with no personal values.
+# The connector reads this file plus your optional ~/.timed/profiles.local.yaml,
+# where your own profiles and overrides live (see README, "Getting started").
+profiles:
+  - id: arrhenius
+    name: Arrhenius (NAISS)
+    kind: slurm
+    host: login.hpc.arrhenius.naiss.se
+    port: 22
+    data_roots:
+      - /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
+      - /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080
+    metadata_root: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/metadata
+    collections:
+      - id: timed
+        title: TIMED
+        description: Live-cell time-lapse · 8 plates · 48 h, hourly · 3 channels
+        path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr
+        default: true
+        segmentation_root: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/seg/track_v0/production/seg-track-v0
+      - id: idr0080
+        title: Cell Health
+        description: idr0080 CRISPR Cell Painting - A549, ES2, HCC44 - 9 plates - 5 channels
+        path: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/biomorph/idr0080/idr0080-raw.index.parquet
+        qc_export: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_metrics_compute/website_export
+        qc_annotations: /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/annotations
+    slurm:
+      account: naiss2026-3-679-cpu
+      partition: cpu
+      time: "04:00:00"
+      cpus: 2
+      mem: 8G
+    remote_state_dir: ~/.timed
+    auto_install_uv: true
+    module_loads: []

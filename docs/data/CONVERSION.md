@@ -129,7 +129,7 @@ not used).
 ### Production segmentation
 
 The production run covers all 392 PB100140_P2.1 fields. It lies on Arrhenius
-under `TIMED/seg/track_v0/production/seg-track-v0`, copied to `D:/TIMED/seg`, as
+under `TIMED/seg/track_v0/production/seg-track-v0`, copied to a local `seg/`, as
 `<plate>/sites/<well>_s<site>/stage1/<run>/labels/<plate>/<well>_s<site>.zarr`,
 one bare array per run and field. TIMED reads two runs:
 

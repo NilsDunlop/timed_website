@@ -118,6 +118,8 @@ export interface components {
         ConnectRequest: {
             /** Profile Id */
             profile_id: string;
+            /** Username */
+            username?: string | null;
         };
         /** DisconnectRequest */
         DisconnectRequest: {

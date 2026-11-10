@@ -9,7 +9,9 @@ from pathlib import Path
 import anyio
 from fastapi import Request
 
+from .access import check_startup_access
 from .mask_reader import MaskReader
+from .models import AccessIssue
 from .packed import PackedCatalogueCache
 from .packed_io import PackedReader
 from .packed_metadata import PackedMetadataCache
@@ -47,6 +49,7 @@ class ServerContext:
     masks: MaskReader
     timed_masks: tuple[TimedMaskMapping, ...]
     mask_private_roots: PrivateFolders
+    access_issues: tuple[AccessIssue, ...]
 
     @classmethod
     def build(cls, settings: ServerSettings) -> ServerContext:
@@ -55,14 +58,17 @@ class ServerContext:
             raise ValueError("Packed cache size must be greater than zero")
         if settings.mask_cache_mb <= 0:
             raise ValueError("Mask cache size must be greater than zero")
-        guard = RootGuard(settings.data_roots)
-        qc_paths = resolve_qc_path_configs(settings.qc_paths, guard)
-        timed_masks = resolve_timed_mask_mappings(settings.timed_masks, guard)
+        # What this account can't read stays out of service and is reported;
+        # every configured QC and mask folder stays private all the same.
+        access = check_startup_access(settings)
+        guard = RootGuard(access.data_roots, allow_empty=True)
+        qc_paths = resolve_qc_path_configs(access.qc_paths, guard)
+        timed_masks = resolve_timed_mask_mappings(access.timed_masks, guard)
         return cls(
             settings=settings,
             guard=guard,
             qc_paths=qc_paths,
-            qc_private_roots=QcPrivateRoots.from_configs(qc_paths, guard),
+            qc_private_roots=QcPrivateRoots.from_configs(settings.qc_paths, guard),
             qc_stores={},
             qc_annotation_stores={},
             registry=DatasetRegistry(settings.state_dir),
@@ -71,13 +77,14 @@ class ServerContext:
             packed_metadata=PackedMetadataCache(),
             packed_profiles=PackedProfileResolver(),
             metadata_catalog=(
-                PlateMetadataCatalog(settings.metadata_root)
-                if settings.metadata_root is not None
+                PlateMetadataCatalog(access.metadata_root)
+                if access.metadata_root is not None
                 else None
             ),
             masks=MaskReader(cache_bytes=settings.mask_cache_mb * 1024 * 1024),
             timed_masks=timed_masks,
-            mask_private_roots=mask_private_folders(timed_masks, guard),
+            mask_private_roots=mask_private_folders(settings.timed_masks, guard),
+            access_issues=access.issues,
         )
 
     async def close(self) -> None:

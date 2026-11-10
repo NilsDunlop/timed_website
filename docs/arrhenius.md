@@ -6,7 +6,7 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 ## Profile
 
 - Host: `login.hpc.arrhenius.naiss.se`
-- User: `nilsdu`
+- User: each person's own NAISS username, typed on Connect
 - Slurm account: `naiss2026-3-679-cpu`
 - CPU partition: `cpu`
 - Data root: `/nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/TIMED/zarr`
@@ -53,7 +53,7 @@ passwords, verification codes, key passphrases, or data-server tokens here.
 6. Link `PB100087_P1.1.zarr` and open a field.
 7. Exercise channel toggles, contrast controls, and the time slider.
 8. Disconnect with job cancellation enabled.
-9. In a terminal, confirm `squeue -u nilsdu` has no `timed-dataserver` job.
+9. In a terminal, confirm `squeue -u $USER` has no `timed-dataserver` job.
 
 ## M7 findings
 
@@ -185,8 +185,8 @@ mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/a
 ```
 
 The operator used a fresh Slurm job rather than a reused server and confirmed
-the core-ready export loaded without a hash error. The complete section 4.10
-checklist in `docs/plans/cell-health-qc-brief.md` passed:
+the core-ready export loaded without a hash error. The complete QC acceptance
+checklist passed:
 
 - the compact QC page, readable metric selection, primary and secondary
   filters, live counts, plate filtering, plate shading and reason-first Sites

@@ -8,8 +8,10 @@ safely.
 
 ## Configure a profile and collection
 
-Start from `config/profiles.example.yaml`. A profile supplies the data-server
-roots; each collection is a titled entry point shown as **Dataset** on Connect.
+Shared profiles live in `config/profiles.yaml` and your own in
+`~/.timed/profiles.local.yaml` (see the README). A profile supplies the
+data-server roots; each collection is a titled entry point shown as
+**Dataset** on Connect.
 
 ```yaml
 profiles:
@@ -30,8 +32,8 @@ profiles:
         path: /data/microscopy/screen/screen.index.parquet
 ```
 
-Keep the `host`, `username`, and `slurm` fields from the example when
-`kind: slurm` is used. Profile and collection ids must match
+A `kind: slurm` profile also needs `host` and `slurm`, as in
+`config/profiles.yaml`; its `username` is optional, since Connect asks for it. Profile and collection ids must match
 `[a-z0-9][a-z0-9-]*`; ids are unique, and at most one collection per profile
 may have `default: true`. `description` and `default` are optional.
 
@@ -246,11 +248,12 @@ packed pin does not require regeneration when the API schema is unchanged.
 - Do not commit real image data. Commit only small synthetic fixtures or the
   approved metadata inventory/documentation described in `CLAUDE.md`.
 
-To exercise the checked-in configuration, run from the repository root:
+To try a profile, add it to your personal file and run from the repository
+root:
 
 ```bash
-uv run python scripts/dev.py --profiles config/profiles.example.yaml
+uv run python scripts/dev.py
 ```
 
-Then choose the profile and Dataset on Connect. `make dev` runs the same
-configuration.
+Then choose the profile and Dataset on Connect. `make dev` runs the same, and
+`--profiles <file>` reads one file alone.

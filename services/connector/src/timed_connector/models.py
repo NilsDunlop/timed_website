@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import posixpath
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+USERNAME_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$"
+"""A login name: no path separators, spaces or leading dash."""
+USERNAME_PROBLEM = "Enter only the login name: letters, digits, '.', '_' or '-'"
+USERNAME_PLACEHOLDER = "{username}"
+"""Replaced with the connecting user's name in the per-user paths of Slurm profiles."""
+_PLACEHOLDER_COLLECTION_FIELDS = ("qc_export", "qc_annotations", "masks_root", "segmentation_root")
 
 
 class ApiModel(BaseModel):
@@ -65,12 +73,15 @@ class Profile(ApiModel):
     host: str | None = None
     port: int = Field(default=22, ge=1, le=65535)
     username: str | None = None
+    """The login name, if fixed; otherwise the Connect page asks for it."""
     known_hosts: str | None = None
     slurm: SlurmProfile | None = None
     remote_state_dir: str = "~/.timed"
     auto_install_uv: bool = True
     module_loads: list[str] = Field(default_factory=list)
     collections: list[CollectionConfig] = Field(default_factory=list)
+    ssh_key: str | None = Field(default=None, min_length=1, exclude=True)
+    """A private key file for SSH; otherwise the user's default keys and agent."""
 
     @model_validator(mode="after")
     def validate_kind_fields(self) -> Profile:
@@ -79,13 +90,15 @@ class Profile(ApiModel):
                 field
                 for field, value in (
                     ("host", self.host),
-                    ("username", self.username),
                     ("slurm", self.slurm),
                 )
                 if value is None
             ]
             if missing:
                 raise ValueError(f"Slurm profile is missing: {', '.join(missing)}")
+        if self.username is not None and re.fullmatch(USERNAME_PATTERN, self.username) is None:
+            raise ValueError(f"Profile {self.id!r} username is not a valid login name")
+        self._check_placeholders()
 
         collection_ids = [collection.id for collection in self.collections]
         duplicate_ids = sorted(
@@ -173,6 +186,64 @@ class Profile(ApiModel):
                     )
         return self
 
+    def _check_placeholders(self) -> None:
+        """``{username}`` may appear only in server-side, per-user paths of Slurm profiles."""
+        allowed = [self.metadata_root] + [
+            getattr(collection, field)
+            for collection in self.collections
+            for field in _PLACEHOLDER_COLLECTION_FIELDS
+        ]
+        if self.kind == "local" and any(
+            value is not None and USERNAME_PLACEHOLDER in value for value in allowed
+        ):
+            raise ValueError("{username} placeholders are only for Slurm profiles")
+        elsewhere = [
+            name
+            for name, value in (
+                ("data_roots", " ".join(self.data_roots)),
+                ("host", self.host),
+                ("username", self.username),
+                ("known_hosts", self.known_hosts),
+                ("remote_state_dir", self.remote_state_dir),
+                ("ssh_key", self.ssh_key),
+                *((f"collection {c.id!r} path", c.path) for c in self.collections),
+            )
+            if value is not None and USERNAME_PLACEHOLDER in value
+        ]
+        if elsewhere:
+            raise ValueError(
+                "{username} is allowed only in metadata_root and in a collection's "
+                "qc_export, qc_annotations, masks_root and segmentation_root; found in "
+                + ", ".join(elsewhere)
+            )
+
+    def for_user(self, username: str) -> Profile:
+        """This profile for one login: the username set and its placeholders filled in."""
+        if self.kind != "slurm":
+            return self
+        if re.fullmatch(USERNAME_PATTERN, username) is None:
+            raise ValueError(USERNAME_PROBLEM)
+
+        def fill(value: str | None) -> str | None:
+            return None if value is None else value.replace(USERNAME_PLACEHOLDER, username)
+
+        collections = [
+            collection.model_copy(
+                update={
+                    field: fill(getattr(collection, field))
+                    for field in _PLACEHOLDER_COLLECTION_FIELDS
+                }
+            )
+            for collection in self.collections
+        ]
+        return self.model_copy(
+            update={
+                "username": username,
+                "metadata_root": fill(self.metadata_root),
+                "collections": collections,
+            }
+        )
+
 
 def _normalized_local_path(value: str) -> Path:
     path = Path(value).expanduser()
@@ -239,6 +310,8 @@ class SessionSnapshot(ApiModel):
 
 class ConnectRequest(ApiModel):
     profile_id: str
+    username: str | None = Field(default=None, max_length=64, pattern=USERNAME_PATTERN)
+    """The login name for a Slurm profile; local profiles ignore it."""
 
 
 class ExistingJobChoice(ApiModel):

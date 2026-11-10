@@ -20,6 +20,14 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 PLATE_NAME = "PB100140_P2.1"
 
 
+def _copy_root() -> Path:
+    """The external TIMED copy, which these opt-in checks never assume."""
+    root = os.environ.get("TIMED_REAL_TIMED_COPY_ROOT")
+    if not root:
+        pytest.skip("set TIMED_REAL_TIMED_COPY_ROOT to the external TIMED copy's folder")
+    return Path(root)
+
+
 def _digest(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -33,7 +41,7 @@ async def test_real_berzelius_layout_copy_read_only(tmp_path: Path) -> None:
     if os.environ.get("TIMED_TEST_REAL_TIMED_COPY") != "1":
         pytest.skip("set TIMED_TEST_REAL_TIMED_COPY=1 to test the external TIMED copy")
 
-    copy_root = Path(os.environ.get("TIMED_REAL_TIMED_COPY_ROOT", "D:/TIMED"))
+    copy_root = _copy_root()
     data_root = copy_root / "zarr"
     metadata_root = copy_root / "metadata"
     plate = data_root / f"{PLATE_NAME}.zarr"

@@ -126,7 +126,7 @@ class ConnectorSession:
         for name, value in changes.items():
             setattr(self._snapshot, name, value)
 
-    async def connect(self, profile_id: str) -> SessionSnapshot:
+    async def connect(self, profile_id: str, username: str | None = None) -> SessionSnapshot:
         if self._snapshot.state not in ("disconnected", "error"):
             raise SessionError("A connector session is already active")
         try:
@@ -135,6 +135,14 @@ class ConnectorSession:
             raise SessionError(str(exc)) from exc
         if profile.kind == "local" and self.local_backend is None:
             raise SessionError("Local data-server backend is not configured")
+        if profile.kind == "slurm":
+            login = username or profile.username
+            if not login:
+                raise SessionError(f"Enter your username to connect to {profile.name}")
+            try:
+                profile = profile.for_user(login)
+            except ValueError as exc:
+                raise SessionError(str(exc)) from exc
         self._snapshot = SessionSnapshot(state="connecting", profile_id=profile.id)
         self._profile = profile
         self._disconnecting = False

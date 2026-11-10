@@ -22,3 +22,5 @@ class ServerSettings:
     qc_paths: tuple[QcPathConfig, ...] = ()
     mask_cache_mb: int = 512
     timed_masks: tuple[TimedMaskMapping, ...] = ()
+    collections: tuple[str, ...] = ()
+    """Configured collection paths, spelled as the profile gives them."""

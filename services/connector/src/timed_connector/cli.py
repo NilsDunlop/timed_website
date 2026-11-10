@@ -18,8 +18,29 @@ from .app import create_app
 from .hpc_backend import AsyncSSHHPCBackend
 from .local_backend import LocalBackend
 from .models import ExistingJobChoice, RespondRequest
-from .profiles import ProfileError, ProfileStore, load_profiles, validate_profile
+from .profiles import (
+    FORMER_PROFILES,
+    PERSONAL_PROFILES,
+    ProfileError,
+    ProfileStore,
+    validate_profile,
+    watched_profiles,
+)
 from .session import ConnectorSession, SessionBackend
+
+
+def _add_profile_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--profiles",
+        type=Path,
+        help="read only this profiles file (default: the shared and personal files)",
+    )
+    parser.add_argument(
+        "--personal-profiles",
+        type=Path,
+        default=PERSONAL_PROFILES,
+        help="personal profiles merged over the shared ones when --profiles is not given",
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -28,11 +49,7 @@ def _parser() -> argparse.ArgumentParser:
 
     serve_parser = subparsers.add_parser("serve", help="run the connector HTTP API")
     serve_parser.add_argument("--port", type=int, default=8700)
-    serve_parser.add_argument(
-        "--profiles",
-        type=Path,
-        default=Path.home() / ".timed" / "profiles.yaml",
-    )
+    _add_profile_options(serve_parser)
     serve_parser.add_argument("--serve-ui", type=Path)
     serve_parser.add_argument(
         "--local-state-dir",
@@ -42,11 +59,8 @@ def _parser() -> argparse.ArgumentParser:
 
     try_parser = subparsers.add_parser("try", help="connect using the terminal")
     try_parser.add_argument("profile_id")
-    try_parser.add_argument(
-        "--profiles",
-        type=Path,
-        default=Path.home() / ".timed" / "profiles.yaml",
-    )
+    _add_profile_options(try_parser)
+    try_parser.add_argument("--username", help="login name for a Slurm profile")
     try_parser.add_argument("--list", dest="list_path")
     try_parser.add_argument("--keep-job", action="store_true")
     try_parser.add_argument(
@@ -59,11 +73,7 @@ def _parser() -> argparse.ArgumentParser:
         "check-profile", help="validate a profile without connecting"
     )
     check_parser.add_argument("profile_id")
-    check_parser.add_argument(
-        "--profiles",
-        type=Path,
-        default=Path.home() / ".timed" / "profiles.yaml",
-    )
+    _add_profile_options(check_parser)
     subparsers.add_parser("export-openapi", help="print the OpenAPI document as JSON")
     return parser
 
@@ -126,8 +136,18 @@ def _export_openapi() -> None:
     print(json.dumps(document, separators=(",", ":"), sort_keys=True))
 
 
+def _store(args: argparse.Namespace) -> ProfileStore:
+    if args.profiles is None and FORMER_PROFILES.is_file():
+        print(
+            f"Note: {FORMER_PROFILES} is no longer read by default. Move its profiles to "
+            f"{args.personal_profiles}, or pass --profiles {FORMER_PROFILES}.",
+            file=sys.stderr,
+        )
+    return watched_profiles(args.profiles, args.personal_profiles)
+
+
 async def _terminal_try(args: argparse.Namespace) -> int:
-    store = load_profiles(args.profiles)
+    store = _store(args)
     profile = validate_profile(store, args.profile_id)
     backend = AsyncSSHHPCBackend(store.source)
     session = ConnectorSession(
@@ -137,7 +157,7 @@ async def _terminal_try(args: argparse.Namespace) -> int:
     )
     printed_logs = 0
     last_state = ""
-    await session.connect(profile.id)
+    await session.connect(profile.id, args.username)
     try:
         while True:
             snapshot = session.snapshot()
@@ -226,7 +246,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "export-openapi":
             _export_openapi()
             return 0
-        store = load_profiles(args.profiles)
+        store = _store(args)
         if args.command == "check-profile":
             profile = validate_profile(store, args.profile_id)
             print(profile.model_dump_json(indent=2))
