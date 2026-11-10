@@ -232,6 +232,27 @@ def test_a_collection_outside_every_data_root_is_never_opened(
     assert layout.timed in opened
 
 
+def test_relative_collections_resolve_like_relative_data_roots(
+    layout: Layout, locks: Locks, served: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(layout.base)
+    timed = Path("area/data/timed")
+    locks.lock(timed)
+
+    client, _context = served(
+        layout.settings(
+            data_roots=(Path("area/data"),),
+            collections=(str(timed),),
+            qc_paths=(),
+            timed_masks=(),
+        )
+    )
+
+    assert client.get("/api/handshake", headers=AUTH).json()["access_issues"] == [
+        _issue("collection", path=timed, collection=timed)
+    ]
+
+
 def test_missing_paths_keep_their_existing_errors(layout: Layout, served: Any) -> None:
     with pytest.raises(ValueError, match="Data root does not exist"):
         create_app(layout.settings(data_roots=(layout.base / "absent",)), TOKEN)
@@ -280,7 +301,7 @@ def test_qc_folder_checks_answer_false_when_a_folder_cant_be_looked_up(
     assert config.annotations_writable is False
 
 
-def test_the_cli_passes_collections_and_refuses_relative_ones(
+def test_the_cli_passes_collections_as_given(
     layout: Layout, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: list[ServerSettings] = []
@@ -304,8 +325,10 @@ def test_the_cli_passes_collections_and_refuses_relative_ones(
     ]
     assert dataserver_cli.main([*arguments, "--collection", str(layout.timed)]) == 0
     assert captured[0].collections == (str(layout.timed),)
-    with pytest.raises(SystemExit):
-        dataserver_cli.main([*arguments, "--collection", "relative/zarr"])
+    # A relative collection is kept, like a relative data root: both resolve
+    # against the server's working directory.
+    assert dataserver_cli.main([*arguments, "--collection", "relative/zarr"]) == 0
+    assert captured[1].collections == ("relative/zarr",)
 
 
 @contextmanager

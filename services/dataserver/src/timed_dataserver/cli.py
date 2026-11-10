@@ -208,8 +208,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     except (QcConfigurationError, MaskConfigurationError) as exc:
         parser.error(str(exc))
-    if not all(Path(value).expanduser().is_absolute() for value in args.collection):
-        parser.error("--collection paths must be absolute")
     settings = ServerSettings(
         data_roots=tuple(args.data_root),
         state_dir=args.state_dir,

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 USERNAME_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$"
 """A login name: no path separators, spaces or leading dash."""
+USERNAME_PROBLEM = "Enter only the login name: letters, digits, '.', '_' or '-'"
 USERNAME_PLACEHOLDER = "{username}"
 """Replaced with the connecting user's name in the per-user paths of Slurm profiles."""
 _PLACEHOLDER_COLLECTION_FIELDS = ("qc_export", "qc_annotations", "masks_root", "segmentation_root")
@@ -220,6 +221,8 @@ class Profile(ApiModel):
         """This profile for one login: the username set and its placeholders filled in."""
         if self.kind != "slurm":
             return self
+        if re.fullmatch(USERNAME_PATTERN, username) is None:
+            raise ValueError(USERNAME_PROBLEM)
 
         def fill(value: str | None) -> str | None:
             return None if value is None else value.replace(USERNAME_PLACEHOLDER, username)

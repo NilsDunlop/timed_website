@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
+import timed_connector.cli as cli
 import yaml
 from pydantic import ValidationError
 from timed_connector.app import create_app
@@ -24,7 +25,7 @@ from timed_connector.profiles import (
     validate_profile,
     watched_profiles,
 )
-from timed_connector.session import ConnectorSession
+from timed_connector.session import ConnectorSession, SessionError
 
 
 def _write(path: Path, profiles: list[dict[str, Any]]) -> Path:
@@ -324,3 +325,46 @@ async def test_the_profiles_route_and_connect_read_the_edited_file(tmp_path: Pat
 
 class FakeLoginBackend:
     """A cluster backend these tests never reach: they stop before any login."""
+
+
+@pytest.mark.parametrize("username", ["../alice", "a/b", "two words", "-oProxyCommand=x"])
+def test_a_login_name_is_checked_wherever_it_comes_from(username: str) -> None:
+    profile = Profile.model_validate(_shared())
+    with pytest.raises(ValueError, match="Enter only the login name"):
+        profile.for_user(username)
+
+
+@pytest.mark.asyncio
+async def test_the_terminal_connect_refuses_a_malformed_login_name(tmp_path: Path) -> None:
+    store = load_profiles(_write(tmp_path / "profiles.yaml", [_shared()]))
+    session = ConnectorSession(store, FakeLoginBackend())
+    with pytest.raises(SessionError, match="Enter only the login name"):
+        await session.connect("cluster", "../alice")
+    assert session.snapshot().state == "disconnected"
+
+
+def test_an_empty_personal_file_adds_nothing(tmp_path: Path) -> None:
+    shared = _write(tmp_path / "profiles.yaml", [_shared()])
+    personal = tmp_path / "profiles.local.yaml"
+    personal.write_text("# My TIMED overrides, none for now.\n", encoding="utf-8")
+    assert [profile.id for profile in load_profile_files(shared, personal).public()] == ["cluster"]
+    store = ReloadingProfileStore(
+        lambda: load_profile_files(shared, personal), [shared, personal]
+    )
+    assert store.get("cluster").username is None
+
+
+def test_the_former_default_file_is_named_when_it_is_no_longer_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    former = _write(tmp_path / "profiles.yaml", [_shared()])
+    monkeypatch.setattr(cli, "FORMER_PROFILES", former)
+    personal = tmp_path / "none.yaml"
+
+    assert main(["check-profile", "arrhenius", "--personal-profiles", str(personal)]) == 0
+    assert f"{former} is no longer read by default" in capsys.readouterr().err
+
+    assert main(["check-profile", "cluster", "--profiles", str(former)]) == 0
+    assert "no longer read" not in capsys.readouterr().err

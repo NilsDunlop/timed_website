@@ -125,14 +125,16 @@ linkable or served.
 
 The connector reads the shared `config/profiles.yaml` plus the optional
 personal `~/.timed/profiles.local.yaml`, which is never committed. The shared
-file holds only the Arrhenius profile, with no username or other personal
-value; it declares the **TIMED** and **Cell Health** collections, TIMED carrying
+file holds only the Arrhenius profile and no username: its paths are the shared
+data paths, and QC annotations stay in the operator's folder, read-only for
+others. It declares the **TIMED** and **Cell Health** collections, TIMED carrying
 the sole `default: true` and reading the production segmentation under
 `TIMED/seg/track_v0/production/seg-track-v0`. A personal entry whose `id`
 matches a shared profile overrides its fields (mappings key by key,
 collections by `id`, other values replace); any other entry adds a personal
 profile, such as Berzelius or a local mirror, which must remain read-only. An
-explicit `--profiles` file is read alone. The connector reads the files again
+explicit `--profiles` file is read alone; `~/.timed/profiles.yaml`, the default
+before 0.8.0, is only named in a warning. The connector reads the files again
 when one changes, so an edit applies at the next profile list or connect
 without a restart; a broken edit is reported until it is fixed, and a reused
 job keeps the settings it started with. Dataset choice remains available on

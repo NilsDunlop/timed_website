@@ -139,7 +139,10 @@ class ConnectorSession:
             login = username or profile.username
             if not login:
                 raise SessionError(f"Enter your username to connect to {profile.name}")
-            profile = profile.for_user(login)
+            try:
+                profile = profile.for_user(login)
+            except ValueError as exc:
+                raise SessionError(str(exc)) from exc
         self._snapshot = SessionSnapshot(state="connecting", profile_id=profile.id)
         self._profile = profile
         self._disconnecting = False

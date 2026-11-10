@@ -22,9 +22,13 @@ from pydantic import ValidationError
 
 from .models import Profile, ProfilesDocument
 
+# The connector runs from its repository checkout, where it is a uv workspace
+# member, so the shared file is found beside its sources.
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 SHARED_PROFILES = REPOSITORY_ROOT / "config" / "profiles.yaml"
 PERSONAL_PROFILES = Path.home() / ".timed" / "profiles.local.yaml"
+FORMER_PROFILES = Path.home() / ".timed" / "profiles.yaml"
+"""Read by default before 0.8.0; now only through --profiles."""
 
 
 class ProfileError(ValueError):
@@ -103,8 +107,8 @@ def _read_yaml(source: Path) -> Any:
         raise ProfileError(f"Invalid profiles file {source}: {exc}") from exc
 
 
-def _read_document(source: Path) -> dict[str, Any]:
-    raw = _read_yaml(source)
+def _document(raw: Any, source: Path) -> dict[str, Any]:
+    """A profiles file's content, which must hold a 'profiles' list."""
     if not isinstance(raw, dict) or not isinstance(raw.get("profiles"), list):
         raise ProfileError(f"Invalid profiles file {source}: expected a 'profiles' list")
     return raw
@@ -163,16 +167,20 @@ def load_profile_files(
     personal_source = None if personal is None else personal.expanduser().resolve()
     if personal_source is None or not personal_source.exists():
         return load_profiles(shared_source)
-    raw = _read_document(shared_source)
-    personal_raw = _read_document(personal_source)
-    ids = [entry.get("id") for entry in personal_raw["profiles"] if isinstance(entry, dict)]
+    personal_raw = _read_yaml(personal_source)
+    if personal_raw is None:
+        # An empty or comment-only personal file adds nothing.
+        return load_profiles(shared_source)
+    raw = _document(_read_yaml(shared_source), shared_source)
+    entries = _document(personal_raw, personal_source)["profiles"]
+    ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
     repeated = sorted({value for value in ids if ids.count(value) > 1 and isinstance(value, str)})
     if repeated:
         raise ProfileError(
             f"Invalid profiles file {personal_source}: repeated ids {', '.join(repeated)}"
         )
     try:
-        merged = _merge_by_id(raw["profiles"], personal_raw["profiles"], "profiles")
+        merged = _merge_by_id(raw["profiles"], entries, "profiles")
     except ProfileError as exc:
         raise ProfileError(f"Invalid profiles file {personal_source}: {exc}") from exc
     try:

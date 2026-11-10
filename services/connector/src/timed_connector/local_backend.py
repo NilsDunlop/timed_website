@@ -13,6 +13,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from .dataserver_args import collection_arguments
 from .dataserver_connection import (
     DataServerConnection,
     DataServerConnectionError,
@@ -121,26 +122,7 @@ class LocalBackend:
             arguments.extend(("--data-root", str(root)))
         if metadata_root is not None:
             arguments.extend(("--metadata-root", str(metadata_root)))
-        for collection in profile.collections:
-            arguments.extend(("--collection", collection.path))
-            if collection.masks_root is not None:
-                arguments.extend(("--timed-masks", f"{collection.path}={collection.masks_root}"))
-            if collection.segmentation_root is not None:
-                arguments.extend(
-                    (
-                        "--timed-segmentation",
-                        f"{collection.path}={collection.segmentation_root}",
-                    )
-                )
-            if collection.qc_export is None or collection.qc_annotations is None:
-                continue
-            arguments.extend(("--qc-export", f"{collection.path}={collection.qc_export}"))
-            arguments.extend(
-                (
-                    "--qc-annotations",
-                    f"{collection.path}={collection.qc_annotations}",
-                )
-            )
+        arguments.extend(collection_arguments(profile.collections))
         try:
             process = await asyncio.create_subprocess_exec(
                 *arguments,

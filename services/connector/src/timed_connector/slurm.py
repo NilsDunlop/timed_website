@@ -8,6 +8,7 @@ from importlib import resources
 
 from jinja2 import Environment, StrictUndefined
 
+from .dataserver_args import collection_arguments
 from .models import ExistingJob, Profile
 
 
@@ -95,18 +96,7 @@ def render_job_script(
         command.extend(("--data-root", root))
     if profile.metadata_root is not None:
         command.extend(("--metadata-root", profile.metadata_root))
-    for collection in profile.collections:
-        command.extend(("--collection", collection.path))
-        if collection.masks_root is not None:
-            command.extend(("--timed-masks", f"{collection.path}={collection.masks_root}"))
-        if collection.segmentation_root is not None:
-            command.extend(
-                ("--timed-segmentation", f"{collection.path}={collection.segmentation_root}")
-            )
-        if collection.qc_export is None or collection.qc_annotations is None:
-            continue
-        command.extend(("--qc-export", f"{collection.path}={collection.qc_export}"))
-        command.extend(("--qc-annotations", f"{collection.path}={collection.qc_annotations}"))
+    command.extend(collection_arguments(profile.collections))
     command.extend(
         (
             "--connection-file",
