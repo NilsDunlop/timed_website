@@ -34,25 +34,6 @@ Open <http://localhost:4321> to see the website.
 
 ### 3. Connect
 
-Log in to Arrhenius once in a terminal before you use the website:
-
-```bash
-ssh your-username@login.hpc.arrhenius.naiss.se
-```
-
-The first time, ssh shows the server's fingerprint. Accept it only if it
-matches one that NAISS publishes
-([source](https://hpc.pages.naiss.se/user-documentation/support-docs/arrhenius_hpc/login/login/),
-checked 2026-11-09):
-
-- ECDSA `SHA256:hKGSrZ0sLGKCtSx/dpH6emMKLIh+A3yFbbr6xE48VkA`
-- ED25519 `SHA256:2Nhh0rn/E3+X//GQIf2yrQdpF8yedTTU5O/awPy6qhQ`
-- RSA `SHA256:e5w/jDOuyPe3R5SaEEovBYgyGYCWZGgoH+3HWLuRk8E`
-
-This also tells you that your password and 2FA work. The website then trusts
-the same key; if you skip this step, it asks you to confirm the fingerprint
-instead.
-
 On the website:
 
 1. Choose **Arrhenius (NAISS)** and a dataset, type your username and press
