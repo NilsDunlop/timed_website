@@ -185,8 +185,8 @@ mkdir -p /nobackup/proj/disk/naiss2024-5-630/personal/nilsdu/scratch/qc_review/a
 ```
 
 The operator used a fresh Slurm job rather than a reused server and confirmed
-the core-ready export loaded without a hash error. The complete section 4.10
-checklist in `docs/plans/cell-health-qc-brief.md` passed:
+the core-ready export loaded without a hash error. The complete QC acceptance
+checklist passed:
 
 - the compact QC page, readable metric selection, primary and secondary
   filters, live counts, plate filtering, plate shading and reason-first Sites
